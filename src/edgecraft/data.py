@@ -46,24 +46,36 @@ class MarketDataProvider:
             frame = pd.read_csv(path, index_col="date", parse_dates=True)
             return validate_ohlcv(frame, symbol)
 
-        raw = yf.download(
-            symbol,
-            start=start,
-            end=end,
-            auto_adjust=True,
-            actions=False,
-            progress=False,
-            threads=False,
-            timeout=20,
-        )
-        if raw.empty:
-            raise MarketDataError("no market data returned")
-        if isinstance(raw.columns, pd.MultiIndex):
-            raw.columns = raw.columns.get_level_values(0)
-        frame = raw.rename(columns=str.lower)[list(REQUIRED_COLUMNS)].copy()
-        frame.index = pd.DatetimeIndex(frame.index).tz_localize(None)
-        frame.index.name = "date"
-        frame = validate_ohlcv(frame, symbol)
+        frame: pd.DataFrame | None = None
+        last_error: MarketDataError | None = None
+        for _ in range(2):
+            raw = yf.download(
+                symbol,
+                start=start,
+                end=end,
+                auto_adjust=True,
+                actions=False,
+                progress=False,
+                threads=False,
+                timeout=20,
+            )
+            if raw.empty:
+                last_error = MarketDataError("no market data returned")
+                continue
+            if isinstance(raw.columns, pd.MultiIndex):
+                raw.columns = raw.columns.get_level_values(0)
+            candidate = raw.rename(columns=str.lower)[list(REQUIRED_COLUMNS)].copy()
+            candidate.index = pd.DatetimeIndex(candidate.index).tz_localize(None)
+            candidate.index.name = "date"
+            try:
+                frame = validate_ohlcv(candidate, symbol)
+                break
+            except MarketDataError as exc:
+                # Yahoo occasionally returns a transient malformed adjusted bar.
+                # Retry the complete request rather than caching or silently repairing it.
+                last_error = exc
+        if frame is None:
+            raise last_error or MarketDataError("market data download failed")
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         frame.to_csv(path)
         return frame
@@ -81,9 +93,13 @@ def validate_ohlcv(frame: pd.DataFrame, symbol: str = "asset") -> pd.DataFrame:
         raise MarketDataError("dates are not monotonic")
     if (frame[["open", "high", "low", "close"]] <= 0).any().any():
         raise MarketDataError(f"{symbol} contains non-positive prices")
-    invalid_range = (frame["high"] < frame[["open", "close", "low"]].max(axis=1)) | (
-        frame["low"] > frame[["open", "close", "high"]].min(axis=1)
-    )
+    # Independently adjusted Yahoo fields can differ by a few floating-point
+    # units even when the economic bar is valid. Keep a machine-scale relative
+    # tolerance while still rejecting any material OHLC inconsistency.
+    tolerance = frame["close"].abs().clip(lower=1.0) * 1e-10
+    invalid_range = (
+        frame["high"] < frame[["open", "close", "low"]].max(axis=1) - tolerance
+    ) | (frame["low"] > frame[["open", "close", "high"]].min(axis=1) + tolerance)
     if invalid_range.any():
         raise MarketDataError(f"{symbol} contains invalid OHLC ranges")
     if len(frame) < 60:
