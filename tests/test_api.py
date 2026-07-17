@@ -24,4 +24,17 @@ def test_synthetic_backtest_endpoint():
         },
     )
     assert response.status_code == 200, response.text
-    assert response.json()["results"][0]["metrics"]["fills"] > 0
+    payload = response.json()
+    assert payload["results"][0]["metrics"]["fills"] > 0
+    assert {"equity", "drawdown", "cash", "net_invested", "exposure"} <= set(
+        payload["results"][0]["series"][0]
+    )
+
+
+def test_frontend_serves_about_and_run_explorer():
+    index = client.get("/")
+    script = client.get("/app.js")
+    assert index.status_code == 200
+    assert script.status_code == 200
+    assert "How it works" in script.text
+    assert "RUN EXPLORER" in script.text
