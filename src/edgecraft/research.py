@@ -81,6 +81,8 @@ def serialize_result(result: BacktestResult) -> dict[str, Any]:
             "equity": round(float(row.equity), 2),
             "drawdown": round(float(row.drawdown), 6),
             "cash": round(float(row.cash), 2),
+            "net_invested": round(float(row.net_invested), 2),
+            "exposure": round(float(row.gross_exposure), 6),
         }
         for date, row in sampled.iterrows()
     ]

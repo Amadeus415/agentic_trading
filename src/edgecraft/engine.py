@@ -66,6 +66,7 @@ class BacktestEngine:
                     "equity": equity,
                     "cash": state.cash,
                     "contribution": contribution,
+                    "net_invested": initial_capital + state.external_contributions,
                     "gross_exposure": gross,
                 }
             )
