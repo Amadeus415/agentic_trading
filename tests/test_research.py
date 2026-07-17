@@ -13,5 +13,7 @@ def test_research_matrix_serializes_metrics_and_validation():
     assert payload["meta"]["strategies_tested"] == 2
     assert len(payload["results"]) == 2
     assert payload["results"][0]["series"][-1]["equity"] > 0
+    assert payload["results"][0]["series"][-1]["net_invested"] > 10_000
+    assert 0 <= payload["results"][0]["series"][-1]["exposure"] <= 1
     assert "probability_backtest_overfitting" in payload["validation"]
     assert "deflated_sharpe_probability" in payload["results"][0]["metrics"]

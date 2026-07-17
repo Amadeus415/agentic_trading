@@ -13,6 +13,7 @@ It is research software, not investment advice and not a live-trading system. Ba
 - Multi-symbol portfolios and six included strategy families
 - Block-bootstrap confidence intervals, Deflated Sharpe Ratio (DSR), and Combinatorially Symmetric Cross-Validation Probability of Backtest Overfitting (CSCV/PBO)
 - A FastAPI research API and responsive dependency-free web terminal
+- A multi-view run explorer for portfolio value, gains versus deposits, drawdown, idle cash, exposure, strategy isolation, and fill-level inspection
 - Temporal-isolation, data-validation, engine, research, and API tests
 
 ## Included strategies
@@ -69,7 +70,7 @@ The suite follows the core warnings in Bailey et al.'s [Probability of Backtest 
 
 ```text
 frontend/                     dependency-free experiment terminal
-  app.js                      configuration, SVG charts, metrics, fill audit
+  app.js                      methodology guide, configuration, interactive SVG run explorer, metrics, fill audit
 src/edgecraft/
   api.py                      FastAPI endpoints and built-UI serving
   data.py                     adjusted market data, cache, synthetic regimes
