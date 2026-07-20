@@ -1,4 +1,4 @@
-.PHONY: install dev api ui test lint build demo
+.PHONY: install dev api ui test lint build demo health validate
 
 install:
 	uv sync --extra dev
@@ -14,6 +14,7 @@ test:
 
 lint:
 	uv run ruff check src tests
+	uv run ruff format --check src tests
 	node --check frontend/app.js
 
 build:
@@ -21,3 +22,10 @@ build:
 
 demo:
 	uv run python scripts/demo.py
+
+health:
+	uv run edgecraft health
+
+validate: test lint
+	uv run edgecraft backtest --config examples/research.json --data-source synthetic --output artifacts/smoke-backtest.json
+	uv run edgecraft walk-forward --config examples/research.json --data-source synthetic --train-sessions 504 --test-sessions 126 --output artifacts/smoke-walk-forward.json
