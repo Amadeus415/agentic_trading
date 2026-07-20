@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from edgecraft.autonomy import cycle_key
 from edgecraft.autonomy_models import Mandate
 from edgecraft.ledger import AuditLedger
-from edgecraft.observability import autonomy_health, prometheus_metrics
+from edgecraft.observability import autonomy_health, control_plane_snapshot, prometheus_metrics
 
 NOW = datetime(2026, 7, 20, 15, 0, tzinfo=UTC)
 
@@ -44,3 +44,17 @@ def test_health_degrades_on_failure_and_halts_on_kill_switch(tmp_path):
 
     ledger.set_trading_halt(True, reason="test halt", now=NOW)
     assert autonomy_health(ledger)["status"] == "halted"
+
+
+def test_control_plane_snapshot_exposes_runs_without_sensitive_account_data(tmp_path):
+    ledger = AuditLedger(tmp_path / "state.db")
+    mandate = _mandate()
+    run_id = ledger.start_run(mandate, cycle_key(mandate, NOW), now=NOW)
+    ledger.update_run(run_id, "shadow_complete", detail="safe", now=NOW)
+
+    snapshot = control_plane_snapshot(ledger)
+    assert snapshot["has_history"] is True
+    assert snapshot["runs"][0]["run_id"] == run_id
+    assert snapshot["events"][0]["event_type"] == "run_shadow_complete"
+    assert snapshot["mandates"][0]["weekly_budget"] == 10
+    assert "account_id" not in str(snapshot)

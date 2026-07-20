@@ -123,5 +123,68 @@ def prometheus_metrics(ledger: AuditLedger) -> str:
     return "\n".join(lines) + "\n"
 
 
+def control_plane_snapshot(ledger: AuditLedger) -> dict[str, Any]:
+    """Build the privacy-safe operator view from the append-only ledger."""
+    health = autonomy_health(ledger)
+    feed = ledger.observability_feed(limit=200)
+    runs = ledger.list_runs(limit=100)
+    mandates = [
+        {
+            "mandate_id": item.mandate_id,
+            "mode": item.mode,
+            "enabled": item.enabled,
+            "benchmark": item.benchmark,
+            "weekly_budget": float(item.weekly_budget),
+            "universe": item.universe,
+            "risk_level": item.risk_level,
+        }
+        for item in ledger.list_mandates()
+    ]
+    trades = []
+    for event in feed["order_events"]:
+        payload = event["payload"]
+        trades.append(
+            {
+                "id": event["id"],
+                "proposal_id": event["proposal_id"],
+                "run_id": event["run_id"],
+                "mandate_id": event["mandate_id"],
+                "status": event["event_type"],
+                "occurred_at": event["occurred_at"],
+                "symbol": payload.get("symbol"),
+                "side": payload.get("side"),
+                "notional": payload.get("notional", payload.get("filled_notional")),
+                "filled_notional": payload.get("filled_notional"),
+                "broker_order_id_present": bool(payload.get("broker_order_id")),
+            }
+        )
+    proposals = [
+        {
+            "proposal_id": item["proposal_id"],
+            "mandate_id": item["mandate_id"],
+            "run_id": item["run_id"],
+            "created_at": item["created_at"],
+            "mode": item["mode"],
+            "approved_for_review": bool(item["approved_for_review"]),
+            "strategy": item["payload"].get("strategy"),
+            "order_count": len(item["payload"].get("orders", [])),
+            "gross_notional": item["payload"].get("risk", {}).get("gross_notional"),
+            "violations": item["payload"].get("risk", {}).get("violations", []),
+        }
+        for item in feed["proposals"]
+    ]
+    return {
+        "generated_at": datetime.now(UTC).isoformat(),
+        "source": "audit_ledger",
+        "has_history": bool(runs or trades),
+        "health": health,
+        "mandates": mandates,
+        "runs": runs,
+        "trades": trades,
+        "events": feed["runtime_events"],
+        "proposals": proposals,
+    }
+
+
 def _label(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "")

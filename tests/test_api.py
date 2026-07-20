@@ -47,16 +47,28 @@ def test_synthetic_backtest_endpoint():
     )
 
 
-def test_frontend_serves_about_and_run_explorer():
+def test_frontend_serves_control_plane():
     index = client.get("/")
     script = client.get("/app.js")
     assert index.status_code == 200
     assert script.status_code == 200
-    assert "Autonomy Workbench" in index.text
-    assert "How it works" in script.text
-    assert "RUN REAL POLICY GATE" in script.text
-    assert "/api/learn/scenarios" in script.text
-    assert "RUN EXPLORER" in script.text
+    assert "Portfolio control plane" in index.text
+    assert "Trading history" in script.text
+    assert "Agent runs" in script.text
+    assert "A model can suggest. It cannot authorize itself." in script.text
+    assert "/api/control-plane" in script.text
+
+
+def test_control_plane_exposes_redacted_ledger_read_model(tmp_path, monkeypatch):
+    monkeypatch.setenv("EDGECRAFT_LEDGER", str(tmp_path / "control-plane.db"))
+    response = client.get("/api/control-plane")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] == "audit_ledger"
+    assert payload["has_history"] is False
+    assert payload["health"]["status"] == "ready"
+    assert payload["runs"] == []
+    assert payload["trades"] == []
 
 
 def test_learning_guide_traces_real_system_boundaries():

@@ -373,6 +373,48 @@ class AuditLedger:
             result.append(item)
         return result
 
+    def observability_feed(self, *, limit: int = 100) -> dict[str, list[dict[str, Any]]]:
+        """Return a redacted, read-only event feed for operator interfaces."""
+        with self._connection() as connection:
+            runtime_rows = connection.execute(
+                """
+                SELECT id, run_id, event_type, occurred_at, payload
+                FROM runtime_events ORDER BY occurred_at DESC, id DESC LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            order_rows = connection.execute(
+                """
+                SELECT e.id, e.proposal_id, p.run_id, p.mandate_id,
+                       e.event_type, e.occurred_at, e.payload
+                FROM events e JOIN proposals p ON p.proposal_id = e.proposal_id
+                ORDER BY e.occurred_at DESC, e.id DESC LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            proposal_rows = connection.execute(
+                """
+                SELECT proposal_id, mandate_id, run_id, created_at, mode,
+                       approved_for_review, payload
+                FROM proposals ORDER BY created_at DESC LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+
+        def decoded(rows: list[sqlite3.Row]) -> list[dict[str, Any]]:
+            items = []
+            for row in rows:
+                item = dict(row)
+                item["payload"] = json.loads(item["payload"])
+                items.append(item)
+            return items
+
+        return {
+            "runtime_events": decoded(runtime_rows),
+            "order_events": decoded(order_rows),
+            "proposals": decoded(proposal_rows),
+        }
+
     def record_runtime_event(
         self,
         run_id: str,
