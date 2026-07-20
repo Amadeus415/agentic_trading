@@ -12,7 +12,8 @@ It is not investment advice. Edgecraft never stores broker credentials: a scoped
 - Fractional quantities, cash constraints, spread, slippage, commissions, rejected/partial sizing, contributions, and an auditable fill ledger
 - Multi-symbol portfolios and six included strategy families
 - Block-bootstrap confidence intervals, Deflated Sharpe Ratio (DSR), and Combinatorially Symmetric Cross-Validation Probability of Backtest Overfitting (CSCV/PBO)
-- A FastAPI research API and responsive dependency-free web terminal
+- A FastAPI API and responsive dependency-free autonomy learning workbench
+- An interactive, shadow-only policy sandbox backed by the production mandate and risk gates
 - A multi-view run explorer for portfolio value, gains versus deposits, drawdown, idle cash, exposure, strategy isolation, and fill-level inspection
 - Temporal-isolation, data-validation, engine, research, and API tests
 - Rolling train/select/test walk-forward validation with non-overlapping out-of-sample windows
@@ -56,7 +57,12 @@ Start the application:
 make dev
 ```
 
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000). Start with **Synthetic demo** for a deterministic run. Switch to **Yahoo market** to download adjusted historical data into `data/cache/`.
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000). Begin with the
+**Guided cycle**, then use the **Policy sandbox** presets to see why stale data,
+low confidence, excess spending, excess tactical tilt, and open broker orders
+are blocked. Continue to **Synthetic demo** in the research lab for a
+deterministic backtest. Switch to **Yahoo market** to download adjusted
+historical data into `data/cache/`.
 
 For a terminal-only smoke run:
 
@@ -65,6 +71,37 @@ make demo
 ```
 
 The UI uses browser-native JavaScript and SVG, so there is no frontend package install or compilation step.
+
+## Learning workbench
+
+The web app teaches the system through the same separation of responsibility
+used in production:
+
+```text
+You define the mandate
+  → Codex + Robinhood MCP observe fresh broker truth
+  → the model proposes an invest-or-hold decision
+  → typed Python policy authorizes or rejects it
+  → shadow mode stops, or live mode requires review + one exact permit
+  → Edgecraft reconciles and audits the result
+```
+
+The policy sandbox is intentionally synthetic and permanently shadow-only. Its
+`POST /api/learn/scenarios` request is converted into real `Mandate`,
+`WeeklyDecision`, `PortfolioSnapshot`, `MarketQuote`, and `RiskPolicy`
+contracts, then passed through `create_weekly_proposal`. The displayed
+violations therefore come from the same deterministic controls as an
+autonomous cycle; the sandbox does not contact Robinhood, mint permits, or
+place orders.
+
+Use the presets as a sequence:
+
+1. **Healthy cycle** — see the complete approved shadow path.
+2. **Stale data** — watch quote and snapshot freshness fail closed.
+3. **Over budget** — prove the weekly contribution is a ceiling.
+4. **Low confidence** — separate model conviction from authority.
+5. **Excess tilt** — see strategic weights bound tactical judgment.
+6. **Open order** — prevent overlapping or ambiguous broker state.
 
 ## Orchestrator CLI
 
@@ -171,6 +208,8 @@ scripts/demo.py               deterministic terminal demo
 - `GET /api/health` — liveness and version
 - `GET /api/autonomy/health` — autonomous control-plane readiness
 - `GET /metrics` — Prometheus-format operational metrics
+- `GET /api/learn` — system map, interface comparison, and broker invariants
+- `POST /api/learn/scenarios` — safe synthetic inputs through the real policy gate
 - `GET /api/strategies` — UI-ready strategy/parameter schemas
 - `POST /api/backtests?data_source=synthetic|market` — run an experiment matrix
 - `GET /docs` — generated OpenAPI explorer while FastAPI is running
