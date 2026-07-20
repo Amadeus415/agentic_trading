@@ -1,4 +1,4 @@
-.PHONY: install dev api ui test lint build demo health validate
+.PHONY: install dev api ui test lint security build demo health validate
 
 install:
 	uv sync --extra dev
@@ -16,6 +16,11 @@ lint:
 	uv run ruff check src tests scripts/guard_robinhood_tool.py
 	uv run ruff format --check src tests scripts/guard_robinhood_tool.py
 	node --check frontend/app.js
+
+security:
+	uv export --frozen --no-dev --no-emit-project --format requirements-txt | uvx --python 3.13 --from pip-audit==2.10.1 pip-audit -r /dev/stdin --disable-pip
+	# B608 misclassifies the JSON-formatted execution prompt as a SQL query.
+	uvx --python 3.13 --from bandit==1.9.4 bandit -q -r src scripts -ll --skip B608
 
 build:
 	@echo "Frontend is dependency-free and served directly by FastAPI"
