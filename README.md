@@ -1,8 +1,8 @@
 # Edgecraft
 
-Edgecraft is a local, point-in-time stock-strategy research terminal. It combines an event-driven Python backtester with a React experiment UI, realistic next-session execution, recurring cash contributions, modern strategy templates, and adversarial validation intended to make weak ideas fail early.
+Edgecraft is a local, point-in-time stock-strategy research and orchestration toolkit. It combines an event-driven Python backtester, a React experiment UI, realistic next-session execution, adversarial validation, portfolio diagnostics, deterministic trade risk gates, an idempotent audit ledger, and a Robinhood MCP handoff protocol.
 
-It is research software, not investment advice and not a live-trading system. Backtests can be wrong even when the code is correct.
+It is not investment advice and it deliberately does not hold broker credentials or submit broker requests itself. The authenticated orchestrator owns the Robinhood MCP session; Edgecraft produces evidence, checks a proposal, and defines the exact review/reconcile workflow. Backtests can be wrong even when the code is correct.
 
 ## What is included
 
@@ -15,6 +15,13 @@ It is research software, not investment advice and not a live-trading system. Ba
 - A FastAPI research API and responsive dependency-free web terminal
 - A multi-view run explorer for portfolio value, gains versus deposits, drawdown, idle cash, exposure, strategy isolation, and fill-level inspection
 - Temporal-isolation, data-validation, engine, research, and API tests
+- Rolling train/select/test walk-forward validation with non-overlapping out-of-sample windows
+- Canonical portfolio/quote/target/policy contracts for an orchestration agent
+- Long-only equity proposals with quote freshness, whitelist, cash, concentration, daily-spend, and research-promotion gates
+- SQLite proposal/event ledger with deterministic idempotency keys
+- Robinhood review → authorized placement → reconciliation handoff
+- One `edgecraft` CLI for the complete research-to-execution workflow
+- Market and portfolio-risk diagnostics: returns, RSI, trend, volatility, drawdown, beta, correlations, VaR, expected shortfall, and component risk
 
 ## Included strategies
 
@@ -53,6 +60,39 @@ make demo
 
 The UI uses browser-native JavaScript and SVG, so there is no frontend package install or compilation step.
 
+## Orchestrator CLI
+
+```bash
+# Check the official Robinhood MCP connection and local ledger.
+edgecraft health
+
+# Run research and rolling out-of-sample selection.
+edgecraft backtest --config examples/research.json --data-source market
+edgecraft backtest --config examples/research.json --data-source market --cost-multiplier 5
+edgecraft walk-forward --config examples/research.json --data-source market
+edgecraft evidence --backtest base.json --walk-forward walk.json --cost-stress stress.json --strategy value_tilted_dca
+edgecraft market --symbols SPY,QQQ --benchmark SPY
+
+# Analyze a fresh MCP-derived account snapshot.
+edgecraft portfolio --snapshot snapshot.json
+edgecraft portfolio-risk --snapshot snapshot.json --benchmark SPY
+
+# Produce a non-executable shadow proposal and persist its idempotency key.
+edgecraft propose \
+  --snapshot snapshot.json \
+  --quotes quotes.json \
+  --targets examples/targets.json \
+  --policy examples/policy.shadow.json \
+  --strategy value_tilted_dca \
+  --mode shadow
+
+# Inspect the machine-readable MCP contract and audit state.
+edgecraft protocol
+edgecraft ledger
+```
+
+The snapshot and quote files must be created from fresh Robinhood MCP results. Never copy the redacted examples into a live call. See [docs/ORCHESTRATOR.md](docs/ORCHESTRATOR.md) for the full agent contract, promotion gates, live-mode procedure, and failure behavior.
+
 ## Proper research workflow
 
 1. **State the hypothesis first.** Fix the universe, observable information, rebalance schedule, costs, benchmark, and pass/fail criteria before inspecting results.
@@ -80,7 +120,16 @@ src/edgecraft/
   models.py                   typed experiment and execution contracts
   research.py                 experiment matrix orchestration/serialization
   strategies.py               strategy interface and included candidates
-tests/                        data, causality, engine, research, API tests
+  walkforward.py              rolling train/select/test validation
+  execution_models.py         portfolio, quote, policy, evidence, proposal contracts
+  portfolio.py                allocation, P&L, and concentration diagnostics
+  risk.py                     deterministic proposal construction and pre-trade gates
+  ledger.py                   SQLite idempotency and execution audit log
+  orchestration.py            Robinhood MCP two-phase handoff
+  analytics.py                market and portfolio historical-risk diagnostics
+  promotion.py                artifact-derived live-promotion evidence
+  cli.py                      single command surface for agents and humans
+tests/                        data, causality, research, API, CLI, and execution tests
 scripts/demo.py               deterministic terminal demo
 ```
 
@@ -103,6 +152,8 @@ make lint
 ```
 
 Current scope is daily, long-only stocks/ETFs. The Yahoo downloader is convenient research data, not a point-in-time fundamentals database or exchange-grade feed. Adjusted bars reduce corporate-action discontinuities but do not eliminate survivorship bias in a hand-selected present-day universe. There is no borrow model, taxes, market impact curve, intraday order book, delisting-return database, or live broker integration.
+
+Live proposals remain long-only equities, dollar-notional, and bounded by a checked-in policy. Options, shorting, leverage, margin, bracket orders, and autonomous strategy promotion are outside the execution scope. A proposal being approved means “safe enough to send to Robinhood's review tool,” not “profitable” and not “already placed.”
 
 The conformal classifier offers finite-sample coverage only under its exchangeability assumptions; financial regime shifts can violate them. DSR and PBO are diagnostics, not certificates of future profitability. Treat every displayed result as a hypothesis to challenge.
 

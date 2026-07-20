@@ -58,20 +58,28 @@ def _finite(value: float | int | None) -> float | int | None:
     return float(value) if np.isfinite(value) else None
 
 
-def deflated_sharpe_ratio(returns: pd.Series, observed_sharpe: float | None, trials: int) -> float | None:
+def deflated_sharpe_ratio(
+    returns: pd.Series, observed_sharpe: float | None, trials: int
+) -> float | None:
     """Bailey–López de Prado DSR with non-normal return correction."""
     values = returns.dropna().to_numpy(dtype=float)
     if observed_sharpe is None or len(values) < 30 or trials < 1:
         return None
     trials = max(1, trials)
     euler_gamma = 0.5772156649
-    expected_max = (1 - euler_gamma) * norm.ppf(1 - 1 / trials) + euler_gamma * norm.ppf(
-        1 - 1 / (trials * e)
-    ) if trials > 1 else 0.0
+    expected_max = (
+        (1 - euler_gamma) * norm.ppf(1 - 1 / trials) + euler_gamma * norm.ppf(1 - 1 / (trials * e))
+        if trials > 1
+        else 0.0
+    )
     denominator = sqrt(
         max(
             1e-12,
-            (1 - skew(values, bias=False) * observed_sharpe + ((kurtosis(values, fisher=False, bias=False) - 1) / 4) * observed_sharpe**2)
+            (
+                1
+                - skew(values, bias=False) * observed_sharpe
+                + ((kurtosis(values, fisher=False, bias=False) - 1) / 4) * observed_sharpe**2
+            )
             / (len(values) - 1),
         )
     )
@@ -87,7 +95,12 @@ def block_bootstrap_interval(
 ) -> dict[str, float | None]:
     values = returns.dropna().to_numpy(dtype=float)
     if samples <= 0 or len(values) < max(30, block_size * 2):
-        return {"annual_return_low": None, "annual_return_high": None, "sharpe_low": None, "sharpe_high": None}
+        return {
+            "annual_return_low": None,
+            "annual_return_high": None,
+            "sharpe_low": None,
+            "sharpe_high": None,
+        }
     rng = np.random.default_rng(seed)
     ann: list[float] = []
     sharpes: list[float] = []

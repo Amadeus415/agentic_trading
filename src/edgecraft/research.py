@@ -60,6 +60,7 @@ def run_research(data: dict[str, pd.DataFrame], request: BacktestRequest) -> dic
             "sessions": len(return_matrix),
             "strategies_tested": len(results),
             "execution": "close signal → next session adjusted open",
+            "costs": request.costs.model_dump(),
         },
         "validation": {
             "probability_backtest_overfitting": pbo,

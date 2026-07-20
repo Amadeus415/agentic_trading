@@ -1,0 +1,7 @@
+{
+  "weights": {
+    "SPY": 0.1,
+    "QQQ": 0.1
+  },
+  "rationale": "Example only: bounded 20% initial allocation after passing promotion gates"
+}

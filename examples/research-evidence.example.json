@@ -1,0 +1,13 @@
+{
+  "experiment_id": "replace-with-artifact-id",
+  "strategy": "value_tilted_dca",
+  "benchmark": "plain_dca",
+  "data_end": "2026-07-18T00:00:00Z",
+  "walk_forward_passed": false,
+  "benchmark_beaten": false,
+  "cost_stress_passed": false,
+  "multiple_testing_passed": false,
+  "notes": [
+    "Example is intentionally unpromoted. Replace only with observed evidence."
+  ]
+}
