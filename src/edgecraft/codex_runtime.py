@@ -32,7 +32,7 @@ class CodexRuntimeConfig:
 
 
 class CodexRuntime:
-    """Runs an ephemeral Codex turn using the host's authenticated MCP connections."""
+    """Runs a scoped Codex turn using the host's authenticated MCP connections."""
 
     def __init__(self, config: CodexRuntimeConfig) -> None:
         self.config = config
@@ -101,6 +101,26 @@ class CodexRuntime:
             model=mandate.decision_model,
             ledger_path=ledger_path,
             permit_token=permit_token,
+        )
+
+    def reconcile_order(
+        self,
+        mandate: Mandate,
+        proposal: TradeProposal,
+        order: ProposedOrder,
+        placed_result: ExecutionResult,
+        *,
+        ledger_path: str | Path,
+    ) -> ExecutionResult:
+        if not placed_result.broker_order_id:
+            raise CodexRuntimeError("placed result is missing broker_order_id")
+        return self._run(
+            reconciliation_prompt(mandate, proposal, order, placed_result),
+            ExecutionResult,
+            run_id=proposal.run_id or placed_result.run_id,
+            phase=f"reconcile-{order.order_key}",
+            model=mandate.decision_model,
+            ledger_path=ledger_path,
         )
 
     def _run(
@@ -184,9 +204,13 @@ class CodexRuntime:
             raise CodexRuntimeError(f"Codex {phase} phase produced no structured result")
         result_path.chmod(0o600)
         try:
-            return output_model.model_validate_json(result_path.read_text(encoding="utf-8"))
+            raw_result = result_path.read_text(encoding="utf-8")
+            result = output_model.model_validate_json(raw_result)
+            result_path.unlink(missing_ok=True)
+            return result
         except Exception as exc:
             digest = hashlib.sha256(result_path.read_bytes()).hexdigest()[:16]
+            result_path.unlink(missing_ok=True)
             raise CodexRuntimeError(
                 f"Codex {phase} result failed schema validation (sha256={digest})"
             ) from exc
@@ -279,6 +303,39 @@ Exact approved constraints:
 Return only the JSON object required by the supplied output schema. Copy run_id,
 proposal_id, order_key, symbol, side, and requested_notional exactly. Include no
 account number or token in the output.
+""".strip()
+
+
+def reconciliation_prompt(
+    mandate: Mandate,
+    proposal: TradeProposal,
+    order: ProposedOrder,
+    placed_result: ExecutionResult,
+) -> str:
+    identity = {
+        "mandate_id": mandate.mandate_id,
+        "run_id": proposal.run_id,
+        "proposal_id": proposal.proposal_id,
+        "order_key": order.order_key,
+        "broker_order_id": placed_result.broker_order_id,
+        "symbol": order.symbol,
+        "side": order.side,
+        "requested_notional": order.notional,
+    }
+    return f"""
+This is a READ-ONLY broker reconciliation turn. Do not place, cancel, review,
+create, update, add, remove, follow, or unfollow anything. Call get_accounts,
+select only the eligible Agentic account, then call get_equity_orders and locate
+the exact broker_order_id below. If necessary, poll with short bounded intervals
+for no more than two minutes. Report filled, partially_filled, rejected, or
+canceled when broker truth shows that state. Report unknown if the order is
+missing, ambiguous, or still non-terminal. Never infer a fill.
+
+Exact identity:
+{json.dumps(identity, indent=2, sort_keys=True)}
+
+Return only the supplied ExecutionResult schema. Copy all identity fields
+exactly and include no account number or token.
 """.strip()
 
 

@@ -257,6 +257,42 @@ class FilledLiveRuntime(StaticObservationRuntime):
         )
 
 
+class PlacedThenFilledRuntime(FilledLiveRuntime):
+    def __init__(self, payload):
+        super().__init__(payload)
+        self.reconciliations = 0
+
+    def execute_order(self, mandate, proposal, order, *, permit_token, ledger_path):
+        filled = super().execute_order(
+            mandate,
+            proposal,
+            order,
+            permit_token=permit_token,
+            ledger_path=ledger_path,
+        )
+        return filled.model_copy(update={"status": "placed", "filled_notional": Decimal("0")})
+
+    def reconcile_order(
+        self,
+        mandate,
+        proposal,
+        order,
+        placed_result,
+        *,
+        ledger_path,
+    ):
+        del mandate, ledger_path
+        self.reconciliations += 1
+        return placed_result.model_copy(
+            update={
+                "status": "filled",
+                "filled_notional": Decimal(str(order.notional)),
+                "average_fill_price": Decimal("330"),
+                "proposal_id": proposal.proposal_id,
+            }
+        )
+
+
 def test_live_cycle_records_guarded_fill_and_spend(tmp_path):
     policy_path = tmp_path / "live-policy.json"
     policy_path.write_text(
@@ -285,3 +321,30 @@ def test_live_cycle_records_guarded_fill_and_spend(tmp_path):
     assert ledger.daily_placed_notional(NOW.date()) == 10
     assert not ledger.unresolved_order_keys()
     assert ledger.operational_snapshot()["permits_by_status"]["claimed"] == 2
+
+
+def test_placed_orders_receive_independent_terminal_reconciliation(tmp_path):
+    policy_path = tmp_path / "live-policy.json"
+    policy_path.write_text(
+        json.dumps(
+            {
+                "policy_name": "service-live-reconcile",
+                "trading_enabled": True,
+                "allowed_symbols": ["VTI", "VXUS"],
+                "managed_capital_limit": 1000,
+                "max_order_notional": 10,
+                "max_daily_notional": 10,
+                "max_orders_per_day": 2,
+                "max_position_weight": 0.75,
+                "min_cash_reserve": 0,
+                "require_research_evidence": False,
+            }
+        )
+    )
+    mandate = _mandate(str(policy_path)).model_copy(update={"mode": "live"})
+    ledger = AuditLedger(tmp_path / "state.db")
+    runtime = PlacedThenFilledRuntime(_payload())
+    result = AutonomousService(tmp_path, ledger, runtime).run_cycle(mandate, now=NOW)
+    assert result["run"]["status"] == "completed"
+    assert runtime.reconciliations == 2
+    assert not ledger.unresolved_order_keys()

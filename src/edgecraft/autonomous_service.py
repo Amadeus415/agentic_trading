@@ -59,6 +59,16 @@ class AgentRuntime(Protocol):
         ledger_path: str | Path,
     ) -> ExecutionResult: ...
 
+    def reconcile_order(
+        self,
+        mandate: Mandate,
+        proposal: TradeProposal,
+        order: ProposedOrder,
+        placed_result: ExecutionResult,
+        *,
+        ledger_path: str | Path,
+    ) -> ExecutionResult: ...
+
 
 class AutonomousService:
     def __init__(
@@ -312,6 +322,28 @@ class AutonomousService:
             permit_token=token,
             ledger_path=self.ledger.path,
         )
+        placement_confirmed = result.status in {
+            "placed",
+            "filled",
+            "partially_filled",
+        }
+        if result.status == "placed":
+            result = self.runtime.reconcile_order(
+                mandate,
+                proposal,
+                order,
+                result,
+                ledger_path=self.ledger.path,
+            )
+            self.ledger.record_runtime_event(
+                proposal.run_id or "",
+                "broker_reconciliation_completed",
+                {
+                    "proposal_id": proposal.proposal_id,
+                    "order_key": order.order_key,
+                    "status": result.status,
+                },
+            )
         if result.status in {"aborted", "reviewed", "rejected", "canceled"}:
             self.ledger.revoke_permit(token)
         if (
@@ -338,7 +370,7 @@ class AutonomousService:
                 "filled_notional": str(result.filled_notional),
             },
         )
-        if result.status in {"placed", "filled", "partially_filled"}:
+        if placement_confirmed or result.status in {"filled", "partially_filled"}:
             placed_payload = {
                 "order_key": order.order_key,
                 "notional": float(result.requested_notional),
@@ -435,6 +467,18 @@ class StaticObservationRuntime:
     ) -> ExecutionResult:
         del mandate, proposal, order, permit_token, ledger_path
         raise RuntimeError("captured observations cannot execute live orders")
+
+    def reconcile_order(
+        self,
+        mandate: Mandate,
+        proposal: TradeProposal,
+        order: ProposedOrder,
+        placed_result: ExecutionResult,
+        *,
+        ledger_path: str | Path,
+    ) -> ExecutionResult:
+        del mandate, proposal, order, placed_result, ledger_path
+        raise RuntimeError("captured observations cannot reconcile live orders")
 
 
 def build_default_service(

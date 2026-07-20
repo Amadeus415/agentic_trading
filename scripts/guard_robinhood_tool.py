@@ -122,7 +122,7 @@ def _claim_permit(
 def _constraint_mismatch(constraints: dict[str, Any], tool_input: Any) -> str | None:
     leaves = _flatten(tool_input)
     aliases = {
-        "account_id": {"account_id", "accountid"},
+        "account_id_hash": {"account_id", "accountid"},
         "symbol": {"symbol", "ticker"},
         "side": {"side"},
         "dollar_notional": {"dollar_notional", "notional", "amount"},
@@ -133,9 +133,12 @@ def _constraint_mismatch(constraints: dict[str, Any], tool_input: Any) -> str | 
         if expected_key not in constraints:
             continue
         observed = [value for key, value in leaves if key in names]
-        if observed and not any(
-            _equivalent(constraints[expected_key], value) for value in observed
-        ):
+        matches = (
+            any(_account_reference(str(value)) == constraints[expected_key] for value in observed)
+            if expected_key == "account_id_hash"
+            else any(_equivalent(constraints[expected_key], value) for value in observed)
+        )
+        if observed and not matches:
             return f"Robinhood tool input does not match permitted {expected_key}."
     return None
 
@@ -163,6 +166,13 @@ def _equivalent(expected: Any, actual: Any) -> bool:
         return abs(Decimal(str(expected)) - Decimal(str(actual))) <= Decimal("0.01")
     except (InvalidOperation, ValueError):
         return str(expected).strip().lower() == str(actual).strip().lower()
+
+
+def _account_reference(account_id: str) -> str:
+    return (
+        "acct_"
+        + hashlib.sha256(f"edgecraft-account-reference:{account_id}".encode()).hexdigest()[:20]
+    )
 
 
 def _deny(reason: str) -> int:

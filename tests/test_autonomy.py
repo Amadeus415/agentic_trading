@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import UTC, datetime, time
 from decimal import Decimal
 
@@ -139,6 +140,14 @@ def test_weekly_proposal_respects_budget_and_tactical_tilt(tmp_path):
     assert proposal.risk.gross_notional == 10
     assert proposal.mandate_id == "index_dca"
     assert proposal.robinhood_handoff["status"] == "shadow_only"
+    connection = sqlite3.connect(ledger.path)
+    stored_account, stored_payload = connection.execute(
+        "SELECT account_id, payload FROM proposals WHERE proposal_id = ?",
+        (proposal.proposal_id,),
+    ).fetchone()
+    connection.close()
+    assert stored_account.startswith("acct_")
+    assert "agentic-test" not in stored_payload
 
     over_budget = decision(
         allocations=[
@@ -240,3 +249,14 @@ def test_run_idempotency_budget_and_kill_switch(tmp_path):
     assert available_cycle_budget(item, ledger, now=NOW) == Decimal("10.00")
     ledger.set_trading_halt(True, reason="test halt", now=NOW)
     assert ledger.status()["trading_halted"]
+
+
+def test_rollover_uses_only_prior_recorded_cycles(tmp_path):
+    ledger = AuditLedger(tmp_path / "state.db")
+    item = mandate(max_rollover_weeks=1)
+    prior = datetime(2026, 7, 13, 15, 0, tzinfo=UTC)
+    ledger.start_run(item, cycle_key(item, prior), now=prior)
+    assert available_cycle_budget(item, ledger, now=NOW) == Decimal("20.00")
+
+    no_rollover = item.model_copy(update={"max_rollover_weeks": 0})
+    assert available_cycle_budget(no_rollover, ledger, now=NOW) == Decimal("10.00")

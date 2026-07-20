@@ -1,5 +1,6 @@
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -127,6 +128,15 @@ def _invoke(ledger, token=None, *, symbol="VTI"):
 
 def test_trade_guard_denies_without_a_permit(tmp_path):
     ledger, _ = _setup_live_permit(tmp_path)
+    connection = sqlite3.connect(ledger.path)
+    stored_account, proposal_payload = connection.execute(
+        "SELECT account_id, payload FROM proposals"
+    ).fetchone()
+    permit_constraints = connection.execute("SELECT constraints FROM permits").fetchone()[0]
+    connection.close()
+    assert stored_account.startswith("acct_")
+    assert "agentic-test" not in proposal_payload
+    assert "agentic-test" not in permit_constraints
     result = _invoke(ledger)
     assert result["permissionDecision"] == "deny"
     assert "single-use permit" in result["permissionDecisionReason"]

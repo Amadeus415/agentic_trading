@@ -25,8 +25,10 @@ class AuditLedger:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
+        connection = sqlite3.connect(self.path, timeout=30)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("PRAGMA busy_timeout=30000")
         return connection
 
     @contextmanager
@@ -115,6 +117,8 @@ class AuditLedger:
             )
             self._ensure_column(connection, "proposals", "mandate_id", "TEXT")
             self._ensure_column(connection, "proposals", "run_id", "TEXT")
+            self._redact_stored_account_ids(connection)
+            self._redact_stored_permit_constraints(connection)
 
     @staticmethod
     def _ensure_column(
@@ -128,6 +132,42 @@ class AuditLedger:
         }
         if column not in columns:
             connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+    @staticmethod
+    def _redact_stored_account_ids(connection: sqlite3.Connection) -> None:
+        rows = connection.execute(
+            "SELECT proposal_id, account_id, payload FROM proposals"
+        ).fetchall()
+        for row in rows:
+            account_id = row["account_id"]
+            reference = (
+                account_id if account_id.startswith("acct_") else _account_reference(account_id)
+            )
+            payload = json.loads(row["payload"])
+            payload = _redact_account_fields(payload, reference)
+            connection.execute(
+                """
+                UPDATE proposals SET account_id = ?, payload = ?
+                WHERE proposal_id = ?
+                """,
+                (
+                    reference,
+                    json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                    row["proposal_id"],
+                ),
+            )
+
+    @staticmethod
+    def _redact_stored_permit_constraints(connection: sqlite3.Connection) -> None:
+        rows = connection.execute("SELECT token_hash, constraints FROM permits").fetchall()
+        for row in rows:
+            constraints = json.loads(row["constraints"])
+            safe = _permit_constraints(constraints)
+            if safe != constraints:
+                connection.execute(
+                    "UPDATE permits SET constraints = ? WHERE token_hash = ?",
+                    (json.dumps(safe, sort_keys=True), row["token_hash"]),
+                )
 
     def upsert_mandate(self, mandate: Mandate, *, now: datetime | None = None) -> None:
         timestamp = now or datetime.now(UTC)
@@ -403,7 +443,7 @@ class AuditLedger:
                     proposal_id,
                     order_key,
                     allowed_tool,
-                    json.dumps(constraints or {}, sort_keys=True),
+                    json.dumps(_permit_constraints(constraints or {}), sort_keys=True),
                     timestamp.isoformat(),
                     (timestamp + timedelta(seconds=ttl_seconds)).isoformat(),
                 ),
@@ -461,6 +501,27 @@ class AuditLedger:
                 (mandate_id, cycle_key),
             ).fetchall()
         return sum(float(json.loads(row["payload"]).get("notional", 0)) for row in rows)
+
+    def recent_cycle_placed_notionals(
+        self,
+        mandate_id: str,
+        *,
+        before_cycle_key: str,
+        limit: int,
+    ) -> list[float]:
+        if limit <= 0:
+            return []
+        with self._connection() as connection:
+            cycles = connection.execute(
+                """
+                SELECT cycle_key FROM runs
+                WHERE mandate_id = ? AND cycle_key < ?
+                ORDER BY cycle_key DESC
+                LIMIT ?
+                """,
+                (mandate_id, before_cycle_key, limit),
+            ).fetchall()
+        return [self.cycle_placed_notional(mandate_id, row["cycle_key"]) for row in cycles]
 
     def set_trading_halt(
         self,
@@ -543,7 +604,12 @@ class AuditLedger:
         }
 
     def add_proposal(self, proposal: TradeProposal) -> None:
-        payload = proposal.model_dump_json()
+        account_reference = _account_reference(proposal.account_id)
+        payload = json.dumps(
+            _redact_account_fields(proposal.model_dump(mode="json"), account_reference),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
         try:
             with self._connection() as connection:
                 connection.execute(
@@ -558,7 +624,7 @@ class AuditLedger:
                         proposal.mandate_id,
                         proposal.run_id,
                         proposal.created_at.isoformat(),
-                        proposal.account_id,
+                        account_reference,
                         proposal.mode,
                         int(proposal.risk.approved_for_review),
                         payload,
@@ -678,3 +744,31 @@ def _event_key(proposal_id: str, event_type: str, payload: dict[str, Any]) -> st
         separators=(",", ":"),
     )
     return "evt_" + hashlib.sha256(raw.encode()).hexdigest()[:24]
+
+
+def _account_reference(account_id: str) -> str:
+    if account_id.startswith("acct_"):
+        return account_id
+    return (
+        "acct_"
+        + hashlib.sha256(f"edgecraft-account-reference:{account_id}".encode()).hexdigest()[:20]
+    )
+
+
+def _redact_account_fields(value: Any, reference: str) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: (reference if key == "account_id" else _redact_account_fields(item, reference))
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_account_fields(item, reference) for item in value]
+    return value
+
+
+def _permit_constraints(constraints: dict[str, Any]) -> dict[str, Any]:
+    safe = dict(constraints)
+    account_id = safe.pop("account_id", None)
+    if account_id:
+        safe["account_id_hash"] = _account_reference(str(account_id))
+    return safe

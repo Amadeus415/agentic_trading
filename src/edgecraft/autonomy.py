@@ -47,7 +47,22 @@ def available_cycle_budget(
 ) -> Decimal:
     current_key = cycle_key(mandate, now)
     already_placed = Decimal(str(ledger.cycle_placed_notional(mandate.mandate_id, current_key)))
-    return max(Decimal("0"), mandate.weekly_budget - already_placed).quantize(CENT)
+    current_remaining = max(Decimal("0"), mandate.weekly_budget - already_placed)
+    rollover = Decimal("0")
+    if mandate.max_rollover_weeks:
+        prior_placed = ledger.recent_cycle_placed_notionals(
+            mandate.mandate_id,
+            before_cycle_key=current_key,
+            limit=mandate.max_rollover_weeks,
+        )
+        rollover = sum(
+            (
+                max(Decimal("0"), mandate.weekly_budget - Decimal(str(placed)))
+                for placed in prior_placed
+            ),
+            Decimal("0"),
+        )
+    return (current_remaining + rollover).quantize(CENT)
 
 
 def create_weekly_proposal(
