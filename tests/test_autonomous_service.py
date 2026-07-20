@@ -1,7 +1,7 @@
 import hashlib
 import json
 import sqlite3
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 
 import pytest
@@ -152,6 +152,38 @@ def test_shadow_cycle_is_idempotent_and_audited(tmp_path):
     assert replay["idempotent_replay"]
     assert replay["run"]["run_id"] == first["run"]["run_id"]
     assert ledger.status()["proposals"] == 1
+
+
+def test_real_cycle_evaluates_freshness_after_observation(monkeypatch, tmp_path):
+    policy = _write_policy(tmp_path)
+    mandate = _mandate(str(policy))
+    observed_at = NOW + timedelta(minutes=2)
+    payload = _payload().model_copy(
+        update={
+            "observed_at": observed_at,
+            "account": _payload().account.model_copy(update={"as_of": observed_at}),
+            "quotes": [
+                quote.model_copy(update={"as_of": observed_at}) for quote in _payload().quotes
+            ],
+            "decision": _payload().decision.model_copy(update={"as_of": observed_at}),
+        }
+    )
+    ledger = AuditLedger(tmp_path / "state.db")
+    service = AutonomousService(tmp_path, ledger, StaticObservationRuntime(payload))
+    wall_times = iter([NOW, observed_at])
+    monkeypatch.setattr(
+        "edgecraft.autonomous_service.datetime",
+        type(
+            "ControlledDateTime",
+            (),
+            {"now": staticmethod(lambda timezone: next(wall_times))},
+        ),
+    )
+
+    result = service.run_cycle(mandate)
+
+    assert result["run"]["status"] == "shadow_complete"
+    assert not any("timestamp is in the future" for item in result["run"]["payload"]["violations"])
 
 
 def test_external_context_is_audited_and_investment_requires_known_citations(tmp_path):

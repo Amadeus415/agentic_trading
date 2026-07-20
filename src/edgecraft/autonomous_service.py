@@ -94,6 +94,7 @@ class AutonomousService:
         now: datetime | None = None,
         force: bool = False,
     ) -> dict:
+        use_wall_clock = now is None
         current_time = now or datetime.now(UTC)
         key = cycle_key(mandate, current_time)
         existing = self.ledger.get_run_for_cycle(mandate.mandate_id, key)
@@ -111,7 +112,12 @@ class AutonomousService:
                     attempt=self.ledger.run_attempt_count(existing["run_id"]),
                 )
                 try:
-                    return self._run_started_cycle(mandate, existing["run_id"], current_time)
+                    return self._run_started_cycle(
+                        mandate,
+                        existing["run_id"],
+                        current_time,
+                        use_wall_clock=use_wall_clock,
+                    )
                 except Exception as exc:
                     self.ledger.update_run(
                         existing["run_id"],
@@ -159,7 +165,12 @@ class AutonomousService:
             cycle_key=key,
         )
         try:
-            return self._run_started_cycle(mandate, run_id, current_time)
+            return self._run_started_cycle(
+                mandate,
+                run_id,
+                current_time,
+                use_wall_clock=use_wall_clock,
+            )
         except Exception as exc:
             self.ledger.update_run(
                 run_id,
@@ -185,6 +196,8 @@ class AutonomousService:
         mandate: Mandate,
         run_id: str,
         now: datetime,
+        *,
+        use_wall_clock: bool,
     ) -> dict:
         budget = available_cycle_budget(mandate, self.ledger, now=now)
         if budget <= 0:
@@ -239,7 +252,11 @@ class AutonomousService:
             cycle_budget=budget,
             ledger=self.ledger,
             research=research,
-            now=now,
+            # A real observation can take minutes. Evaluate freshness against
+            # completion time, not the cycle-start timestamp captured before
+            # broker and market reads began. Explicit `now` remains stable for
+            # deterministic tests and replay tooling.
+            now=datetime.now(UTC) if use_wall_clock else now,
         )
         proposal_summary = {
             "proposal_id": proposal.proposal_id,
