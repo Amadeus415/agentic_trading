@@ -54,10 +54,21 @@ class CodexRuntime:
         remaining_budget: Decimal,
         ledger_path: str | Path,
     ) -> AgentCyclePayload:
+        policy_path = Path(mandate.policy_path)
+        resolved_policy_path = (
+            policy_path if policy_path.is_absolute() else self.repository / policy_path
+        )
+        try:
+            policy = json.loads(resolved_policy_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise CodexRuntimeError(
+                f"unable to load mandate policy: {mandate.policy_path}"
+            ) from exc
         prompt = observation_prompt(
             mandate,
             run_id=run_id,
             remaining_budget=remaining_budget,
+            policy=policy,
         )
         return self._run(
             prompt,
@@ -108,7 +119,12 @@ class CodexRuntime:
         schema_path = run_directory / f"{phase}.schema.json"
         result_path = run_directory / f"{phase}.result.json"
         schema_path.write_text(
-            json.dumps(output_model.model_json_schema(), indent=2, sort_keys=True) + "\n",
+            json.dumps(
+                strict_output_schema(output_model),
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
             encoding="utf-8",
         )
         schema_path.chmod(0o600)
@@ -117,13 +133,14 @@ class CodexRuntime:
         command = [
             self.executable,
             "exec",
-            "--ephemeral",
             "--color",
             "never",
             "--sandbox",
             self.config.sandbox,
             "--config",
-            'approval_policy="never"',
+            'approval_policy="on-request"',
+            "--config",
+            'approvals_reviewer="auto_review"',
             "--dangerously-bypass-hook-trust",
             "--output-schema",
             str(schema_path),
@@ -132,6 +149,8 @@ class CodexRuntime:
             "--cd",
             str(self.repository),
         ]
+        if permit_token is None:
+            command.insert(2, "--ephemeral")
         if model:
             command.extend(["--model", model])
         command.append(prompt)
@@ -178,6 +197,7 @@ def observation_prompt(
     *,
     run_id: str,
     remaining_budget: Decimal,
+    policy: dict,
 ) -> str:
     mandate_payload = mandate.model_dump(mode="json")
     return f"""
@@ -201,6 +221,7 @@ Use the authenticated Robinhood Trading MCP as broker truth. Perform this cycle:
 5. Return one structured decision. Total proposed notional must not exceed
    ${remaining_budget:.2f}. Every symbol must be in the mandate universe. A hold
    is valid when evidence, freshness, confidence, or price quality is weak.
+   Every nonzero allocation must meet the policy min_order_notional.
 
 The model is advisory only. Edgecraft will independently enforce budget, symbol,
 concentration, cash, freshness, and risk limits. Never claim that a trade is
@@ -210,6 +231,8 @@ Active run_id: {run_id}
 Remaining hard cycle budget: {remaining_budget:.2f}
 Mandate:
 {json.dumps(mandate_payload, indent=2, sort_keys=True)}
+Deterministic risk policy:
+{json.dumps(policy, indent=2, sort_keys=True)}
 
 Return only the JSON object required by the supplied output schema. Set the
 decision mandate_id and run_id exactly to the values above. The account field
@@ -267,3 +290,23 @@ def _safe_process_detail(stdout: str, stderr: str) -> str:
     if any(term in lowered for term in ("account", "token", "portfolio", "position")):
         return "diagnostic output redacted because it may contain broker data"
     return text[-500:]
+
+
+def strict_output_schema(model: type[BaseModel]) -> dict:
+    """Normalize Pydantic JSON Schema to Codex strict structured-output rules."""
+
+    def normalize(value):
+        if isinstance(value, list):
+            return [normalize(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        result = {
+            key: normalize(item) for key, item in value.items() if key not in {"default", "pattern"}
+        }
+        properties = result.get("properties")
+        if isinstance(properties, dict):
+            result["additionalProperties"] = False
+            result["required"] = list(properties)
+        return result
+
+    return normalize(model.model_json_schema())

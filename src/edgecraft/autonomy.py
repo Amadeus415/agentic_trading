@@ -69,8 +69,12 @@ def create_weekly_proposal(
     if decision.run_id != run_id:
         raise ValueError("decision run_id does not match the active run")
 
-    orders, decision_violations = _decision_orders(
-        mandate, decision, quotes, cycle_budget=cycle_budget
+    orders, decision_violations, decision_warnings = _decision_orders(
+        mandate,
+        decision,
+        quotes,
+        cycle_budget=cycle_budget,
+        min_order_notional=Decimal(str(policy.min_order_notional)),
     )
     daily_notional = ledger.daily_placed_notional(current_time.date()) if ledger else 0.0
     unresolved = ledger.unresolved_order_keys() if ledger else []
@@ -86,9 +90,16 @@ def create_weekly_proposal(
         research=research,
         now=current_time,
     )
-    if decision_violations:
+    if decision_violations or decision_warnings:
         violations = sorted(set([*risk.violations, *decision_violations]))
-        risk = risk.model_copy(update={"approved_for_review": False, "violations": violations})
+        warnings = sorted(set([*risk.warnings, *decision_warnings]))
+        risk = risk.model_copy(
+            update={
+                "approved_for_review": not violations,
+                "violations": violations,
+                "warnings": warnings,
+            }
+        )
 
     identifier = _weekly_proposal_id(mandate, run_id, snapshot, orders, policy, decision)
     proposal = TradeProposal(
@@ -119,12 +130,14 @@ def _decision_orders(
     quotes: list[MarketQuote],
     *,
     cycle_budget: Decimal,
-) -> tuple[list[ProposedOrder], list[str]]:
+    min_order_notional: Decimal,
+) -> tuple[list[ProposedOrder], list[str], list[str]]:
     quote_map = {quote.symbol: quote for quote in quotes}
     violations: list[str] = []
+    warnings: list[str] = []
     if decision.action == "hold":
         violations.append("reasoning agent elected to hold this cycle")
-        return [], violations
+        return [], violations, warnings
     if decision.confidence < mandate.minimum_confidence:
         violations.append(
             "decision confidence "
@@ -158,6 +171,12 @@ def _decision_orders(
                 f"strategic+tactical limit {max_share:.1%}"
             )
         notional = allocation.notional.quantize(CENT, rounding=ROUND_DOWN)
+        if notional < min_order_notional:
+            warnings.append(
+                f"dropped {allocation.symbol} allocation {notional:.2f} below "
+                f"min_order_notional={min_order_notional:.2f}"
+            )
+            continue
         identity = (
             f"{mandate.mandate_id}:{decision.run_id}:{allocation.symbol}:"
             f"{notional}:{quote.as_of.isoformat()}"
@@ -173,7 +192,7 @@ def _decision_orders(
                 quote_as_of=quote.as_of,
             )
         )
-    return orders, violations
+    return orders, violations, warnings
 
 
 def _weekly_proposal_id(

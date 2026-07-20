@@ -191,6 +191,44 @@ def test_low_confidence_and_excess_tilt_are_deterministically_blocked():
     assert any("strategic+tactical" in item for item in proposal.risk.violations)
 
 
+def test_subminimum_sleeve_is_dropped_with_an_audit_warning():
+    small_sleeve = decision(
+        allocations=[
+            {
+                "symbol": "VTI",
+                "notional": "3.00",
+                "conviction": "0.7",
+                "rationale": "Maintain the core allocation.",
+            },
+            {
+                "symbol": "VXUS",
+                "notional": "1.25",
+                "conviction": "0.7",
+                "rationale": "Maintain international diversification.",
+            },
+            {
+                "symbol": "BND",
+                "notional": "0.75",
+                "conviction": "0.6",
+                "rationale": "Preserve the stabilizing sleeve.",
+            },
+        ]
+    )
+    proposal = create_weekly_proposal(
+        mandate(),
+        small_sleeve,
+        snapshot(),
+        quotes(),
+        policy(),
+        run_id="run-1",
+        cycle_budget=Decimal("10.00"),
+        now=NOW,
+    )
+    assert proposal.risk.approved_for_review
+    assert [order.symbol for order in proposal.orders] == ["VTI", "VXUS"]
+    assert any("dropped BND" in warning for warning in proposal.risk.warnings)
+
+
 def test_run_idempotency_budget_and_kill_switch(tmp_path):
     ledger = AuditLedger(tmp_path / "state.db")
     item = mandate()
