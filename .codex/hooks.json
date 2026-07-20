@@ -1,0 +1,18 @@
+{
+  "description": "Require Edgecraft single-use permits for Robinhood order mutations.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": ".*(place|cancel)_(equity|option)_order$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/scripts/guard_robinhood_tool.py\"",
+            "timeout": 10,
+            "statusMessage": "Checking Edgecraft trade permit"
+          }
+        ]
+      }
+    ]
+  }
+}
