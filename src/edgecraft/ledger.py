@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import secrets
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from edgecraft.autonomy_models import Mandate
 from edgecraft.execution_models import TradeProposal
 
 
@@ -23,8 +25,10 @@ class AuditLedger:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
+        connection = sqlite3.connect(self.path, timeout=30)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("PRAGMA busy_timeout=30000")
         return connection
 
     @contextmanager
@@ -46,6 +50,8 @@ class AuditLedger:
                 PRAGMA journal_mode=WAL;
                 CREATE TABLE IF NOT EXISTS proposals (
                     proposal_id TEXT PRIMARY KEY,
+                    mandate_id TEXT,
+                    run_id TEXT,
                     created_at TEXT NOT NULL,
                     account_id TEXT NOT NULL,
                     mode TEXT NOT NULL,
@@ -61,23 +67,564 @@ class AuditLedger:
                     payload TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS events_occurred_at ON events(occurred_at);
+                CREATE TABLE IF NOT EXISTS mandates (
+                    mandate_id TEXT PRIMARY KEY,
+                    enabled INTEGER NOT NULL,
+                    mode TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    payload TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS runs (
+                    run_id TEXT PRIMARY KEY,
+                    mandate_id TEXT NOT NULL REFERENCES mandates(mandate_id),
+                    cycle_key TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    mode TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    detail TEXT NOT NULL DEFAULT '',
+                    payload TEXT NOT NULL DEFAULT '{}',
+                    UNIQUE(mandate_id, cycle_key)
+                );
+                CREATE INDEX IF NOT EXISTS runs_status ON runs(status);
+                CREATE TABLE IF NOT EXISTS runtime_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL REFERENCES runs(run_id),
+                    event_type TEXT NOT NULL,
+                    occurred_at TEXT NOT NULL,
+                    payload TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS runtime_events_run_id ON runtime_events(run_id, id);
+                CREATE TABLE IF NOT EXISTS permits (
+                    token_hash TEXT PRIMARY KEY,
+                    run_id TEXT NOT NULL REFERENCES runs(run_id),
+                    proposal_id TEXT NOT NULL REFERENCES proposals(proposal_id),
+                    order_key TEXT NOT NULL,
+                    allowed_tool TEXT NOT NULL,
+                    constraints TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    issued_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    claimed_at TEXT
+                );
+                CREATE TABLE IF NOT EXISTS controls (
+                    name TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    reason TEXT NOT NULL
+                );
                 """
             )
+            self._ensure_column(connection, "proposals", "mandate_id", "TEXT")
+            self._ensure_column(connection, "proposals", "run_id", "TEXT")
+            self._redact_stored_account_ids(connection)
+            self._redact_stored_permit_constraints(connection)
+
+    @staticmethod
+    def _ensure_column(
+        connection: sqlite3.Connection,
+        table: str,
+        column: str,
+        definition: str,
+    ) -> None:
+        columns = {
+            row["name"] for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        if column not in columns:
+            connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+    @staticmethod
+    def _redact_stored_account_ids(connection: sqlite3.Connection) -> None:
+        rows = connection.execute(
+            "SELECT proposal_id, account_id, payload FROM proposals"
+        ).fetchall()
+        for row in rows:
+            account_id = row["account_id"]
+            reference = (
+                account_id if account_id.startswith("acct_") else _account_reference(account_id)
+            )
+            payload = json.loads(row["payload"])
+            payload = _redact_account_fields(payload, reference)
+            connection.execute(
+                """
+                UPDATE proposals SET account_id = ?, payload = ?
+                WHERE proposal_id = ?
+                """,
+                (
+                    reference,
+                    json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                    row["proposal_id"],
+                ),
+            )
+
+    @staticmethod
+    def _redact_stored_permit_constraints(connection: sqlite3.Connection) -> None:
+        rows = connection.execute("SELECT token_hash, constraints FROM permits").fetchall()
+        for row in rows:
+            constraints = json.loads(row["constraints"])
+            safe = _permit_constraints(constraints)
+            if safe != constraints:
+                connection.execute(
+                    "UPDATE permits SET constraints = ? WHERE token_hash = ?",
+                    (json.dumps(safe, sort_keys=True), row["token_hash"]),
+                )
+
+    def upsert_mandate(self, mandate: Mandate, *, now: datetime | None = None) -> None:
+        timestamp = now or datetime.now(UTC)
+        with self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO mandates (mandate_id, enabled, mode, updated_at, payload)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(mandate_id) DO UPDATE SET
+                    enabled = excluded.enabled,
+                    mode = excluded.mode,
+                    updated_at = excluded.updated_at,
+                    payload = excluded.payload
+                """,
+                (
+                    mandate.mandate_id,
+                    int(mandate.enabled),
+                    mandate.mode,
+                    timestamp.isoformat(),
+                    mandate.model_dump_json(),
+                ),
+            )
+
+    def get_mandate(self, mandate_id: str) -> Mandate:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT payload FROM mandates WHERE mandate_id = ?", (mandate_id,)
+            ).fetchone()
+        if row is None:
+            raise ValueError(f"unknown mandate_id: {mandate_id}")
+        return Mandate.model_validate_json(row["payload"])
+
+    def list_mandates(self) -> list[Mandate]:
+        with self._connection() as connection:
+            rows = connection.execute("SELECT payload FROM mandates ORDER BY mandate_id").fetchall()
+        return [Mandate.model_validate_json(row["payload"]) for row in rows]
+
+    def start_run(
+        self,
+        mandate: Mandate,
+        cycle_key: str,
+        *,
+        now: datetime | None = None,
+    ) -> str:
+        self.upsert_mandate(mandate, now=now)
+        timestamp = now or datetime.now(UTC)
+        identity = f"{mandate.mandate_id}:{cycle_key}"
+        run_id = "run_" + hashlib.sha256(identity.encode()).hexdigest()[:24]
+        try:
+            with self._connection() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO runs (
+                        run_id, mandate_id, cycle_key, status, mode,
+                        started_at, updated_at, detail, payload
+                    ) VALUES (?, ?, ?, 'started', ?, ?, ?, '', '{}')
+                    """,
+                    (
+                        run_id,
+                        mandate.mandate_id,
+                        cycle_key,
+                        mandate.mode,
+                        timestamp.isoformat(),
+                        timestamp.isoformat(),
+                    ),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise DuplicateProposalError(
+                f"cycle {cycle_key} for mandate {mandate.mandate_id} already has a run"
+            ) from exc
+        self.record_runtime_event(run_id, "run_started", {"cycle_key": cycle_key}, now=timestamp)
+        return run_id
+
+    def update_run(
+        self,
+        run_id: str,
+        status: str,
+        *,
+        detail: str = "",
+        payload: dict[str, Any] | None = None,
+        now: datetime | None = None,
+    ) -> None:
+        timestamp = now or datetime.now(UTC)
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE runs
+                SET status = ?, detail = ?, payload = ?, updated_at = ?
+                WHERE run_id = ?
+                """,
+                (
+                    status,
+                    detail,
+                    json.dumps(payload or {}, sort_keys=True),
+                    timestamp.isoformat(),
+                    run_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError(f"unknown run_id: {run_id}")
+        self.record_runtime_event(
+            run_id,
+            f"run_{status}",
+            {"detail": detail, **(payload or {})},
+            now=timestamp,
+        )
+
+    def get_run(self, run_id: str) -> dict[str, Any]:
+        with self._connection() as connection:
+            row = connection.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"unknown run_id: {run_id}")
+        result = dict(row)
+        result["payload"] = json.loads(result["payload"])
+        return result
+
+    def get_run_for_cycle(
+        self,
+        mandate_id: str,
+        cycle_key: str,
+    ) -> dict[str, Any] | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM runs
+                WHERE mandate_id = ? AND cycle_key = ?
+                """,
+                (mandate_id, cycle_key),
+            ).fetchone()
+        if row is None:
+            return None
+        result = dict(row)
+        result["payload"] = json.loads(result["payload"])
+        return result
+
+    def run_attempt_count(self, run_id: str) -> int:
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS count FROM runtime_events
+                WHERE run_id = ? AND event_type IN ('run_started', 'run_retry_started')
+                """,
+                (run_id,),
+            ).fetchone()
+        return int(row["count"])
+
+    def run_is_safe_to_retry(self, run_id: str, *, max_attempts: int = 3) -> bool:
+        if self.run_attempt_count(run_id) >= max_attempts:
+            return False
+        with self._connection() as connection:
+            permit = connection.execute(
+                "SELECT 1 FROM permits WHERE run_id = ? LIMIT 1", (run_id,)
+            ).fetchone()
+            side_effect = connection.execute(
+                """
+                SELECT 1
+                FROM events e
+                JOIN proposals p ON p.proposal_id = e.proposal_id
+                WHERE p.run_id = ? AND e.event_type IN (
+                    'placed', 'filled', 'partially_filled', 'canceled'
+                )
+                LIMIT 1
+                """,
+                (run_id,),
+            ).fetchone()
+        return permit is None and side_effect is None
+
+    def record_retry(self, run_id: str, *, now: datetime | None = None) -> None:
+        timestamp = now or datetime.now(UTC)
+        attempt = self.run_attempt_count(run_id) + 1
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE runs
+                SET status = 'started', detail = ?, payload = ?, updated_at = ?
+                WHERE run_id = ?
+                """,
+                (
+                    "retrying a side-effect-free failed cycle",
+                    json.dumps({"attempt": attempt}),
+                    timestamp.isoformat(),
+                    run_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError(f"unknown run_id: {run_id}")
+        self.record_runtime_event(
+            run_id,
+            "run_retry_started",
+            {"attempt": attempt},
+            now=timestamp,
+        )
+
+    def list_runs(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM runs ORDER BY started_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["payload"] = json.loads(item["payload"])
+            result.append(item)
+        return result
+
+    def record_runtime_event(
+        self,
+        run_id: str,
+        event_type: str,
+        payload: dict[str, Any],
+        *,
+        now: datetime | None = None,
+    ) -> None:
+        timestamp = now or datetime.now(UTC)
+        with self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO runtime_events (run_id, event_type, occurred_at, payload)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    event_type,
+                    timestamp.isoformat(),
+                    json.dumps(payload, sort_keys=True),
+                ),
+            )
+
+    def issue_permit(
+        self,
+        run_id: str,
+        proposal_id: str,
+        order_key: str,
+        *,
+        allowed_tool: str = "place_equity_order",
+        constraints: dict[str, Any] | None = None,
+        ttl_seconds: int = 300,
+        now: datetime | None = None,
+    ) -> str:
+        if ttl_seconds < 1 or ttl_seconds > 900:
+            raise ValueError("permit ttl_seconds must be between 1 and 900")
+        if self.trading_halted():
+            raise RuntimeError("trading kill switch is active")
+        timestamp = now or datetime.now(UTC)
+        token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        with self._connection() as connection:
+            proposal = connection.execute(
+                """
+                SELECT mode, approved_for_review, payload
+                FROM proposals WHERE proposal_id = ?
+                """,
+                (proposal_id,),
+            ).fetchone()
+            if proposal is None:
+                raise ValueError(f"unknown proposal_id: {proposal_id}")
+            if proposal["mode"] != "live" or not proposal["approved_for_review"]:
+                raise ValueError("permits require an approved live proposal")
+            payload = json.loads(proposal["payload"])
+            order_keys = {order["order_key"] for order in payload.get("orders", [])}
+            if order_key not in order_keys:
+                raise ValueError("permit order_key is not part of the proposal")
+            connection.execute(
+                """
+                INSERT INTO permits (
+                    token_hash, run_id, proposal_id, order_key, allowed_tool,
+                    constraints, status, issued_at, expires_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'issued', ?, ?)
+                """,
+                (
+                    token_hash,
+                    run_id,
+                    proposal_id,
+                    order_key,
+                    allowed_tool,
+                    json.dumps(_permit_constraints(constraints or {}), sort_keys=True),
+                    timestamp.isoformat(),
+                    (timestamp + timedelta(seconds=ttl_seconds)).isoformat(),
+                ),
+            )
+        self.record_runtime_event(
+            run_id,
+            "permit_issued",
+            {
+                "proposal_id": proposal_id,
+                "order_key": order_key,
+                "allowed_tool": allowed_tool,
+                "expires_at": (timestamp + timedelta(seconds=ttl_seconds)).isoformat(),
+            },
+            now=timestamp,
+        )
+        return token
+
+    def permit_status(self, token: str) -> str | None:
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT status FROM permits WHERE token_hash = ?", (token_hash,)
+            ).fetchone()
+        return row["status"] if row else None
+
+    def revoke_permit(self, token: str) -> bool:
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE permits SET status = 'revoked'
+                WHERE token_hash = ? AND status = 'issued'
+                """,
+                (token_hash,),
+            )
+        return cursor.rowcount == 1
+
+    def run_has_permit(self, run_id: str) -> bool:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM permits WHERE run_id = ? LIMIT 1", (run_id,)
+            ).fetchone()
+        return row is not None
+
+    def cycle_placed_notional(self, mandate_id: str, cycle_key: str) -> float:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT e.payload
+                FROM events e
+                JOIN proposals p ON p.proposal_id = e.proposal_id
+                JOIN runs r ON r.run_id = p.run_id
+                WHERE p.mandate_id = ? AND r.cycle_key = ? AND e.event_type = 'placed'
+                """,
+                (mandate_id, cycle_key),
+            ).fetchall()
+        return sum(float(json.loads(row["payload"]).get("notional", 0)) for row in rows)
+
+    def recent_cycle_placed_notionals(
+        self,
+        mandate_id: str,
+        *,
+        before_cycle_key: str,
+        limit: int,
+    ) -> list[float]:
+        if limit <= 0:
+            return []
+        with self._connection() as connection:
+            cycles = connection.execute(
+                """
+                SELECT cycle_key FROM runs
+                WHERE mandate_id = ? AND cycle_key < ?
+                ORDER BY cycle_key DESC
+                LIMIT ?
+                """,
+                (mandate_id, before_cycle_key, limit),
+            ).fetchall()
+        return [self.cycle_placed_notional(mandate_id, row["cycle_key"]) for row in cycles]
+
+    def set_trading_halt(
+        self,
+        halted: bool,
+        *,
+        reason: str,
+        now: datetime | None = None,
+    ) -> None:
+        timestamp = now or datetime.now(UTC)
+        with self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO controls (name, value, updated_at, reason)
+                VALUES ('trading_halted', ?, ?, ?)
+                ON CONFLICT(name) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = excluded.updated_at,
+                    reason = excluded.reason
+                """,
+                ("true" if halted else "false", timestamp.isoformat(), reason),
+            )
+            if halted:
+                connection.execute(
+                    """
+                    UPDATE permits SET status = 'revoked'
+                    WHERE status = 'issued'
+                    """
+                )
+
+    def trading_halted(self) -> bool:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT value FROM controls WHERE name = 'trading_halted'"
+            ).fetchone()
+        return bool(row and row["value"] == "true")
+
+    def operational_snapshot(self) -> dict[str, Any]:
+        with self._connection() as connection:
+            run_rows = connection.execute(
+                "SELECT status, COUNT(*) AS count FROM runs GROUP BY status"
+            ).fetchall()
+            proposal_rows = connection.execute(
+                """
+                SELECT approved_for_review, COUNT(*) AS count
+                FROM proposals GROUP BY approved_for_review
+                """
+            ).fetchall()
+            event_rows = connection.execute(
+                "SELECT event_type, COUNT(*) AS count FROM events GROUP BY event_type"
+            ).fetchall()
+            permit_rows = connection.execute(
+                "SELECT status, COUNT(*) AS count FROM permits GROUP BY status"
+            ).fetchall()
+            last_success = connection.execute(
+                """
+                SELECT updated_at FROM runs
+                WHERE status IN ('held', 'shadow_complete', 'completed')
+                ORDER BY updated_at DESC LIMIT 1
+                """
+            ).fetchone()
+            recent_failures = connection.execute(
+                """
+                SELECT COUNT(*) AS count FROM runs
+                WHERE status = 'failed'
+                  AND julianday(updated_at) >= julianday('now', '-1 day')
+                """
+            ).fetchone()
+        return {
+            "trading_halted": self.trading_halted(),
+            "unresolved_order_count": len(self.unresolved_order_keys()),
+            "runs_by_status": {row["status"]: row["count"] for row in run_rows},
+            "proposals_by_approval": {
+                "approved" if row["approved_for_review"] else "rejected": row["count"]
+                for row in proposal_rows
+            },
+            "order_events_by_type": {row["event_type"]: row["count"] for row in event_rows},
+            "permits_by_status": {row["status"]: row["count"] for row in permit_rows},
+            "last_success_at": last_success["updated_at"] if last_success else None,
+            "failed_runs_24h": recent_failures["count"],
+        }
 
     def add_proposal(self, proposal: TradeProposal) -> None:
-        payload = proposal.model_dump_json()
+        account_reference = _account_reference(proposal.account_id)
+        payload = json.dumps(
+            _redact_account_fields(proposal.model_dump(mode="json"), account_reference),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
         try:
             with self._connection() as connection:
                 connection.execute(
                     """
                     INSERT INTO proposals (
-                        proposal_id, created_at, account_id, mode, approved_for_review, payload
-                    ) VALUES (?, ?, ?, ?, ?, ?)
+                        proposal_id, mandate_id, run_id, created_at, account_id, mode,
+                        approved_for_review, payload
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         proposal.proposal_id,
+                        proposal.mandate_id,
+                        proposal.run_id,
                         proposal.created_at.isoformat(),
-                        proposal.account_id,
+                        account_reference,
                         proposal.mode,
                         int(proposal.risk.approved_for_review),
                         payload,
@@ -158,6 +705,8 @@ class AuditLedger:
         with self._connection() as connection:
             proposals = connection.execute("SELECT COUNT(*) AS count FROM proposals").fetchone()
             events = connection.execute("SELECT COUNT(*) AS count FROM events").fetchone()
+            mandates = connection.execute("SELECT COUNT(*) AS count FROM mandates").fetchone()
+            runs = connection.execute("SELECT COUNT(*) AS count FROM runs").fetchone()
             last_event = connection.execute(
                 "SELECT event_type, occurred_at FROM events ORDER BY id DESC LIMIT 1"
             ).fetchone()
@@ -165,6 +714,9 @@ class AuditLedger:
             "path": str(self.path.resolve()),
             "proposals": proposals["count"],
             "events": events["count"],
+            "mandates": mandates["count"],
+            "runs": runs["count"],
+            "trading_halted": self.trading_halted(),
             "last_event": dict(last_event) if last_event else None,
             "unresolved_order_keys": self.unresolved_order_keys(),
         }
@@ -192,3 +744,31 @@ def _event_key(proposal_id: str, event_type: str, payload: dict[str, Any]) -> st
         separators=(",", ":"),
     )
     return "evt_" + hashlib.sha256(raw.encode()).hexdigest()[:24]
+
+
+def _account_reference(account_id: str) -> str:
+    if account_id.startswith("acct_"):
+        return account_id
+    return (
+        "acct_"
+        + hashlib.sha256(f"edgecraft-account-reference:{account_id}".encode()).hexdigest()[:20]
+    )
+
+
+def _redact_account_fields(value: Any, reference: str) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: (reference if key == "account_id" else _redact_account_fields(item, reference))
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_account_fields(item, reference) for item in value]
+    return value
+
+
+def _permit_constraints(constraints: dict[str, Any]) -> dict[str, Any]:
+    safe = dict(constraints)
+    account_id = safe.pop("account_id", None)
+    if account_id:
+        safe["account_id_hash"] = _account_reference(str(account_id))
+    return safe

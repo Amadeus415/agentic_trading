@@ -4,15 +4,17 @@ This is the operating contract for an agent that can use both the `edgecraft` CL
 
 ## Non-negotiable boundary
 
-Edgecraft never stores Robinhood credentials and never submits an MCP request from Python. The MCP host owns authentication and exposes its current tool schemas. Edgecraft owns research, portfolio reasoning, deterministic limits, proposal identity, and the audit trail.
+Edgecraft never stores Robinhood credentials. `CodexRuntime` launches a structured Codex turn that uses the host's authenticated Robinhood MCP session; Python never receives OAuth tokens. Edgecraft owns mandates, budgets, research, deterministic limits, proposal identity, single-use permits, reconciliation, and the audit trail. See [AUTONOMY.md](AUTONOMY.md) for the primary unattended workflow; this document also describes the lower-level manual protocol.
 
 An approved Edgecraft proposal means **approved for Robinhood review**. It is not an order. A live order may be placed only after:
 
 1. Fresh account, portfolio, position, quote, tradability, and open-order reads.
 2. A freshly recomputed Edgecraft live proposal with no violations.
 3. A successful `review_equity_order` response for the exact order.
-4. The orchestrator's governing user instruction authorizes placement without another confirmation.
-5. The proposal/order key has not previously been placed.
+4. The active mandate is explicitly live and its checked-in policy has `trading_enabled=true`.
+5. Edgecraft has issued one unexpired permit for the exact proposal/order key.
+6. The Codex `PreToolUse` hook claims that permit before allowing `place_equity_order`.
+7. The proposal/order key has not previously been placed.
 
 If any input changes after review, discard the review and start again.
 

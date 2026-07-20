@@ -1,7 +1,7 @@
 [project]
 name = "edgecraft"
-version = "0.1.0"
-description = "Point-in-time, adversarially validated stock strategy research suite"
+version = "0.3.0"
+description = "Autonomous, policy-gated portfolio management and causal stock research"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 dependencies = [
@@ -17,7 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "httpx>=0.28,<1",
+  "httpx2>=2.7,<3",
   "pytest>=8.4,<9",
   "pytest-cov>=6.2,<7",
   "ruff>=0.12,<1",

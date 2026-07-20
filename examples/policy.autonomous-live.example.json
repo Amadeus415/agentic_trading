@@ -1,0 +1,23 @@
+{
+  "policy_name": "index-dca-10-live-example-v1",
+  "trading_enabled": true,
+  "allowed_symbols": [
+    "VTI",
+    "VXUS",
+    "BND"
+  ],
+  "managed_capital_limit": 1000,
+  "max_order_notional": 10,
+  "max_daily_notional": 10,
+  "max_orders_per_day": 3,
+  "max_position_weight": 0.75,
+  "min_cash_reserve": 0,
+  "min_order_notional": 1,
+  "max_quote_age_seconds": 300,
+  "max_snapshot_age_seconds": 300,
+  "max_research_age_days": 45,
+  "max_price_deviation_bps": 100,
+  "allow_sells": false,
+  "require_research_evidence": false,
+  "require_review": true
+}
