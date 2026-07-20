@@ -3,6 +3,8 @@ name = "edgecraft"
 version = "0.3.0"
 description = "Autonomous, policy-gated portfolio management and causal stock research"
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.11,<3.15"
 dependencies = [
   "fastapi>=0.116,<1",
