@@ -185,6 +185,8 @@ class RiskDecision(BaseModel):
 class TradeProposal(BaseModel):
     schema_version: str = "edgecraft.trade-proposal.v1"
     proposal_id: str
+    mandate_id: str | None = None
+    run_id: str | None = None
     created_at: datetime
     mode: Literal["shadow", "live"]
     account_id: str

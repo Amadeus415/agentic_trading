@@ -1,0 +1,239 @@
+from __future__ import annotations
+
+import hashlib
+from datetime import UTC, datetime, timedelta
+from decimal import ROUND_DOWN, Decimal
+from zoneinfo import ZoneInfo
+
+from edgecraft.autonomy_models import Mandate, WeeklyDecision
+from edgecraft.execution_models import (
+    MarketQuote,
+    PortfolioSnapshot,
+    ProposedOrder,
+    ResearchEvidence,
+    RiskDecision,
+    RiskPolicy,
+    TradeProposal,
+)
+from edgecraft.ledger import AuditLedger
+from edgecraft.risk import evaluate_orders
+
+CENT = Decimal("0.01")
+
+
+def cycle_key(mandate: Mandate, now: datetime | None = None) -> str:
+    current = _aware(now or datetime.now(UTC)).astimezone(ZoneInfo(mandate.timezone))
+    year, week, _ = current.isocalendar()
+    return f"{mandate.mandate_id}:{year:04d}-W{week:02d}"
+
+
+def cycle_due(mandate: Mandate, now: datetime | None = None) -> bool:
+    if not mandate.enabled:
+        return False
+    current = _aware(now or datetime.now(UTC)).astimezone(ZoneInfo(mandate.timezone))
+    week_start = current.date() - timedelta(days=current.weekday())
+    scheduled_date = week_start + timedelta(days=mandate.schedule_weekday)
+    scheduled = datetime.combine(
+        scheduled_date, mandate.schedule_time, tzinfo=ZoneInfo(mandate.timezone)
+    )
+    return current >= scheduled
+
+
+def available_cycle_budget(
+    mandate: Mandate,
+    ledger: AuditLedger,
+    *,
+    now: datetime | None = None,
+) -> Decimal:
+    current_key = cycle_key(mandate, now)
+    already_placed = Decimal(str(ledger.cycle_placed_notional(mandate.mandate_id, current_key)))
+    return max(Decimal("0"), mandate.weekly_budget - already_placed).quantize(CENT)
+
+
+def create_weekly_proposal(
+    mandate: Mandate,
+    decision: WeeklyDecision,
+    snapshot: PortfolioSnapshot,
+    quotes: list[MarketQuote],
+    policy: RiskPolicy,
+    *,
+    run_id: str,
+    cycle_budget: Decimal,
+    ledger: AuditLedger | None = None,
+    research: ResearchEvidence | None = None,
+    now: datetime | None = None,
+) -> TradeProposal:
+    current_time = _aware(now or datetime.now(UTC))
+    if decision.mandate_id != mandate.mandate_id:
+        raise ValueError("decision mandate_id does not match mandate")
+    if decision.run_id != run_id:
+        raise ValueError("decision run_id does not match the active run")
+
+    orders, decision_violations = _decision_orders(
+        mandate, decision, quotes, cycle_budget=cycle_budget
+    )
+    daily_notional = ledger.daily_placed_notional(current_time.date()) if ledger else 0.0
+    unresolved = ledger.unresolved_order_keys() if ledger else []
+    risk = evaluate_orders(
+        snapshot,
+        quotes,
+        orders,
+        policy,
+        strategy="agentic_weekly_dca",
+        mode=mandate.mode,
+        daily_placed_notional=daily_notional,
+        unresolved_order_keys=unresolved,
+        research=research,
+        now=current_time,
+    )
+    if decision_violations:
+        violations = sorted(set([*risk.violations, *decision_violations]))
+        risk = risk.model_copy(update={"approved_for_review": False, "violations": violations})
+
+    identifier = _weekly_proposal_id(mandate, run_id, snapshot, orders, policy, decision)
+    proposal = TradeProposal(
+        schema_version="edgecraft.trade-proposal.v2",
+        proposal_id=identifier,
+        mandate_id=mandate.mandate_id,
+        run_id=run_id,
+        created_at=current_time,
+        mode=mandate.mode,
+        account_id=snapshot.account_id,
+        strategy="agentic_weekly_dca",
+        rationale=decision.hypothesis,
+        policy_name=policy.policy_name,
+        snapshot_as_of=snapshot.as_of,
+        orders=orders,
+        risk=risk,
+        research=research,
+        robinhood_handoff=_handoff(snapshot, orders, mandate.mode, risk),
+    )
+    if ledger is not None:
+        ledger.add_proposal(proposal)
+    return proposal
+
+
+def _decision_orders(
+    mandate: Mandate,
+    decision: WeeklyDecision,
+    quotes: list[MarketQuote],
+    *,
+    cycle_budget: Decimal,
+) -> tuple[list[ProposedOrder], list[str]]:
+    quote_map = {quote.symbol: quote for quote in quotes}
+    violations: list[str] = []
+    if decision.action == "hold":
+        violations.append("reasoning agent elected to hold this cycle")
+        return [], violations
+    if decision.confidence < mandate.minimum_confidence:
+        violations.append(
+            "decision confidence "
+            f"{decision.confidence} is below minimum {mandate.minimum_confidence}"
+        )
+
+    allowed = set(mandate.universe)
+    total = sum((allocation.notional for allocation in decision.allocations), Decimal("0"))
+    if total > cycle_budget:
+        violations.append(
+            f"decision notional {total:.2f} exceeds remaining cycle budget {cycle_budget:.2f}"
+        )
+    if total <= 0:
+        violations.append("decision contains no positive investment notional")
+
+    orders: list[ProposedOrder] = []
+    for allocation in decision.allocations:
+        if allocation.symbol not in allowed:
+            violations.append(f"{allocation.symbol} is outside the mandate universe")
+            continue
+        quote = quote_map.get(allocation.symbol)
+        if quote is None:
+            violations.append(f"missing quote for {allocation.symbol}")
+            continue
+        allocation_share = allocation.notional / total if total > 0 else Decimal("0")
+        strategic = mandate.strategic_weights.get(allocation.symbol, Decimal("0"))
+        max_share = min(Decimal("1"), strategic + mandate.tactical_tilt_limit)
+        if allocation_share > max_share + Decimal("0.000001"):
+            violations.append(
+                f"{allocation.symbol} decision share {allocation_share:.1%} exceeds "
+                f"strategic+tactical limit {max_share:.1%}"
+            )
+        notional = allocation.notional.quantize(CENT, rounding=ROUND_DOWN)
+        identity = (
+            f"{mandate.mandate_id}:{decision.run_id}:{allocation.symbol}:"
+            f"{notional}:{quote.as_of.isoformat()}"
+        )
+        orders.append(
+            ProposedOrder(
+                order_key=hashlib.sha256(identity.encode()).hexdigest()[:20],
+                symbol=allocation.symbol,
+                side="buy",
+                notional=float(notional),
+                expected_price=quote.last,
+                rationale=allocation.rationale,
+                quote_as_of=quote.as_of,
+            )
+        )
+    return orders, violations
+
+
+def _weekly_proposal_id(
+    mandate: Mandate,
+    run_id: str,
+    snapshot: PortfolioSnapshot,
+    orders: list[ProposedOrder],
+    policy: RiskPolicy,
+    decision: WeeklyDecision,
+) -> str:
+    content = "|".join(
+        [
+            mandate.mandate_id,
+            run_id,
+            snapshot.as_of.isoformat(),
+            policy.policy_name,
+            decision.as_of.isoformat(),
+            *(f"{order.order_key}:{order.notional:.2f}" for order in orders),
+        ]
+    )
+    return "prop_" + hashlib.sha256(content.encode()).hexdigest()[:24]
+
+
+def _handoff(
+    snapshot: PortfolioSnapshot,
+    orders: list[ProposedOrder],
+    mode: str,
+    risk: RiskDecision,
+) -> dict:
+    return {
+        "status": (
+            "blocked"
+            if not risk.approved_for_review
+            else "shadow_only"
+            if mode == "shadow"
+            else "permit_required"
+        ),
+        "account_refresh_required": True,
+        "placement_authorized": False,
+        "review_calls": [
+            {
+                "tool": "review_equity_order",
+                "order_key": order.order_key,
+                "semantic_arguments": {
+                    "account_id": snapshot.account_id,
+                    "symbol": order.symbol,
+                    "side": order.side,
+                    "dollar_notional": order.notional,
+                    "order_type": order.order_type,
+                    "time_in_force": order.time_in_force,
+                    "limit_price": order.limit_price,
+                },
+            }
+            for order in orders
+        ]
+        if risk.approved_for_review
+        else [],
+        "invariant": "A single-use Edgecraft permit is required for each placement tool call.",
+    }
+
+
+def _aware(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
