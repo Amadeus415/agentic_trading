@@ -1,0 +1,19 @@
+{
+  "policy_name": "bounded-500-shadow-v1",
+  "trading_enabled": false,
+  "allowed_symbols": ["SPY", "QQQ"],
+  "managed_capital_limit": 500,
+  "max_order_notional": 50,
+  "max_daily_notional": 100,
+  "max_orders_per_day": 2,
+  "max_position_weight": 0.4,
+  "min_cash_reserve": 25,
+  "min_order_notional": 1,
+  "max_quote_age_seconds": 300,
+  "max_snapshot_age_seconds": 300,
+  "max_research_age_days": 45,
+  "max_price_deviation_bps": 100,
+  "allow_sells": false,
+  "require_research_evidence": true,
+  "require_review": true
+}

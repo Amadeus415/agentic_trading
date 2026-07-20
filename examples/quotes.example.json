@@ -1,0 +1,22 @@
+{
+  "quotes": [
+    {
+      "symbol": "SPY",
+      "last": 600,
+      "bid": 599.9,
+      "ask": 600.1,
+      "as_of": "2026-07-20T04:40:30Z",
+      "tradable": true,
+      "fractionally_tradable": true
+    },
+    {
+      "symbol": "QQQ",
+      "last": 550,
+      "bid": 549.9,
+      "ask": 550.1,
+      "as_of": "2026-07-20T04:40:30Z",
+      "tradable": true,
+      "fractionally_tradable": true
+    }
+  ]
+}

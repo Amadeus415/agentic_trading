@@ -1,0 +1,13 @@
+{
+  "account_id": "replace-with-fresh-agentic-account-id",
+  "nickname": "Agentic",
+  "account_type": "individual_cash",
+  "agentic_allowed": true,
+  "buying_power": 500,
+  "portfolio_value": 500,
+  "as_of": "2026-07-20T04:40:30Z",
+  "positions": [],
+  "open_orders": [],
+  "account_restricted": false,
+  "source": "robinhood_mcp"
+}

@@ -1,0 +1,40 @@
+{
+  "symbols": ["SPY", "QQQ"],
+  "start": "2015-01-01",
+  "end": "2026-07-18",
+  "initial_capital": 500,
+  "contribution_amount": 25,
+  "contribution_frequency": "monthly",
+  "costs": {
+    "commission_per_order": 0,
+    "slippage_bps": 3,
+    "spread_bps": 2
+  },
+  "strategies": [
+    {"name": "plain_dca", "params": {}},
+    {
+      "name": "value_tilted_dca",
+      "params": {
+        "drawdown_threshold": 0.03,
+        "rsi_threshold": 40,
+        "lookback": 63,
+        "max_wait_sessions": 5
+      }
+    },
+    {
+      "name": "trend_vol_target",
+      "params": {
+        "fast_window": 50,
+        "slow_window": 200,
+        "target_volatility": 0.12,
+        "rebalance_sessions": 5
+      }
+    }
+  ],
+  "validation": {
+    "bootstrap_samples": 300,
+    "bootstrap_block_size": 20,
+    "cscv_slices": 8,
+    "random_seed": 7
+  }
+}
