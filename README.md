@@ -12,7 +12,7 @@ It is not investment advice. Edgecraft never stores broker credentials: a scoped
 - Fractional quantities, cash constraints, spread, slippage, commissions, rejected/partial sizing, contributions, and an auditable fill ledger
 - Multi-symbol portfolios and six included strategy families
 - Block-bootstrap confidence intervals, Deflated Sharpe Ratio (DSR), and Combinatorially Symmetric Cross-Validation Probability of Backtest Overfitting (CSCV/PBO)
-- A FastAPI API and responsive dependency-free autonomy learning workbench
+- A FastAPI API and responsive dependency-free portfolio control plane
 - An interactive, shadow-only policy sandbox backed by the production mandate and risk gates
 - A multi-view run explorer for portfolio value, gains versus deposits, drawdown, idle cash, exposure, strategy isolation, and fill-level inspection
 - Temporal-isolation, data-validation, engine, research, and API tests
@@ -57,12 +57,12 @@ Start the application:
 make dev
 ```
 
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000). Begin with the
-**Guided cycle**, then use the **Policy sandbox** presets to see why stale data,
-low confidence, excess spending, excess tactical tilt, and open broker orders
-are blocked. Continue to **Synthetic demo** in the research lab for a
-deterministic backtest. Switch to **Yahoo market** to download adjusted
-historical data into `data/cache/`.
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000). The overview compares
+portfolio performance with the mandate benchmark, Activity inspects broker
+order transitions, Agent runs exposes the autonomous lifecycle, and How it
+works walks through the model/policy/broker trust boundary. Until broker
+valuation snapshots are persisted, the performance chart is explicitly marked
+as preview data; operational health and audit-ledger activity remain live.
 
 For a terminal-only smoke run:
 
@@ -72,10 +72,10 @@ make demo
 
 The UI uses browser-native JavaScript and SVG, so there is no frontend package install or compilation step.
 
-## Learning workbench
+## Control plane
 
-The web app teaches the system through the same separation of responsibility
-used in production:
+The web app observes and teaches the system through the same separation of
+responsibility used in production:
 
 ```text
 You define the mandate
@@ -86,22 +86,10 @@ You define the mandate
   → Edgecraft reconciles and audits the result
 ```
 
-The policy sandbox is intentionally synthetic and permanently shadow-only. Its
-`POST /api/learn/scenarios` request is converted into real `Mandate`,
-`WeeklyDecision`, `PortfolioSnapshot`, `MarketQuote`, and `RiskPolicy`
-contracts, then passed through `create_weekly_proposal`. The displayed
-violations therefore come from the same deterministic controls as an
-autonomous cycle; the sandbox does not contact Robinhood, mint permits, or
-place orders.
-
-Use the presets as a sequence:
-
-1. **Healthy cycle** — see the complete approved shadow path.
-2. **Stale data** — watch quote and snapshot freshness fail closed.
-3. **Over budget** — prove the weekly contribution is a ceiling.
-4. **Low confidence** — separate model conviction from authority.
-5. **Excess tilt** — see strategic weights bound tactical judgment.
-6. **Open order** — prevent overlapping or ambiguous broker state.
+`GET /api/control-plane` is a privacy-safe read model over the append-only
+SQLite ledger. It exposes mandates, runs, runtime events, redacted proposals,
+and order transitions without account identifiers, broker order identifiers,
+or credentials. The browser never gains trade-placement authority.
 
 ## Orchestrator CLI
 
@@ -207,6 +195,7 @@ scripts/demo.py               deterministic terminal demo
 
 - `GET /api/health` — liveness and version
 - `GET /api/autonomy/health` — autonomous control-plane readiness
+- `GET /api/control-plane` — redacted mandates, runs, proposals, and order events for the operator UI
 - `GET /metrics` — Prometheus-format operational metrics
 - `GET /api/learn` — system map, interface comparison, and broker invariants
 - `POST /api/learn/scenarios` — safe synthetic inputs through the real policy gate
