@@ -432,10 +432,12 @@ def _json_request(
     body: dict[str, Any] | None,
     timeout: float,
 ) -> dict[str, Any]:
+    _validate_public_https_url(url)
     data = json.dumps(body).encode() if body is not None else None
     request = Request(url, data=data, headers=headers, method=method)
     try:
-        with urlopen(request, timeout=timeout) as response:  # noqa: S310 - validated HTTPS APIs
+        # URL validation above rejects non-HTTPS and private literal addresses.
+        with urlopen(request, timeout=timeout) as response:  # nosec B310
             raw = response.read()
     except HTTPError as exc:
         raise ContextUnavailable(
