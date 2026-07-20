@@ -20,7 +20,12 @@ def test_synthetic_backtest_endpoint():
             "contribution_amount": 50,
             "contribution_frequency": "weekly",
             "strategies": [{"name": "plain_dca", "params": {}}],
-            "validation": {"bootstrap_samples": 0, "bootstrap_block_size": 20, "cscv_slices": 4, "random_seed": 7},
+            "validation": {
+                "bootstrap_samples": 0,
+                "bootstrap_block_size": 20,
+                "cscv_slices": 4,
+                "random_seed": 7,
+            },
         },
     )
     assert response.status_code == 200, response.text

@@ -37,9 +37,7 @@ class MarketDataProvider:
             raise MarketDataError("The requested universe has fewer than 60 common sessions")
         return {symbol: frame.loc[common].copy() for symbol, frame in frames.items()}
 
-    def _load_symbol(
-        self, symbol: str, start: str, end: str, *, refresh: bool
-    ) -> pd.DataFrame:
+    def _load_symbol(self, symbol: str, start: str, end: str, *, refresh: bool) -> pd.DataFrame:
         key = hashlib.sha256(f"v2:{symbol}:{start}:{end}".encode()).hexdigest()[:16]
         path = self.cache_dir / f"{symbol}_{key}.csv"
         if path.exists() and not refresh:
@@ -97,9 +95,9 @@ def validate_ohlcv(frame: pd.DataFrame, symbol: str = "asset") -> pd.DataFrame:
     # units even when the economic bar is valid. Keep a machine-scale relative
     # tolerance while still rejecting any material OHLC inconsistency.
     tolerance = frame["close"].abs().clip(lower=1.0) * 1e-10
-    invalid_range = (
-        frame["high"] < frame[["open", "close", "low"]].max(axis=1) - tolerance
-    ) | (frame["low"] > frame[["open", "close", "high"]].min(axis=1) + tolerance)
+    invalid_range = (frame["high"] < frame[["open", "close", "low"]].max(axis=1) - tolerance) | (
+        frame["low"] > frame[["open", "close", "high"]].min(axis=1) + tolerance
+    )
     if invalid_range.any():
         raise MarketDataError(f"{symbol} contains invalid OHLC ranges")
     if len(frame) < 60:

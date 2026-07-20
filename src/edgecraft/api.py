@@ -43,7 +43,9 @@ def backtests(
 ) -> dict:
     try:
         if data_source == "synthetic":
-            data = synthetic_market_data(request.symbols, periods=1_500, seed=request.validation.random_seed)
+            data = synthetic_market_data(
+                request.symbols, periods=1_500, seed=request.validation.random_seed
+            )
         else:
             data = MarketDataProvider().load(
                 request.symbols,
@@ -61,6 +63,7 @@ def backtests(
 
 frontend_dist = Path(__file__).resolve().parents[2] / "frontend"
 if (frontend_dist / "index.html").exists():
+
     @app.get("/{path:path}")
     def spa(path: str):
         candidate = frontend_dist / ("src/styles.css" if path == "styles.css" else path)

@@ -40,7 +40,9 @@ class Strategy(ABC):
         clean_weights = {symbol: max(0.0, float(weight)) for symbol, weight in weights.items()}
         total_weight = sum(clean_weights.values())
         if total_weight > 1.000001:
-            clean_weights = {symbol: weight / total_weight for symbol, weight in clean_weights.items()}
+            clean_weights = {
+                symbol: weight / total_weight for symbol, weight in clean_weights.items()
+            }
         for symbol in context.prices:
             current = context.state.shares.get(symbol, 0.0) * context.prices[symbol]
             target = equity * clean_weights.get(symbol, 0.0)
@@ -146,7 +148,9 @@ class TrendVolTarget(Strategy):
             if len(history) < self.slow_window:
                 continue
             close = history["close"]
-            trend_on = close.iloc[-self.fast_window :].mean() > close.iloc[-self.slow_window :].mean()
+            trend_on = (
+                close.iloc[-self.fast_window :].mean() > close.iloc[-self.slow_window :].mean()
+            )
             vol = float(realized_volatility(close, self.vol_window).iloc[-1])
             if trend_on and np.isfinite(vol) and vol > 0:
                 raw[symbol] = min(1.0, self.target_volatility / vol)
@@ -189,9 +193,11 @@ class MeanReversion(Strategy):
                 self.active.add(symbol)
             elif zscore >= self.exit_z:
                 self.active.discard(symbol)
-        weights = {
-            symbol: min(self.max_weight, 1 / len(self.active)) for symbol in self.active
-        } if self.active else {}
+        weights = (
+            {symbol: min(self.max_weight, 1 / len(self.active)) for symbol in self.active}
+            if self.active
+            else {}
+        )
         return self.rebalance(context, weights, "mean_reversion_zscore")
 
 
@@ -240,9 +246,7 @@ class AdaptiveEnsemble(Strategy):
         raw = {symbol: positive[symbol] * inverse_vol[symbol] for symbol in positive}
         total = sum(raw.values())
         weights = {symbol: value / total for symbol, value in raw.items()}
-        portfolio_vol_proxy = sum(
-            weights[symbol] / inverse_vol[symbol] for symbol in weights
-        )
+        portfolio_vol_proxy = sum(weights[symbol] / inverse_vol[symbol] for symbol in weights)
         scale = min(1.0, self.target_volatility / max(portfolio_vol_proxy, 0.01))
         return self.rebalance(
             context,
@@ -311,7 +315,9 @@ class ConformalML(Strategy):
         cal_prob = model.predict_proba(labeled.iloc[split:])
         cal_y = labels.iloc[split:].to_numpy()
         nonconformity = 1 - cal_prob[np.arange(len(cal_y)), cal_y]
-        rank = min(len(nonconformity) - 1, int(np.ceil((len(nonconformity) + 1) * (1 - self.alpha))) - 1)
+        rank = min(
+            len(nonconformity) - 1, int(np.ceil((len(nonconformity) + 1) * (1 - self.alpha))) - 1
+        )
         threshold = float(np.sort(nonconformity)[rank])
         latest = features.iloc[[-1]].dropna()
         if latest.empty:
@@ -344,7 +350,14 @@ class ConformalML(Strategy):
 
 STRATEGIES: dict[str, type[Strategy]] = {
     strategy.name: strategy
-    for strategy in [PlainDCA, ValueTiltedDCA, TrendVolTarget, MeanReversion, AdaptiveEnsemble, ConformalML]
+    for strategy in [
+        PlainDCA,
+        ValueTiltedDCA,
+        TrendVolTarget,
+        MeanReversion,
+        AdaptiveEnsemble,
+        ConformalML,
+    ]
 }
 
 
@@ -360,10 +373,38 @@ STRATEGY_SCHEMAS: list[dict[str, Any]] = [
         "label": "Value-tilted DCA",
         "description": "Buys on drawdowns or low RSI, with a forced deadline to cap cash drag.",
         "params": [
-            {"key": "drawdown_threshold", "label": "Drawdown threshold", "value": 0.03, "min": 0.01, "max": 0.2, "step": 0.01},
-            {"key": "rsi_threshold", "label": "RSI threshold", "value": 40, "min": 20, "max": 60, "step": 1},
-            {"key": "lookback", "label": "Drawdown lookback", "value": 63, "min": 20, "max": 252, "step": 1},
-            {"key": "max_wait_sessions", "label": "Forced-buy sessions", "value": 5, "min": 1, "max": 63, "step": 1},
+            {
+                "key": "drawdown_threshold",
+                "label": "Drawdown threshold",
+                "value": 0.03,
+                "min": 0.01,
+                "max": 0.2,
+                "step": 0.01,
+            },
+            {
+                "key": "rsi_threshold",
+                "label": "RSI threshold",
+                "value": 40,
+                "min": 20,
+                "max": 60,
+                "step": 1,
+            },
+            {
+                "key": "lookback",
+                "label": "Drawdown lookback",
+                "value": 63,
+                "min": 20,
+                "max": 252,
+                "step": 1,
+            },
+            {
+                "key": "max_wait_sessions",
+                "label": "Forced-buy sessions",
+                "value": 5,
+                "min": 1,
+                "max": 63,
+                "step": 1,
+            },
         ],
     },
     {
@@ -371,9 +412,30 @@ STRATEGY_SCHEMAS: list[dict[str, Any]] = [
         "label": "Trend + volatility target",
         "description": "Time-series trend filter with inverse-volatility exposure scaling.",
         "params": [
-            {"key": "fast_window", "label": "Fast window", "value": 50, "min": 5, "max": 150, "step": 1},
-            {"key": "slow_window", "label": "Slow window", "value": 200, "min": 50, "max": 400, "step": 1},
-            {"key": "target_volatility", "label": "Target volatility", "value": 0.12, "min": 0.04, "max": 0.3, "step": 0.01},
+            {
+                "key": "fast_window",
+                "label": "Fast window",
+                "value": 50,
+                "min": 5,
+                "max": 150,
+                "step": 1,
+            },
+            {
+                "key": "slow_window",
+                "label": "Slow window",
+                "value": 200,
+                "min": 50,
+                "max": 400,
+                "step": 1,
+            },
+            {
+                "key": "target_volatility",
+                "label": "Target volatility",
+                "value": 0.12,
+                "min": 0.04,
+                "max": 0.3,
+                "step": 0.01,
+            },
         ],
     },
     {
@@ -382,8 +444,22 @@ STRATEGY_SCHEMAS: list[dict[str, Any]] = [
         "description": "Long-only rolling z-score entries with explicit exits and allocation caps.",
         "params": [
             {"key": "lookback", "label": "Lookback", "value": 20, "min": 5, "max": 100, "step": 1},
-            {"key": "entry_z", "label": "Entry z-score", "value": -1.5, "min": -3, "max": -0.5, "step": 0.1},
-            {"key": "exit_z", "label": "Exit z-score", "value": 0, "min": -0.5, "max": 1, "step": 0.1},
+            {
+                "key": "entry_z",
+                "label": "Entry z-score",
+                "value": -1.5,
+                "min": -3,
+                "max": -0.5,
+                "step": 0.1,
+            },
+            {
+                "key": "exit_z",
+                "label": "Exit z-score",
+                "value": 0,
+                "min": -0.5,
+                "max": 1,
+                "step": 0.1,
+            },
         ],
     },
     {
@@ -391,9 +467,30 @@ STRATEGY_SCHEMAS: list[dict[str, Any]] = [
         "label": "Regime-adaptive ensemble",
         "description": "Combines momentum, short reversal, RSI gating, and inverse-volatility weighting.",
         "params": [
-            {"key": "trend_window", "label": "Trend window", "value": 126, "min": 21, "max": 252, "step": 1},
-            {"key": "target_volatility", "label": "Target volatility", "value": 0.12, "min": 0.04, "max": 0.3, "step": 0.01},
-            {"key": "rebalance_sessions", "label": "Rebalance sessions", "value": 21, "min": 1, "max": 63, "step": 1},
+            {
+                "key": "trend_window",
+                "label": "Trend window",
+                "value": 126,
+                "min": 21,
+                "max": 252,
+                "step": 1,
+            },
+            {
+                "key": "target_volatility",
+                "label": "Target volatility",
+                "value": 0.12,
+                "min": 0.04,
+                "max": 0.3,
+                "step": 0.01,
+            },
+            {
+                "key": "rebalance_sessions",
+                "label": "Rebalance sessions",
+                "value": 21,
+                "min": 1,
+                "max": 63,
+                "step": 1,
+            },
         ],
     },
     {
@@ -401,9 +498,30 @@ STRATEGY_SCHEMAS: list[dict[str, Any]] = [
         "label": "Rolling conformal ML",
         "description": "Walk-forward gradient boosting; trades only when the split-conformal set excludes the negative class.",
         "params": [
-            {"key": "training_window", "label": "Training window", "value": 756, "min": 252, "max": 1500, "step": 21},
-            {"key": "alpha", "label": "Miscoverage alpha", "value": 0.15, "min": 0.05, "max": 0.4, "step": 0.05},
-            {"key": "rebalance_sessions", "label": "Refit/rebalance sessions", "value": 21, "min": 5, "max": 63, "step": 1},
+            {
+                "key": "training_window",
+                "label": "Training window",
+                "value": 756,
+                "min": 252,
+                "max": 1500,
+                "step": 21,
+            },
+            {
+                "key": "alpha",
+                "label": "Miscoverage alpha",
+                "value": 0.15,
+                "min": 0.05,
+                "max": 0.4,
+                "step": 0.05,
+            },
+            {
+                "key": "rebalance_sessions",
+                "label": "Refit/rebalance sessions",
+                "value": 21,
+                "min": 5,
+                "max": 63,
+                "step": 1,
+            },
         ],
     },
 ]
