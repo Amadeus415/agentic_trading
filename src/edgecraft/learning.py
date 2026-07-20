@@ -313,7 +313,7 @@ def run_learning_scenario(request: LearningScenarioRequest) -> dict:
                 "status": "ready" if approved else "not_run",
                 "title": "Audit-ready result",
                 "detail": (
-                    f"Proposal {proposal.proposal_id} is deterministic for these inputs."
+                    f"Proposal {proposal.proposal_id} content-addresses these inputs and timestamps."
                     if approved
                     else "The exact rejection reasons remain visible for audit and learning."
                 ),

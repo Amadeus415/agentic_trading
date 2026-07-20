@@ -52,7 +52,10 @@ def test_frontend_serves_about_and_run_explorer():
     script = client.get("/app.js")
     assert index.status_code == 200
     assert script.status_code == 200
+    assert "Autonomy Workbench" in index.text
     assert "How it works" in script.text
+    assert "RUN REAL POLICY GATE" in script.text
+    assert "/api/learn/scenarios" in script.text
     assert "RUN EXPLORER" in script.text
 
 
