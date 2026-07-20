@@ -37,6 +37,7 @@ class Mandate(BaseModel):
     decision_model: str | None = None
     policy_path: str
     research_evidence_path: str | None = None
+    external_context_path: str | None = None
     owner_notes: str = Field(default="", max_length=2_000)
 
     @field_validator("universe")
@@ -89,6 +90,8 @@ class Mandate(BaseModel):
             raise ValueError(f"strategic_weights symbols are outside universe: {missing}")
         if self.allow_sells and self.mode == "live" and self.risk_level == "conservative":
             raise ValueError("conservative live mandates cannot enable autonomous sells")
+        if self.mode == "live" and not self.external_context_path:
+            raise ValueError("live mandates require external_context_path")
         return self
 
     @property
@@ -132,6 +135,7 @@ class WeeklyDecision(BaseModel):
     risks: list[str] = Field(default_factory=list, max_length=30)
     allocations: list[DecisionAllocation] = Field(default_factory=list, max_length=20)
     data_sources: list[str] = Field(default_factory=list, max_length=30)
+    context_source_ids: list[str] = Field(default_factory=list, max_length=30)
 
     @field_validator("as_of")
     @classmethod
@@ -149,6 +153,8 @@ class WeeklyDecision(BaseModel):
         symbols = [allocation.symbol for allocation in self.allocations]
         if len(symbols) != len(set(symbols)):
             raise ValueError("decision allocations must contain unique symbols")
+        if len(self.context_source_ids) != len(set(self.context_source_ids)):
+            raise ValueError("context_source_ids must be unique")
         return self
 
 

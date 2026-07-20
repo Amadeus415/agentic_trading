@@ -19,6 +19,7 @@ from edgecraft.autonomy_models import (
     Mandate,
 )
 from edgecraft.codex_runtime import CodexRuntime, CodexRuntimeConfig
+from edgecraft.context import ContextCollector, ContextSnapshot, WebContextPolicy
 from edgecraft.execution_models import (
     ProposedOrder,
     ResearchEvidence,
@@ -47,6 +48,7 @@ class AgentRuntime(Protocol):
         run_id: str,
         remaining_budget: Decimal,
         ledger_path: str | Path,
+        external_context: ContextSnapshot | None = None,
     ) -> AgentCyclePayload: ...
 
     def execute_order(
@@ -76,10 +78,14 @@ class AutonomousService:
         repository: str | Path,
         ledger: AuditLedger,
         runtime: AgentRuntime | None = None,
+        context_collector: ContextCollector | None = None,
+        context_policy: WebContextPolicy | None = None,
     ) -> None:
         self.repository = Path(repository).resolve()
         self.ledger = ledger
         self.runtime = runtime
+        self.context_collector = context_collector
+        self.context_policy = context_policy
 
     def run_cycle(
         self,
@@ -196,13 +202,21 @@ class AutonomousService:
             payload={"remaining_budget": str(budget)},
             now=now,
         )
+        external_context = self._collect_context(mandate, run_id, now)
         observation = self.runtime.observe(
             mandate,
             run_id=run_id,
             remaining_budget=budget,
             ledger_path=self.ledger.path,
+            external_context=external_context,
         )
-        self._validate_observation(mandate, run_id, observation)
+        self._validate_observation(
+            mandate,
+            run_id,
+            observation,
+            external_context=external_context,
+            context_policy=self.context_policy,
+        )
         self.ledger.record_runtime_event(
             run_id,
             "observation_completed",
@@ -404,11 +418,41 @@ class AutonomousService:
         with resolved.open(encoding="utf-8") as handle:
             return model_type.model_validate(json.load(handle))
 
+    def _collect_context(
+        self,
+        mandate: Mandate,
+        run_id: str,
+        now: datetime,
+    ) -> ContextSnapshot | None:
+        if not mandate.external_context_path:
+            return None
+        if self.context_collector is None or self.context_policy is None:
+            raise RuntimeError(
+                "mandate requires external context but no context collector is configured"
+            )
+        snapshot = self.context_collector.collect(mandate.universe, now=now)
+        self.ledger.record_runtime_event(
+            run_id,
+            "external_context_collected",
+            snapshot.model_dump(mode="json"),
+            now=now,
+        )
+        if (
+            self.context_policy.require_for_live
+            and mandate.mode == "live"
+            and not snapshot.complete
+        ):
+            raise RuntimeError("live cycle blocked because required external context is incomplete")
+        return snapshot
+
     @staticmethod
     def _validate_observation(
         mandate: Mandate,
         run_id: str,
         observation: AgentCyclePayload,
+        *,
+        external_context: ContextSnapshot | None = None,
+        context_policy: WebContextPolicy | None = None,
     ) -> None:
         if observation.decision.mandate_id != mandate.mandate_id:
             raise ValueError("agent observation returned the wrong mandate_id")
@@ -417,6 +461,16 @@ class AutonomousService:
         decision_symbols = {allocation.symbol for allocation in observation.decision.allocations}
         if not decision_symbols.issubset(set(mandate.universe)):
             raise ValueError("agent observation proposed a symbol outside the mandate universe")
+        if external_context is not None:
+            known_ids = {source.source_id for source in external_context.sources}
+            cited_ids = set(observation.decision.context_source_ids)
+            if not cited_ids.issubset(known_ids):
+                raise ValueError("agent observation cited an unknown external context source")
+            required = context_policy.min_decision_citations if context_policy else 1
+            if observation.decision.action == "invest" and len(cited_ids) < required:
+                raise ValueError(
+                    f"invest decision requires at least {required} external context citations"
+                )
 
     def _summary(self, run_id: str) -> dict:
         run = self.ledger.get_run(run_id)
@@ -448,8 +502,9 @@ class StaticObservationRuntime:
         run_id: str,
         remaining_budget: Decimal,
         ledger_path: str | Path,
+        external_context: ContextSnapshot | None = None,
     ) -> AgentCyclePayload:
-        del mandate, remaining_budget, ledger_path
+        del mandate, remaining_budget, ledger_path, external_context
         if self.payload.decision.run_id != run_id:
             return self.payload.model_copy(
                 update={"decision": self.payload.decision.model_copy(update={"run_id": run_id})}

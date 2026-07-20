@@ -18,6 +18,7 @@ data can be incomplete, and none of this promises a return.
 - Walk-forward tests, Deflated Sharpe Ratio, and backtest-overfitting checks
 - A typed weekly investing mandate and deterministic risk policy
 - A local dashboard, CLI, and append-only audit ledger
+- Audited Browserbase web search plus SEC and public Bluesky context
 - Shadow trading and an explicitly armed, tightly limited Robinhood path
 - A kill switch, expiring single-use trade permits, and broker reconciliation
 
@@ -30,7 +31,8 @@ model proposes → policy checks → broker reviews → exact order executes →
 ## Try it locally
 
 You’ll need Python 3.11–3.14, [uv](https://docs.astral.sh/uv/), and Node for one
-JavaScript syntax check.
+JavaScript syntax check. Autonomous web context also needs a free
+[Browserbase](https://www.browserbase.com/) project key.
 
 ```bash
 make install
@@ -49,6 +51,9 @@ make demo
 The checked-in mandate is shadow-only. Do not turn on live trading until you
 have read [the autonomy guide](docs/AUTONOMY.md), reviewed every limit, and run
 enough shadow cycles to understand the failure modes.
+
+See [the external-context guide](docs/EXTERNAL_CONTEXT.md) to configure and test
+current web, filing, and social inputs without placing an order.
 
 ## Privacy and security
 
@@ -73,6 +78,7 @@ treated as perfectly secure.
 - `examples/` — synthetic and placeholder-only configurations
 - `tests/` — unit, integration, dry-run, and failure-path tests
 - `docs/AUTONOMY.md` — operating model and live-trading boundary
+- `docs/EXTERNAL_CONTEXT.md` — Browserbase and public-context data contract
 - `docs/ORCHESTRATOR.md` — lower-level Robinhood MCP handoff
 
 Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md).

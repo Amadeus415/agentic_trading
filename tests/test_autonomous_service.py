@@ -8,6 +8,7 @@ import pytest
 
 from edgecraft.autonomous_service import AutonomousService, StaticObservationRuntime
 from edgecraft.autonomy_models import AgentCyclePayload, ExecutionResult, Mandate
+from edgecraft.context import ContextSnapshot, ContextSource, WebContextPolicy
 from edgecraft.execution_models import TradeProposal
 from edgecraft.ledger import AuditLedger
 
@@ -103,6 +104,38 @@ def _write_policy(tmp_path):
     return policy
 
 
+class FixedContextCollector:
+    def __init__(self, snapshot):
+        self.snapshot = snapshot
+
+    def collect(self, symbols, *, now=None):
+        del symbols, now
+        return self.snapshot
+
+
+def _context_snapshot(*, complete=True):
+    sources = [
+        ContextSource(
+            source_id=f"web-{index}",
+            channel="web" if index == 1 else "social",
+            title=f"Context {index}",
+            url=f"https://source{index}.example/item",
+            retrieved_at=NOW,
+            published_at=NOW,
+        )
+        for index in (1, 2)
+    ]
+    return ContextSnapshot(
+        collected_at=NOW,
+        provider="test",
+        symbols=["VTI", "VXUS"],
+        queries=["test query"],
+        sources=sources,
+        fresh_source_count=2,
+        complete=complete,
+    )
+
+
 def test_shadow_cycle_is_idempotent_and_audited(tmp_path):
     policy = _write_policy(tmp_path)
     mandate = _mandate(str(policy))
@@ -119,6 +152,68 @@ def test_shadow_cycle_is_idempotent_and_audited(tmp_path):
     assert replay["idempotent_replay"]
     assert replay["run"]["run_id"] == first["run"]["run_id"]
     assert ledger.status()["proposals"] == 1
+
+
+def test_external_context_is_audited_and_investment_requires_known_citations(tmp_path):
+    policy_path = _write_policy(tmp_path)
+    mandate = _mandate(str(policy_path)).model_copy(
+        update={"external_context_path": "context.json"}
+    )
+    snapshot = _context_snapshot()
+    context_policy = WebContextPolicy(min_sources=2, min_fresh_sources=2)
+    cited_payload = _payload().model_copy(
+        update={
+            "decision": _payload().decision.model_copy(
+                update={"context_source_ids": ["web-1", "web-2"]}
+            )
+        }
+    )
+    ledger = AuditLedger(tmp_path / "state.db")
+    service = AutonomousService(
+        tmp_path,
+        ledger,
+        StaticObservationRuntime(cited_payload),
+        context_collector=FixedContextCollector(snapshot),
+        context_policy=context_policy,
+    )
+
+    result = service.run_cycle(mandate, now=NOW)
+
+    assert result["run"]["status"] == "shadow_complete"
+    assert any(
+        event["event_type"] == "external_context_collected"
+        for event in ledger.observability_feed()["runtime_events"]
+    )
+
+    uncited_ledger = AuditLedger(tmp_path / "uncited.db")
+    uncited = AutonomousService(
+        tmp_path,
+        uncited_ledger,
+        StaticObservationRuntime(_payload()),
+        context_collector=FixedContextCollector(snapshot),
+        context_policy=context_policy,
+    )
+    with pytest.raises(ValueError, match="at least 2 external context citations"):
+        uncited.run_cycle(mandate, now=NOW)
+
+
+def test_incomplete_context_blocks_live_cycle_before_authority(tmp_path):
+    policy_path = _write_policy(tmp_path)
+    mandate = _mandate(str(policy_path)).model_copy(
+        update={"mode": "live", "external_context_path": "context.json"}
+    )
+    ledger = AuditLedger(tmp_path / "state.db")
+    service = AutonomousService(
+        tmp_path,
+        ledger,
+        StaticObservationRuntime(_payload()),
+        context_collector=FixedContextCollector(_context_snapshot(complete=False)),
+        context_policy=WebContextPolicy(min_sources=2, min_fresh_sources=2),
+    )
+
+    with pytest.raises(RuntimeError, match="required external context is incomplete"):
+        service.run_cycle(mandate, now=NOW)
+    assert not ledger.run_has_permit(ledger.list_runs()[0]["run_id"])
 
 
 def test_hold_is_a_successful_terminal_decision(tmp_path):
@@ -150,7 +245,15 @@ class FailsOnceRuntime(StaticObservationRuntime):
         super().__init__(payload)
         self.calls = 0
 
-    def observe(self, mandate, *, run_id, remaining_budget, ledger_path):
+    def observe(
+        self,
+        mandate,
+        *,
+        run_id,
+        remaining_budget,
+        ledger_path,
+        external_context=None,
+    ):
         self.calls += 1
         if self.calls == 1:
             raise RuntimeError("transient MCP failure")
@@ -159,6 +262,7 @@ class FailsOnceRuntime(StaticObservationRuntime):
             run_id=run_id,
             remaining_budget=remaining_budget,
             ledger_path=ledger_path,
+            external_context=external_context,
         )
 
 

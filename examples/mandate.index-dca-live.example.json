@@ -25,5 +25,6 @@
   "decision_model": null,
   "policy_path": "examples/policy.autonomous-live.example.json",
   "research_evidence_path": null,
+  "external_context_path": "examples/context.browserbase.json",
   "owner_notes": "Example only. Review every field, then set enabled=true to arm this separately versioned live mandate."
 }

@@ -14,6 +14,7 @@ from edgecraft.analytics import market_diagnostics, portfolio_market_risk
 from edgecraft.autonomous_service import AutonomousService, StaticObservationRuntime
 from edgecraft.autonomy_models import AgentCyclePayload, Mandate
 from edgecraft.codex_runtime import CodexRuntime, CodexRuntimeConfig
+from edgecraft.context import browserbase_api_key, load_context_service
 from edgecraft.data import MarketDataProvider, synthetic_market_data
 from edgecraft.execution_models import (
     MarketQuote,
@@ -55,6 +56,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     commands.add_parser("strategies", help="Print the machine-readable strategy catalog.")
     commands.add_parser("protocol", help="Print the Robinhood orchestration contract.")
+
+    context = commands.add_parser(
+        "context", help="Collect an auditable Browserbase, SEC, and Bluesky context packet."
+    )
+    context.add_argument("--config", required=True, type=Path)
+    context.add_argument("--symbols", required=True, help="Comma-separated equity symbols.")
+    context.add_argument("--output", type=Path)
 
     market = commands.add_parser(
         "market",
@@ -239,6 +247,10 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
         return STRATEGY_SCHEMAS
     if args.command == "protocol":
         return robinhood_protocol()
+    if args.command == "context":
+        service = load_context_service(Path.cwd(), args.config)
+        symbols = [item.strip().upper() for item in args.symbols.split(",") if item.strip()]
+        return service.collect(symbols).model_dump(mode="json")
     if args.command == "market":
         symbols = _symbols(args.symbols, args.benchmark)
         data = MarketDataProvider().load(symbols, args.start, args.end)
@@ -304,7 +316,18 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
             runtime = StaticObservationRuntime(payload)
         else:
             runtime = CodexRuntime(CodexRuntimeConfig(repository=Path.cwd()))
-        return AutonomousService(Path.cwd(), ledger, runtime).run_cycle(mandate, force=args.force)
+        context_service = (
+            load_context_service(Path.cwd(), mandate.external_context_path)
+            if mandate.external_context_path
+            else None
+        )
+        return AutonomousService(
+            Path.cwd(),
+            ledger,
+            runtime,
+            context_collector=context_service,
+            context_policy=context_service.policy if context_service else None,
+        ).run_cycle(mandate, force=args.force)
     if args.command == "backtest":
         request = BacktestRequest.model_validate(_read_json(args.config))
         multiplier = float(getattr(args, "cost_multiplier", 1.0))
@@ -438,6 +461,12 @@ def health_check(ledger_path: str, real_data_symbol: str | None = None) -> dict[
         "robinhood_mcp": mcp,
         "market_data": market_data,
         "ledger": ledger,
+        "web_context": {
+            "provider": "browserbase",
+            "configured": bool(browserbase_api_key()),
+            "search_endpoint": "https://api.browserbase.com/v1/search",
+            "fetch_endpoint": "https://api.browserbase.com/v1/fetch",
+        },
         "note": "Health verifies configuration, not current account eligibility; refresh get_accounts.",
     }
 
