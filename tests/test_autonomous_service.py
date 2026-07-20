@@ -1,10 +1,13 @@
+import hashlib
 import json
+import sqlite3
 from datetime import UTC, datetime, time
+from decimal import Decimal
 
 import pytest
 
 from edgecraft.autonomous_service import AutonomousService, StaticObservationRuntime
-from edgecraft.autonomy_models import AgentCyclePayload, Mandate
+from edgecraft.autonomy_models import AgentCyclePayload, ExecutionResult, Mandate
 from edgecraft.execution_models import TradeProposal
 from edgecraft.ledger import AuditLedger
 
@@ -215,3 +218,70 @@ def test_permit_makes_failed_run_non_retryable(tmp_path):
     ledger.issue_permit(run_id, proposal.proposal_id, "order-test", now=NOW)
     ledger.update_run(run_id, "failed", detail="execution uncertainty", now=NOW)
     assert not ledger.run_is_safe_to_retry(run_id)
+
+
+class FilledLiveRuntime(StaticObservationRuntime):
+    def execute_order(
+        self,
+        mandate,
+        proposal,
+        order,
+        *,
+        permit_token,
+        ledger_path,
+    ):
+        del mandate
+        token_hash = hashlib.sha256(permit_token.encode()).hexdigest()
+        connection = sqlite3.connect(ledger_path)
+        connection.execute(
+            """
+            UPDATE permits SET status = 'claimed', claimed_at = ?
+            WHERE token_hash = ? AND status = 'issued'
+            """,
+            (NOW.isoformat(), token_hash),
+        )
+        connection.commit()
+        connection.close()
+        return ExecutionResult(
+            run_id=proposal.run_id,
+            proposal_id=proposal.proposal_id,
+            order_key=order.order_key,
+            status="filled",
+            broker_order_id="broker-test-order",
+            symbol=order.symbol,
+            side=order.side,
+            requested_notional=Decimal(str(order.notional)),
+            filled_notional=Decimal(str(order.notional)),
+            average_fill_price=Decimal("330"),
+            observed_at=NOW,
+        )
+
+
+def test_live_cycle_records_guarded_fill_and_spend(tmp_path):
+    policy_path = tmp_path / "live-policy.json"
+    policy_path.write_text(
+        json.dumps(
+            {
+                "policy_name": "service-live",
+                "trading_enabled": True,
+                "allowed_symbols": ["VTI", "VXUS"],
+                "managed_capital_limit": 1000,
+                "max_order_notional": 10,
+                "max_daily_notional": 10,
+                "max_orders_per_day": 2,
+                "max_position_weight": 0.75,
+                "min_cash_reserve": 0,
+                "require_research_evidence": False,
+            }
+        )
+    )
+    mandate = _mandate(str(policy_path)).model_copy(update={"mode": "live"})
+    ledger = AuditLedger(tmp_path / "state.db")
+    service = AutonomousService(tmp_path, ledger, FilledLiveRuntime(_payload()))
+
+    result = service.run_cycle(mandate, now=NOW)
+    assert result["ok"]
+    assert result["run"]["status"] == "completed"
+    assert ledger.daily_placed_notional(NOW.date()) == 10
+    assert not ledger.unresolved_order_keys()
+    assert ledger.operational_snapshot()["permits_by_status"]["claimed"] == 2

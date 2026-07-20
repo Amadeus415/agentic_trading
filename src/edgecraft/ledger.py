@@ -421,6 +421,33 @@ class AuditLedger:
         )
         return token
 
+    def permit_status(self, token: str) -> str | None:
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT status FROM permits WHERE token_hash = ?", (token_hash,)
+            ).fetchone()
+        return row["status"] if row else None
+
+    def revoke_permit(self, token: str) -> bool:
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE permits SET status = 'revoked'
+                WHERE token_hash = ? AND status = 'issued'
+                """,
+                (token_hash,),
+            )
+        return cursor.rowcount == 1
+
+    def run_has_permit(self, run_id: str) -> bool:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM permits WHERE run_id = ? LIMIT 1", (run_id,)
+            ).fetchone()
+        return row is not None
+
     def cycle_placed_notional(self, mandate_id: str, cycle_key: str) -> float:
         with self._connection() as connection:
             rows = connection.execute(

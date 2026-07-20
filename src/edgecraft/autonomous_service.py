@@ -151,6 +151,11 @@ class AutonomousService:
                 detail=f"{type(exc).__name__}: {exc}",
                 now=datetime.now(UTC),
             )
+            if mandate.mode == "live" and self.ledger.run_has_permit(run_id):
+                self.ledger.set_trading_halt(
+                    True,
+                    reason=f"automatic halt after live execution exception in {run_id}",
+                )
             log_event(
                 "cycle_failed",
                 mandate_id=mandate.mandate_id,
@@ -307,6 +312,8 @@ class AutonomousService:
             permit_token=token,
             ledger_path=self.ledger.path,
         )
+        if result.status in {"aborted", "reviewed", "rejected", "canceled"}:
+            self.ledger.revoke_permit(token)
         if (
             result.run_id != proposal.run_id
             or result.proposal_id != proposal.proposal_id
