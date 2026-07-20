@@ -29,6 +29,11 @@ from edgecraft.orchestration import create_trade_proposal, robinhood_protocol
 from edgecraft.portfolio import analyze_portfolio
 from edgecraft.promotion import build_research_evidence
 from edgecraft.research import run_research
+from edgecraft.scheduler import (
+    install_launchd_schedule,
+    launchd_schedule_status,
+    remove_launchd_schedule,
+)
 from edgecraft.strategies import STRATEGY_SCHEMAS
 from edgecraft.walkforward import walk_forward_validate
 
@@ -189,6 +194,23 @@ def build_parser() -> argparse.ArgumentParser:
         "autonomy-health", help="Report autonomous control-plane readiness."
     )
     autonomous_health.add_argument("--ledger", default="state/edgecraft.db")
+
+    schedule_install = commands.add_parser(
+        "schedule-install", help="Install an unattended macOS launchd cycle runner."
+    )
+    schedule_install.add_argument("--mandate", required=True, type=Path)
+    schedule_install.add_argument("--ledger", default="state/edgecraft.db")
+    schedule_install.add_argument("--interval-seconds", type=int, default=1_800)
+
+    schedule_status = commands.add_parser(
+        "schedule-status", help="Inspect the macOS launchd runner for a mandate."
+    )
+    schedule_status.add_argument("--mandate-id", required=True)
+
+    schedule_remove = commands.add_parser(
+        "schedule-remove", help="Unload and remove a mandate's macOS launchd runner."
+    )
+    schedule_remove.add_argument("--mandate-id", required=True)
     return parser
 
 
@@ -248,6 +270,21 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
         )
     if args.command == "autonomy-health":
         return autonomy_health(AuditLedger(args.ledger))
+    if args.command == "schedule-install":
+        mandate = Mandate.model_validate(_read_json(args.mandate))
+        ledger = AuditLedger(args.ledger)
+        ledger.upsert_mandate(mandate)
+        return install_launchd_schedule(
+            Path.cwd(),
+            args.mandate,
+            args.ledger,
+            mandate,
+            interval_seconds=args.interval_seconds,
+        )
+    if args.command == "schedule-status":
+        return launchd_schedule_status(args.mandate_id)
+    if args.command == "schedule-remove":
+        return remove_launchd_schedule(args.mandate_id)
     if args.command in {"halt", "resume"}:
         ledger = AuditLedger(args.ledger)
         halted = args.command == "halt"
