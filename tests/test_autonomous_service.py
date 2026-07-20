@@ -1,8 +1,11 @@
 import json
 from datetime import UTC, datetime, time
 
+import pytest
+
 from edgecraft.autonomous_service import AutonomousService, StaticObservationRuntime
 from edgecraft.autonomy_models import AgentCyclePayload, Mandate
+from edgecraft.execution_models import TradeProposal
 from edgecraft.ledger import AuditLedger
 
 NOW = datetime(2026, 7, 20, 15, 0, tzinfo=UTC)
@@ -137,3 +140,78 @@ def test_before_schedule_returns_not_due_without_starting_run(tmp_path):
     result = service.run_cycle(mandate, now=before)
     assert result["status"] == "not_due"
     assert ledger.status()["runs"] == 0
+
+
+class FailsOnceRuntime(StaticObservationRuntime):
+    def __init__(self, payload):
+        super().__init__(payload)
+        self.calls = 0
+
+    def observe(self, mandate, *, run_id, remaining_budget, ledger_path):
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError("transient MCP failure")
+        return super().observe(
+            mandate,
+            run_id=run_id,
+            remaining_budget=remaining_budget,
+            ledger_path=ledger_path,
+        )
+
+
+def test_side_effect_free_failure_retries_same_cycle_safely(tmp_path):
+    policy = _write_policy(tmp_path)
+    mandate = _mandate(str(policy))
+    ledger = AuditLedger(tmp_path / "state.db")
+    runtime = FailsOnceRuntime(_payload())
+    service = AutonomousService(tmp_path, ledger, runtime)
+
+    with pytest.raises(RuntimeError, match="transient MCP failure"):
+        service.run_cycle(mandate, now=NOW)
+    retry = service.run_cycle(mandate, now=NOW)
+    assert retry["ok"]
+    assert retry["run"]["status"] == "shadow_complete"
+    assert ledger.run_attempt_count(retry["run"]["run_id"]) == 2
+
+
+def test_permit_makes_failed_run_non_retryable(tmp_path):
+    policy = _write_policy(tmp_path)
+    mandate = _mandate(str(policy)).model_copy(update={"mode": "live"})
+    ledger = AuditLedger(tmp_path / "state.db")
+    run_id = ledger.start_run(mandate, "service_test:2026-W30", now=NOW)
+    proposal = TradeProposal.model_validate(
+        {
+            "proposal_id": "prop-permit-test",
+            "mandate_id": mandate.mandate_id,
+            "run_id": run_id,
+            "created_at": NOW,
+            "mode": "live",
+            "account_id": "agentic-test",
+            "strategy": "agentic_weekly_dca",
+            "rationale": "Test non-retry after authority issuance.",
+            "policy_name": "test",
+            "snapshot_as_of": NOW,
+            "orders": [
+                {
+                    "order_key": "order-test",
+                    "symbol": "VTI",
+                    "side": "buy",
+                    "notional": 10,
+                    "expected_price": 330,
+                    "rationale": "Test order.",
+                    "quote_as_of": NOW,
+                }
+            ],
+            "risk": {
+                "approved_for_review": True,
+                "projected_cash": 90,
+                "projected_weights": {"VTI": 0.1},
+                "gross_notional": 10,
+            },
+            "robinhood_handoff": {},
+        }
+    )
+    ledger.add_proposal(proposal)
+    ledger.issue_permit(run_id, proposal.proposal_id, "order-test", now=NOW)
+    ledger.update_run(run_id, "failed", detail="execution uncertainty", now=NOW)
+    assert not ledger.run_is_safe_to_retry(run_id)

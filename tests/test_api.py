@@ -11,6 +11,17 @@ def test_health_and_strategy_catalog():
     assert {item["name"] for item in catalog} >= {"plain_dca", "conformal_ml"}
 
 
+def test_autonomy_health_and_metrics(tmp_path, monkeypatch):
+    monkeypatch.setenv("EDGECRAFT_LEDGER", str(tmp_path / "state.db"))
+    health = client.get("/api/autonomy/health")
+    assert health.status_code == 200
+    assert health.json()["status"] == "ready"
+
+    metrics = client.get("/metrics")
+    assert metrics.status_code == 200
+    assert "edgecraft_trading_halted 0" in metrics.text
+
+
 def test_synthetic_backtest_endpoint():
     response = client.post(
         "/api/backtests?data_source=synthetic",

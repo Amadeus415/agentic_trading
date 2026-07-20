@@ -24,6 +24,7 @@ from edgecraft.execution_models import (
 )
 from edgecraft.ledger import AuditLedger
 from edgecraft.models import BacktestRequest, CostModel
+from edgecraft.observability import autonomy_health, prometheus_metrics
 from edgecraft.orchestration import create_trade_proposal, robinhood_protocol
 from edgecraft.portfolio import analyze_portfolio
 from edgecraft.promotion import build_research_evidence
@@ -177,6 +178,17 @@ def build_parser() -> argparse.ArgumentParser:
     resume = commands.add_parser("resume", help="Clear the global trading kill switch.")
     resume.add_argument("--ledger", default="state/edgecraft.db")
     resume.add_argument("--reason", required=True)
+
+    metrics = commands.add_parser(
+        "metrics", help="Emit autonomous operations metrics without account data."
+    )
+    metrics.add_argument("--ledger", default="state/edgecraft.db")
+    metrics.add_argument("--format", choices=["json", "prometheus"], default="json")
+
+    autonomous_health = commands.add_parser(
+        "autonomy-health", help="Report autonomous control-plane readiness."
+    )
+    autonomous_health.add_argument("--ledger", default="state/edgecraft.db")
     return parser
 
 
@@ -229,6 +241,13 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
         ]
     if args.command == "runs":
         return AuditLedger(args.ledger).list_runs(limit=args.limit)
+    if args.command == "metrics":
+        ledger = AuditLedger(args.ledger)
+        return (
+            ledger.operational_snapshot() if args.format == "json" else prometheus_metrics(ledger)
+        )
+    if args.command == "autonomy-health":
+        return autonomy_health(AuditLedger(args.ledger))
     if args.command in {"halt", "resume"}:
         ledger = AuditLedger(args.ledger)
         halted = args.command == "halt"
@@ -414,7 +433,11 @@ def _symbols(value: str, benchmark: str) -> list[str]:
 
 
 def _emit(payload: Any, output: Path | None) -> None:
-    text = json.dumps(payload, indent=2, sort_keys=True, allow_nan=False)
+    text = (
+        payload.rstrip()
+        if isinstance(payload, str)
+        else json.dumps(payload, indent=2, sort_keys=True, allow_nan=False)
+    )
     if output:
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(text + "\n", encoding="utf-8")

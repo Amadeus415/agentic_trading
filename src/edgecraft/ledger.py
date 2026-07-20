@@ -263,6 +263,64 @@ class AuditLedger:
         result["payload"] = json.loads(result["payload"])
         return result
 
+    def run_attempt_count(self, run_id: str) -> int:
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS count FROM runtime_events
+                WHERE run_id = ? AND event_type IN ('run_started', 'run_retry_started')
+                """,
+                (run_id,),
+            ).fetchone()
+        return int(row["count"])
+
+    def run_is_safe_to_retry(self, run_id: str, *, max_attempts: int = 3) -> bool:
+        if self.run_attempt_count(run_id) >= max_attempts:
+            return False
+        with self._connection() as connection:
+            permit = connection.execute(
+                "SELECT 1 FROM permits WHERE run_id = ? LIMIT 1", (run_id,)
+            ).fetchone()
+            side_effect = connection.execute(
+                """
+                SELECT 1
+                FROM events e
+                JOIN proposals p ON p.proposal_id = e.proposal_id
+                WHERE p.run_id = ? AND e.event_type IN (
+                    'placed', 'filled', 'partially_filled', 'canceled'
+                )
+                LIMIT 1
+                """,
+                (run_id,),
+            ).fetchone()
+        return permit is None and side_effect is None
+
+    def record_retry(self, run_id: str, *, now: datetime | None = None) -> None:
+        timestamp = now or datetime.now(UTC)
+        attempt = self.run_attempt_count(run_id) + 1
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE runs
+                SET status = 'started', detail = ?, payload = ?, updated_at = ?
+                WHERE run_id = ?
+                """,
+                (
+                    "retrying a side-effect-free failed cycle",
+                    json.dumps({"attempt": attempt}),
+                    timestamp.isoformat(),
+                    run_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError(f"unknown run_id: {run_id}")
+        self.record_runtime_event(
+            run_id,
+            "run_retry_started",
+            {"attempt": attempt},
+            now=timestamp,
+        )
+
     def list_runs(self, *, limit: int = 50) -> list[dict[str, Any]]:
         with self._connection() as connection:
             rows = connection.execute(
@@ -411,6 +469,51 @@ class AuditLedger:
                 "SELECT value FROM controls WHERE name = 'trading_halted'"
             ).fetchone()
         return bool(row and row["value"] == "true")
+
+    def operational_snapshot(self) -> dict[str, Any]:
+        with self._connection() as connection:
+            run_rows = connection.execute(
+                "SELECT status, COUNT(*) AS count FROM runs GROUP BY status"
+            ).fetchall()
+            proposal_rows = connection.execute(
+                """
+                SELECT approved_for_review, COUNT(*) AS count
+                FROM proposals GROUP BY approved_for_review
+                """
+            ).fetchall()
+            event_rows = connection.execute(
+                "SELECT event_type, COUNT(*) AS count FROM events GROUP BY event_type"
+            ).fetchall()
+            permit_rows = connection.execute(
+                "SELECT status, COUNT(*) AS count FROM permits GROUP BY status"
+            ).fetchall()
+            last_success = connection.execute(
+                """
+                SELECT updated_at FROM runs
+                WHERE status IN ('held', 'shadow_complete', 'completed')
+                ORDER BY updated_at DESC LIMIT 1
+                """
+            ).fetchone()
+            recent_failures = connection.execute(
+                """
+                SELECT COUNT(*) AS count FROM runs
+                WHERE status = 'failed'
+                  AND julianday(updated_at) >= julianday('now', '-1 day')
+                """
+            ).fetchone()
+        return {
+            "trading_halted": self.trading_halted(),
+            "unresolved_order_count": len(self.unresolved_order_keys()),
+            "runs_by_status": {row["status"]: row["count"] for row in run_rows},
+            "proposals_by_approval": {
+                "approved" if row["approved_for_review"] else "rejected": row["count"]
+                for row in proposal_rows
+            },
+            "order_events_by_type": {row["event_type"]: row["count"] for row in event_rows},
+            "permits_by_status": {row["status"]: row["count"] for row in permit_rows},
+            "last_success_at": last_success["updated_at"] if last_success else None,
+            "failed_runs_24h": recent_failures["count"],
+        }
 
     def add_proposal(self, proposal: TradeProposal) -> None:
         payload = proposal.model_dump_json()

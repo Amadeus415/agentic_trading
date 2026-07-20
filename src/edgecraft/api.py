@@ -5,11 +5,13 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 
 from edgecraft import __version__
 from edgecraft.data import MarketDataError, MarketDataProvider, synthetic_market_data
+from edgecraft.ledger import AuditLedger
 from edgecraft.models import BacktestRequest
+from edgecraft.observability import autonomy_health, prometheus_metrics
 from edgecraft.research import run_research
 from edgecraft.strategies import STRATEGY_SCHEMAS
 
@@ -29,6 +31,16 @@ app.add_middleware(
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "version": __version__}
+
+
+@app.get("/api/autonomy/health")
+def autonomous_health() -> dict:
+    return autonomy_health(AuditLedger(os.getenv("EDGECRAFT_LEDGER", "state/edgecraft.db")))
+
+
+@app.get("/metrics", response_class=PlainTextResponse)
+def metrics() -> str:
+    return prometheus_metrics(AuditLedger(os.getenv("EDGECRAFT_LEDGER", "state/edgecraft.db")))
 
 
 @app.get("/api/strategies")

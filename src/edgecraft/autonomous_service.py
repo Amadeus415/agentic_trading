@@ -26,6 +26,7 @@ from edgecraft.execution_models import (
     TradeProposal,
 )
 from edgecraft.ledger import AuditLedger, DuplicateProposalError
+from edgecraft.observability import log_event
 
 TERMINAL_RUN_STATUSES = {
     "not_due",
@@ -81,6 +82,40 @@ class AutonomousService:
         key = cycle_key(mandate, current_time)
         existing = self.ledger.get_run_for_cycle(mandate.mandate_id, key)
         if existing is not None:
+            if (
+                existing["status"] == "failed"
+                and self.ledger.run_is_safe_to_retry(existing["run_id"])
+                and self.runtime is not None
+            ):
+                self.ledger.record_retry(existing["run_id"], now=current_time)
+                log_event(
+                    "cycle_retry_started",
+                    mandate_id=mandate.mandate_id,
+                    run_id=existing["run_id"],
+                    attempt=self.ledger.run_attempt_count(existing["run_id"]),
+                )
+                try:
+                    return self._run_started_cycle(mandate, existing["run_id"], current_time)
+                except Exception as exc:
+                    self.ledger.update_run(
+                        existing["run_id"],
+                        "failed",
+                        detail=f"{type(exc).__name__}: {exc}",
+                        now=datetime.now(UTC),
+                    )
+                    log_event(
+                        "cycle_retry_failed",
+                        mandate_id=mandate.mandate_id,
+                        run_id=existing["run_id"],
+                        error_type=type(exc).__name__,
+                    )
+                    raise
+            log_event(
+                "cycle_idempotent_replay",
+                mandate_id=mandate.mandate_id,
+                run_id=existing["run_id"],
+                status=existing["status"],
+            )
             return {
                 "ok": existing["status"] in SUCCESSFUL_RUN_STATUSES,
                 "idempotent_replay": True,
@@ -100,6 +135,13 @@ class AutonomousService:
             raise RuntimeError("an agent runtime is required to run a due cycle")
 
         run_id = self.ledger.start_run(mandate, key, now=current_time)
+        log_event(
+            "cycle_started",
+            mandate_id=mandate.mandate_id,
+            run_id=run_id,
+            mode=mandate.mode,
+            cycle_key=key,
+        )
         try:
             return self._run_started_cycle(mandate, run_id, current_time)
         except Exception as exc:
@@ -108,6 +150,12 @@ class AutonomousService:
                 "failed",
                 detail=f"{type(exc).__name__}: {exc}",
                 now=datetime.now(UTC),
+            )
+            log_event(
+                "cycle_failed",
+                mandate_id=mandate.mandate_id,
+                run_id=run_id,
+                error_type=type(exc).__name__,
             )
             raise
 
@@ -333,6 +381,13 @@ class AutonomousService:
 
     def _summary(self, run_id: str) -> dict:
         run = self.ledger.get_run(run_id)
+        log_event(
+            "cycle_finished",
+            mandate_id=run["mandate_id"],
+            run_id=run_id,
+            status=run["status"],
+            mode=run["mode"],
+        )
         return {
             "ok": run["status"] in SUCCESSFUL_RUN_STATUSES,
             "idempotent_replay": False,
