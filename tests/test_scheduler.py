@@ -31,7 +31,9 @@ def test_launchd_payload_uses_one_safe_cli_path(tmp_path, monkeypatch):
     assert "--force" not in args
     assert payload["RunAtLoad"] is True
     assert payload["StartInterval"] == 1_800
+    assert payload["Umask"] == 0o077
     assert Path(payload["StandardOutPath"]).parent == repository / "state" / "scheduler"
+    assert (repository / "state" / "scheduler").stat().st_mode & 0o777 == 0o700
 
 
 def test_launchd_label_and_interval_validation(tmp_path, monkeypatch):

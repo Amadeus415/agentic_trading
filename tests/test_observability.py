@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from stat import S_IMODE
 
 from edgecraft.autonomy import cycle_key
 from edgecraft.autonomy_models import Mandate
@@ -21,6 +22,7 @@ def _mandate() -> Mandate:
 
 def test_operational_health_and_prometheus_metrics_are_sanitized(tmp_path):
     ledger = AuditLedger(tmp_path / "state.db")
+    assert S_IMODE(ledger.path.stat().st_mode) == 0o600
     mandate = _mandate()
     run_id = ledger.start_run(mandate, cycle_key(mandate, NOW), now=NOW)
     ledger.update_run(run_id, "shadow_complete", detail="safe", now=NOW)

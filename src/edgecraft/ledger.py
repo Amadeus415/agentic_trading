@@ -21,8 +21,9 @@ class DuplicateProposalError(RuntimeError):
 class AuditLedger:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self._initialize()
+        self._secure_files()
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=30)
@@ -42,6 +43,17 @@ class AuditLedger:
             raise
         finally:
             connection.close()
+            self._secure_files()
+
+    def _secure_files(self) -> None:
+        """Keep broker-derived state private even under a permissive user umask."""
+        for candidate in (
+            self.path,
+            Path(f"{self.path}-wal"),
+            Path(f"{self.path}-shm"),
+        ):
+            if candidate.exists():
+                candidate.chmod(0o600)
 
     def _initialize(self) -> None:
         with self._connection() as connection:

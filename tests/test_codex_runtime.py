@@ -1,5 +1,22 @@
 from edgecraft.autonomy_models import AgentCyclePayload, Mandate
-from edgecraft.codex_runtime import observation_prompt, strict_output_schema
+from edgecraft.codex_runtime import (
+    CodexRuntimeConfig,
+    _runtime_environment,
+    observation_prompt,
+    strict_output_schema,
+)
+
+
+def test_runtime_defaults_to_read_only_workspace(tmp_path):
+    assert CodexRuntimeConfig(repository=tmp_path).sandbox == "read-only"
+
+
+def test_runtime_does_not_inherit_unrelated_shell_secrets(monkeypatch):
+    monkeypatch.setenv("PATH", "/safe/bin")
+    monkeypatch.setenv("UNRELATED_API_TOKEN", "must-not-cross-boundary")
+    environment = _runtime_environment()
+    assert environment["PATH"] == "/safe/bin"
+    assert "UNRELATED_API_TOKEN" not in environment
 
 
 def test_strict_output_schema_closes_objects_and_requires_fields():

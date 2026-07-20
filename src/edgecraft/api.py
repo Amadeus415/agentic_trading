@@ -4,7 +4,6 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from edgecraft import __version__
@@ -21,12 +20,21 @@ app = FastAPI(
     version=__version__,
     description="Point-in-time stock strategy research and adversarial validation.",
 )
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'self'; style-src 'self'; "
+        "img-src 'self' data:; connect-src 'self'; object-src 'none'; "
+        "base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+    )
+    response.headers["Permissions-Policy"] = "camera=(), geolocation=(), microphone=()"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
 
 
 @app.get("/api/health")
@@ -86,7 +94,7 @@ def backtests(
     except Exception as exc:
         if os.getenv("EDGECRAFT_DEBUG") == "1":
             raise
-        raise HTTPException(status_code=500, detail=f"Backtest failed: {exc}") from exc
+        raise HTTPException(status_code=500, detail="Backtest failed") from exc
 
 
 frontend_dist = Path(__file__).resolve().parents[2] / "frontend"

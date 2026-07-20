@@ -95,7 +95,7 @@ def _setup_live_permit(tmp_path):
     return ledger, token
 
 
-def _invoke(ledger, token=None, *, symbol="VTI"):
+def _invoke(ledger, token=None, *, symbol="VTI", omitted=None):
     event = {
         "session_id": "test-session",
         "hook_event_name": "PreToolUse",
@@ -109,6 +109,8 @@ def _invoke(ledger, token=None, *, symbol="VTI"):
             "time_in_force": "gfd",
         },
     }
+    if omitted:
+        event["tool_input"].pop(omitted)
     environment = os.environ.copy()
     environment["EDGECRAFT_LEDGER_PATH"] = str(ledger.path)
     if token:
@@ -153,6 +155,16 @@ def test_trade_guard_rejects_mismatch_then_claims_exactly_once(tmp_path):
     duplicate = _invoke(ledger, token)
     assert duplicate["permissionDecision"] == "deny"
     assert "already been used" in duplicate["permissionDecisionReason"]
+
+
+def test_trade_guard_rejects_missing_required_constraint(tmp_path):
+    ledger, token = _setup_live_permit(tmp_path)
+    result = _invoke(ledger, token, omitted="account_id")
+    assert result["permissionDecision"] == "deny"
+    assert "missing permitted account_id_hash" in result["permissionDecisionReason"]
+
+    # A rejected attempt must not consume the single-use permit.
+    assert _invoke(ledger, token)["permissionDecision"] == "allow"
 
 
 def test_kill_switch_revokes_outstanding_permit(tmp_path):

@@ -6,7 +6,12 @@ client = TestClient(app)
 
 
 def test_health_and_strategy_catalog():
-    assert client.get("/api/health").json()["status"] == "ok"
+    health = client.get("/api/health")
+    assert health.json()["status"] == "ok"
+    assert health.headers["x-content-type-options"] == "nosniff"
+    assert health.headers["x-frame-options"] == "DENY"
+    assert "default-src 'self'" in health.headers["content-security-policy"]
+    assert "access-control-allow-origin" not in health.headers
     catalog = client.get("/api/strategies").json()
     assert {item["name"] for item in catalog} >= {"plain_dca", "conformal_ml"}
 

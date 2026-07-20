@@ -17,6 +17,19 @@ from edgecraft.execution_models import ProposedOrder, TradeProposal
 
 OutputModel = TypeVar("OutputModel", bound=BaseModel)
 
+SAFE_ENVIRONMENT_KEYS = (
+    "CODEX_HOME",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "LOGNAME",
+    "PATH",
+    "SHELL",
+    "TERM",
+    "TMPDIR",
+    "USER",
+)
+
 
 class CodexRuntimeError(RuntimeError):
     pass
@@ -28,7 +41,7 @@ class CodexRuntimeConfig:
     state_directory: Path = Path("state/runtime")
     executable: str = "codex"
     timeout_seconds: int = 1_200
-    sandbox: str = "workspace-write"
+    sandbox: str = "read-only"
 
 
 class CodexRuntime:
@@ -175,7 +188,7 @@ class CodexRuntime:
             command.extend(["--model", model])
         command.append(prompt)
 
-        environment = os.environ.copy()
+        environment = _runtime_environment()
         environment["CODEX_NON_INTERACTIVE"] = "1"
         environment["EDGECRAFT_LEDGER_PATH"] = str(Path(ledger_path).resolve())
         if permit_token is None:
@@ -347,6 +360,11 @@ def _safe_process_detail(stdout: str, stderr: str) -> str:
     if any(term in lowered for term in ("account", "token", "portfolio", "position")):
         return "diagnostic output redacted because it may contain broker data"
     return text[-500:]
+
+
+def _runtime_environment() -> dict[str, str]:
+    """Pass only runtime essentials, not arbitrary caller secrets, to the agent."""
+    return {key: os.environ[key] for key in SAFE_ENVIRONMENT_KEYS if key in os.environ}
 
 
 def strict_output_schema(model: type[BaseModel]) -> dict:

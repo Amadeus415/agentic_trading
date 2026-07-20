@@ -133,6 +133,8 @@ def _constraint_mismatch(constraints: dict[str, Any], tool_input: Any) -> str | 
         if expected_key not in constraints:
             continue
         observed = [value for key, value in leaves if key in names]
+        if not observed:
+            return f"Robinhood tool input is missing permitted {expected_key}."
         matches = (
             any(_account_reference(str(value)) == constraints[expected_key] for value in observed)
             if expected_key == "account_id_hash"

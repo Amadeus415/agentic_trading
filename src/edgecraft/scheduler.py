@@ -43,7 +43,8 @@ def build_launchd_payload(
         raise SchedulerError("codex executable not found")
 
     log_directory = repository / "state" / "scheduler"
-    log_directory.mkdir(parents=True, exist_ok=True)
+    log_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    log_directory.chmod(0o700)
     label = launchd_label(mandate_id)
     path_parts = [
         str(Path(uv).parent),
@@ -79,6 +80,7 @@ def build_launchd_payload(
         "EnvironmentVariables": environment,
         "RunAtLoad": True,
         "StartInterval": interval_seconds,
+        "Umask": 0o077,
         "ProcessType": "Background",
         "ThrottleInterval": 60,
         "StandardOutPath": str(log_directory / f"{mandate_id}.stdout.log"),
