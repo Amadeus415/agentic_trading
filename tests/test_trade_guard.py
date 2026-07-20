@@ -26,6 +26,7 @@ def _setup_live_permit(tmp_path):
         strategic_weights={"VTI": "1"},
         max_tactical_tilt="0",
         policy_path="test-policy.json",
+        external_context_path="test-context.json",
     )
     ledger = AuditLedger(tmp_path / "state.db")
     run_id = ledger.start_run(mandate, cycle_key(mandate, NOW), now=NOW)

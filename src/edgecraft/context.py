@@ -34,11 +34,13 @@ class WebContextPolicy(BaseModel):
     social_results: int = Field(10, ge=0, le=50)
     max_excerpt_chars: int = Field(1_200, ge=200, le=4_000)
     min_sources: int = Field(4, ge=1, le=30)
+    min_web_sources: int = Field(2, ge=1, le=20)
     min_fresh_sources: int = Field(2, ge=1, le=20)
     min_decision_citations: int = Field(2, ge=1, le=10)
     require_social: bool = True
     require_for_live: bool = True
     sec_ciks: dict[str, str] = Field(default_factory=dict)
+    sec_user_agent: str | None = None
 
     @field_validator("sec_ciks")
     @classmethod
@@ -51,6 +53,12 @@ class WebContextPolicy(BaseModel):
                 raise ValueError("SEC CIK mappings require a symbol and a 10-digit CIK")
             normalized[clean_symbol] = clean_cik
         return normalized
+
+    @model_validator(mode="after")
+    def sec_identity_is_explicit(self) -> WebContextPolicy:
+        if self.sec_ciks and (not self.sec_user_agent or "@" not in self.sec_user_agent):
+            raise ValueError("sec_ciks require sec_user_agent with an operator contact email")
+        return self
 
 
 class ContextSource(BaseModel):
@@ -121,7 +129,7 @@ class BrowserbaseClient:
         transport: JsonTransport | None = None,
         timeout_seconds: float = 15,
     ) -> None:
-        self.api_key = (api_key or os.environ.get("BROWSERBASE_API_KEY", "")).strip()
+        self.api_key = (api_key or browserbase_api_key()).strip()
         self.transport = transport or _json_request
         self.timeout_seconds = timeout_seconds
 
@@ -195,7 +203,7 @@ class SecEdgarClient:
     def __init__(
         self,
         *,
-        user_agent: str = "Edgecraft research github.com/Amadeus415/agentic_trading",
+        user_agent: str,
         transport: JsonTransport | None = None,
         timeout_seconds: float = 15,
     ) -> None:
@@ -254,7 +262,7 @@ class ExternalContextService:
         self.policy = policy
         self.browserbase = browserbase or BrowserbaseClient()
         self.bluesky = bluesky or BlueskyClient()
-        self.sec = sec or SecEdgarClient()
+        self.sec = sec or SecEdgarClient(user_agent=policy.sec_user_agent or "")
         self.cache_directory = cache_directory
 
     def collect(self, symbols: list[str], *, now: datetime | None = None) -> ContextSnapshot:
@@ -306,8 +314,12 @@ class ExternalContextService:
 
         if self.policy.social_results:
             try:
-                posts = self.bluesky.search(symbol_text, limit=self.policy.social_results)
-                sources.extend(_bluesky_sources(posts, collected_at, self.policy.max_excerpt_chars))
+                per_symbol = max(1, self.policy.social_results // len(clean_symbols))
+                for symbol in clean_symbols:
+                    posts = self.bluesky.search(f"${symbol} OR {symbol}", limit=per_symbol)
+                    sources.extend(
+                        _bluesky_sources(posts, collected_at, self.policy.max_excerpt_chars)
+                    )
             except ContextUnavailable as exc:
                 warnings.append(f"Bluesky unavailable: {exc}")
 
@@ -326,8 +338,10 @@ class ExternalContextService:
             source.published_at is not None and source.published_at >= cutoff for source in sources
         )
         channels = {source.channel for source in sources}
+        web_count = sum(source.channel == "web" for source in sources)
         complete = (
             len(sources) >= self.policy.min_sources
+            and web_count >= self.policy.min_web_sources
             and fresh_count >= self.policy.min_fresh_sources
             and "web" in channels
             and (not self.policy.require_social or "social" in channels)
@@ -392,6 +406,23 @@ def load_context_service(
         browserbase=BrowserbaseClient(api_key),
         cache_directory=repository / "state" / "context-cache",
     )
+
+
+def browserbase_api_key() -> str:
+    direct = os.environ.get("BROWSERBASE_API_KEY", "").strip()
+    if direct:
+        return direct
+    configured_file = os.environ.get("BROWSERBASE_API_KEY_FILE", "").strip()
+    if not configured_file:
+        return ""
+    path = Path(configured_file).expanduser()
+    try:
+        mode = path.stat().st_mode & 0o777
+        if mode & 0o077:
+            raise ContextUnavailable("BROWSERBASE_API_KEY_FILE must not be group/world accessible")
+        return path.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise ContextUnavailable(f"unable to read BROWSERBASE_API_KEY_FILE: {exc}") from exc
 
 
 def _json_request(

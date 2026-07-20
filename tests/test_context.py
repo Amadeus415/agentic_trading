@@ -13,6 +13,7 @@ from edgecraft.context import (
     ExternalContextService,
     SecEdgarClient,
     WebContextPolicy,
+    browserbase_api_key,
 )
 
 NOW = datetime(2026, 7, 20, 22, 0, tzinfo=UTC)
@@ -89,13 +90,14 @@ def test_context_collection_is_diverse_fresh_cached_and_bounded(tmp_path):
         min_sources=4,
         min_fresh_sources=3,
         sec_ciks={"VTI": "1"},
+        sec_user_agent="Edgecraft tests test@example.com",
         fetch_pages=2,
     )
     service = ExternalContextService(
         policy,
         browserbase=BrowserbaseClient("test-key", transport=transport),
         bluesky=BlueskyClient(transport=transport),
-        sec=SecEdgarClient(transport=transport),
+        sec=SecEdgarClient(user_agent="Edgecraft tests test@example.com", transport=transport),
         cache_directory=tmp_path,
     )
 
@@ -124,6 +126,19 @@ def test_context_source_rejects_private_network_urls():
             url="https://127.0.0.1/secrets",
             retrieved_at=NOW,
         )
+
+
+def test_browserbase_key_file_must_be_private(tmp_path, monkeypatch):
+    key_file = tmp_path / "browserbase-key"
+    key_file.write_text("test-secret\n")
+    key_file.chmod(0o600)
+    monkeypatch.delenv("BROWSERBASE_API_KEY", raising=False)
+    monkeypatch.setenv("BROWSERBASE_API_KEY_FILE", str(key_file))
+    assert browserbase_api_key() == "test-secret"
+
+    key_file.chmod(0o644)
+    with pytest.raises(RuntimeError, match="must not be group/world accessible"):
+        browserbase_api_key()
 
 
 def test_live_mandate_requires_external_context_policy():

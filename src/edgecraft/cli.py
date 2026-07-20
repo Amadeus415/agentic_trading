@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -15,7 +14,7 @@ from edgecraft.analytics import market_diagnostics, portfolio_market_risk
 from edgecraft.autonomous_service import AutonomousService, StaticObservationRuntime
 from edgecraft.autonomy_models import AgentCyclePayload, Mandate
 from edgecraft.codex_runtime import CodexRuntime, CodexRuntimeConfig
-from edgecraft.context import load_context_service
+from edgecraft.context import browserbase_api_key, load_context_service
 from edgecraft.data import MarketDataProvider, synthetic_market_data
 from edgecraft.execution_models import (
     MarketQuote,
@@ -464,7 +463,7 @@ def health_check(ledger_path: str, real_data_symbol: str | None = None) -> dict[
         "ledger": ledger,
         "web_context": {
             "provider": "browserbase",
-            "configured": bool(os.environ.get("BROWSERBASE_API_KEY", "").strip()),
+            "configured": bool(browserbase_api_key()),
             "search_endpoint": "https://api.browserbase.com/v1/search",
             "fetch_endpoint": "https://api.browserbase.com/v1/fetch",
         },
