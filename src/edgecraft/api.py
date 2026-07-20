@@ -12,7 +12,7 @@ from edgecraft.data import MarketDataError, MarketDataProvider, synthetic_market
 from edgecraft.learning import LearningScenarioRequest, learning_guide, run_learning_scenario
 from edgecraft.ledger import AuditLedger
 from edgecraft.models import BacktestRequest
-from edgecraft.observability import autonomy_health, prometheus_metrics
+from edgecraft.observability import autonomy_health, control_plane_snapshot, prometheus_metrics
 from edgecraft.research import run_research
 from edgecraft.strategies import STRATEGY_SCHEMAS
 
@@ -37,6 +37,11 @@ def health() -> dict[str, str]:
 @app.get("/api/autonomy/health")
 def autonomous_health() -> dict:
     return autonomy_health(AuditLedger(os.getenv("EDGECRAFT_LEDGER", "state/edgecraft.db")))
+
+
+@app.get("/api/control-plane")
+def control_plane() -> dict:
+    return control_plane_snapshot(AuditLedger(os.getenv("EDGECRAFT_LEDGER", "state/edgecraft.db")))
 
 
 @app.get("/metrics", response_class=PlainTextResponse)
