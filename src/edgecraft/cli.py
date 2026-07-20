@@ -11,6 +11,9 @@ from typing import Any
 
 from edgecraft import __version__
 from edgecraft.analytics import market_diagnostics, portfolio_market_risk
+from edgecraft.autonomous_service import AutonomousService, StaticObservationRuntime
+from edgecraft.autonomy_models import AgentCyclePayload, Mandate
+from edgecraft.codex_runtime import CodexRuntime, CodexRuntimeConfig
 from edgecraft.data import MarketDataProvider, synthetic_market_data
 from edgecraft.execution_models import (
     MarketQuote,
@@ -132,6 +135,48 @@ def build_parser() -> argparse.ArgumentParser:
 
     ledger = commands.add_parser("ledger", help="Show audit-ledger status.")
     ledger.add_argument("--path", default="state/edgecraft.db")
+
+    mandate_validate = commands.add_parser(
+        "mandate-validate", help="Validate and normalize an autonomous mandate."
+    )
+    mandate_validate.add_argument("--config", required=True, type=Path)
+
+    mandate_register = commands.add_parser(
+        "mandate-register", help="Persist a validated autonomous mandate."
+    )
+    mandate_register.add_argument("--config", required=True, type=Path)
+    mandate_register.add_argument("--ledger", default="state/edgecraft.db")
+
+    mandates = commands.add_parser("mandates", help="List persisted autonomous mandates.")
+    mandates.add_argument("--ledger", default="state/edgecraft.db")
+
+    cycle = commands.add_parser(
+        "cycle", help="Run one idempotent autonomous portfolio-management cycle."
+    )
+    cycle.add_argument("--mandate", required=True, type=Path)
+    cycle.add_argument("--ledger", default="state/edgecraft.db")
+    cycle.add_argument(
+        "--observation",
+        type=Path,
+        help="Use a captured AgentCyclePayload instead of invoking Codex (shadow only).",
+    )
+    cycle.add_argument(
+        "--force",
+        action="store_true",
+        help="Ignore schedule timing; never bypass budget, policy, risk, or permits.",
+    )
+
+    runs = commands.add_parser("runs", help="List recent autonomous runs.")
+    runs.add_argument("--ledger", default="state/edgecraft.db")
+    runs.add_argument("--limit", type=int, default=20)
+
+    halt = commands.add_parser("halt", help="Activate the global trading kill switch.")
+    halt.add_argument("--ledger", default="state/edgecraft.db")
+    halt.add_argument("--reason", required=True)
+
+    resume = commands.add_parser("resume", help="Clear the global trading kill switch.")
+    resume.add_argument("--ledger", default="state/edgecraft.db")
+    resume.add_argument("--reason", required=True)
     return parser
 
 
@@ -166,6 +211,44 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
         return market_diagnostics(data, benchmark=args.benchmark.upper())
     if args.command == "ledger":
         return AuditLedger(args.path).status()
+    if args.command == "mandate-validate":
+        return Mandate.model_validate(_read_json(args.config)).model_dump(mode="json")
+    if args.command == "mandate-register":
+        mandate = Mandate.model_validate(_read_json(args.config))
+        ledger = AuditLedger(args.ledger)
+        ledger.upsert_mandate(mandate)
+        return {
+            "ok": True,
+            "mandate_id": mandate.mandate_id,
+            "mode": mandate.mode,
+            "ledger": ledger.status(),
+        }
+    if args.command == "mandates":
+        return [
+            mandate.model_dump(mode="json") for mandate in AuditLedger(args.ledger).list_mandates()
+        ]
+    if args.command == "runs":
+        return AuditLedger(args.ledger).list_runs(limit=args.limit)
+    if args.command in {"halt", "resume"}:
+        ledger = AuditLedger(args.ledger)
+        halted = args.command == "halt"
+        ledger.set_trading_halt(halted, reason=args.reason)
+        return {
+            "ok": True,
+            "trading_halted": ledger.trading_halted(),
+            "reason": args.reason,
+        }
+    if args.command == "cycle":
+        mandate = Mandate.model_validate(_read_json(args.mandate))
+        ledger = AuditLedger(args.ledger)
+        if args.observation:
+            if mandate.mode != "shadow":
+                raise ValueError("captured observations are restricted to shadow mandates")
+            payload = AgentCyclePayload.model_validate(_read_json(args.observation))
+            runtime = StaticObservationRuntime(payload)
+        else:
+            runtime = CodexRuntime(CodexRuntimeConfig(repository=Path.cwd()))
+        return AutonomousService(Path.cwd(), ledger, runtime).run_cycle(mandate, force=args.force)
     if args.command == "backtest":
         request = BacktestRequest.model_validate(_read_json(args.config))
         multiplier = float(getattr(args, "cost_multiplier", 1.0))

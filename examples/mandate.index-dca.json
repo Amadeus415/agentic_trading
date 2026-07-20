@@ -1,0 +1,29 @@
+{
+  "mandate_id": "index_dca",
+  "goal": "Invest up to $10 each week into a diversified, long-only index-fund portfolio. Prefer attractive relative entry prices without abandoning disciplined DCA, diversification, or the option to hold cash when broker data is stale or the evidence is weak.",
+  "enabled": true,
+  "mode": "shadow",
+  "weekly_budget": "10.00",
+  "max_rollover_weeks": 1,
+  "risk_level": "balanced",
+  "universe": [
+    "VTI",
+    "VXUS",
+    "BND"
+  ],
+  "strategic_weights": {
+    "VTI": "0.60",
+    "VXUS": "0.25",
+    "BND": "0.15"
+  },
+  "minimum_confidence": "0.55",
+  "allow_sells": false,
+  "schedule_weekday": 0,
+  "schedule_time": "10:00:00",
+  "timezone": "America/New_York",
+  "benchmark": "SPY",
+  "decision_model": null,
+  "policy_path": "examples/policy.autonomous-shadow.json",
+  "research_evidence_path": null,
+  "owner_notes": "Start in shadow mode. Review multiple cycles before creating a separately versioned live mandate."
+}

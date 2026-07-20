@@ -244,6 +244,25 @@ class AuditLedger:
         result["payload"] = json.loads(result["payload"])
         return result
 
+    def get_run_for_cycle(
+        self,
+        mandate_id: str,
+        cycle_key: str,
+    ) -> dict[str, Any] | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM runs
+                WHERE mandate_id = ? AND cycle_key = ?
+                """,
+                (mandate_id, cycle_key),
+            ).fetchone()
+        if row is None:
+            return None
+        result = dict(row)
+        result["payload"] = json.loads(result["payload"])
+        return result
+
     def list_runs(self, *, limit: int = 50) -> list[dict[str, Any]]:
         with self._connection() as connection:
             rows = connection.execute(
