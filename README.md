@@ -1,8 +1,8 @@
 # Edgecraft
 
-Edgecraft is a local, point-in-time stock-strategy research and orchestration toolkit. It combines an event-driven Python backtester, a React experiment UI, realistic next-session execution, adversarial validation, portfolio diagnostics, deterministic trade risk gates, an idempotent audit ledger, and a Robinhood MCP handoff protocol.
+Edgecraft is a local autonomous portfolio manager and point-in-time stock-strategy research toolkit. It combines an event-driven Python backtester, realistic next-session execution, adversarial validation, a typed weekly investment mandate, deterministic policy/risk gates, an idempotent audit ledger, an unattended scheduler, and Robinhood's official Trading MCP.
 
-It is not investment advice and it deliberately does not hold broker credentials or submit broker requests itself. The authenticated orchestrator owns the Robinhood MCP session; Edgecraft produces evidence, checks a proposal, and defines the exact review/reconcile workflow. Backtests can be wrong even when the code is correct.
+It is not investment advice. Edgecraft never stores broker credentials: a scoped Codex turn uses the host's authenticated Robinhood MCP session, while Python remains the deterministic financial control plane. The model can recommend; only versioned policy, budget, risk, a single-use execution permit, and a Codex tool-call hook can authorize placement. Backtests and models can be wrong even when the code is correct.
 
 ## What is included
 
@@ -22,6 +22,12 @@ It is not investment advice and it deliberately does not hold broker credentials
 - Robinhood review → authorized placement → reconciliation handoff
 - One `edgecraft` CLI for the complete research-to-execution workflow
 - Market and portfolio-risk diagnostics: returns, RSI, trend, volatility, drawdown, beta, correlations, VaR, expected shortfall, and component risk
+- Versioned weekly mandates with conservative, balanced, and aggressive tactical-tilt settings
+- Fully unattended shadow or explicitly armed live cycles through the authenticated Codex/Robinhood MCP runtime
+- Single-use, expiring trade permits enforced by a fail-closed `PreToolUse` hook
+- Automatic halt on partial, unknown, mismatched, or exception-ambiguous live execution
+- Structured JSON logs, append-only run events, readiness, and Prometheus metrics
+- A launchd service that wakes safely and relies on weekly cycle idempotency
 
 ## Included strategies
 
@@ -63,8 +69,28 @@ The UI uses browser-native JavaScript and SVG, so there is no frontend package i
 ## Orchestrator CLI
 
 ```bash
-# Check the official Robinhood MCP connection and local ledger.
-edgecraft health
+# Validate the environment and the supplied $10/week shadow mandate.
+edgecraft health --real-data-symbol SPY
+edgecraft mandate-validate --config examples/mandate.index-dca.json
+
+# Run one due cycle. --force changes only schedule timing, never risk controls.
+edgecraft cycle \
+  --mandate examples/mandate.index-dca.json \
+  --ledger state/edgecraft.db \
+  --force
+
+# Install and inspect the unattended shadow runner.
+edgecraft schedule-install \
+  --mandate examples/mandate.index-dca.json \
+  --ledger state/edgecraft.db
+edgecraft schedule-status --mandate-id index_dca
+
+# Observe and control operations.
+edgecraft runs --ledger state/edgecraft.db
+edgecraft autonomy-health --ledger state/edgecraft.db
+edgecraft metrics --ledger state/edgecraft.db --format prometheus
+edgecraft halt --ledger state/edgecraft.db --reason "operator emergency stop"
+edgecraft resume --ledger state/edgecraft.db --reason "incident reconciled"
 
 # Run research and rolling out-of-sample selection.
 edgecraft backtest --config examples/research.json --data-source market
@@ -91,7 +117,7 @@ edgecraft protocol
 edgecraft ledger
 ```
 
-The snapshot and quote files must be created from fresh Robinhood MCP results. Never copy the redacted examples into a live call. See [docs/ORCHESTRATOR.md](docs/ORCHESTRATOR.md) for the full agent contract, promotion gates, live-mode procedure, and failure behavior.
+See [docs/AUTONOMY.md](docs/AUTONOMY.md) for the operating model, shadow-to-live procedure, scheduler, observability, recovery behavior, and exact safety boundary. [docs/ORCHESTRATOR.md](docs/ORCHESTRATOR.md) retains the lower-level manual MCP protocol.
 
 ## Proper research workflow
 
@@ -102,7 +128,7 @@ The snapshot and quote files must be created from fresh Robinhood MCP results. N
 5. **Model implementation.** Increase spread and slippage, test missing sessions, inspect turnover, and verify that a signal becomes an order and then a fill rather than assuming execution.
 6. **Penalize searching.** Record every trial. DSR adjusts Sharpe for multiple testing and non-normal returns; CSCV/PBO estimates how often in-sample winners degrade out of sample.
 7. **Prefer plateaus.** A broad region of acceptable parameters is more credible than one isolated optimum.
-8. **Advance in stages.** Synthetic test → historical backtest → shadow signals → human-confirmed tiny orders → bounded automation.
+8. **Advance in stages.** Synthetic test → historical backtest → repeated real-data shadow cycles → separately versioned tiny live mandate → bounded unattended operation.
 
 The suite follows the core warnings in Bailey et al.'s [Probability of Backtest Overfitting](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2326253) and Bailey & López de Prado's [Deflated Sharpe Ratio](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2460551).
 
@@ -122,20 +148,29 @@ src/edgecraft/
   strategies.py               strategy interface and included candidates
   walkforward.py              rolling train/select/test validation
   execution_models.py         portfolio, quote, policy, evidence, proposal contracts
+  autonomy_models.py          mandate, weekly decision, observation, and execution contracts
+  autonomy.py                 schedule/budget logic and contribution-order construction
+  autonomous_service.py       durable observe → decide → gate → execute → reconcile state machine
+  codex_runtime.py            structured Codex/Robinhood MCP reasoning and execution turns
   portfolio.py                allocation, P&L, and concentration diagnostics
   risk.py                     deterministic proposal construction and pre-trade gates
-  ledger.py                   SQLite idempotency and execution audit log
+  ledger.py                   SQLite mandates, runs, permits, idempotency, and audit events
   orchestration.py            Robinhood MCP two-phase handoff
   analytics.py                market and portfolio historical-risk diagnostics
   promotion.py                artifact-derived live-promotion evidence
+  observability.py            structured logs, readiness, and Prometheus metrics
+  scheduler.py                macOS launchd install/status/remove support
   cli.py                      single command surface for agents and humans
 tests/                        data, causality, research, API, CLI, and execution tests
+scripts/guard_robinhood_tool.py fail-closed Codex placement-permit hook
 scripts/demo.py               deterministic terminal demo
 ```
 
 ## API
 
 - `GET /api/health` — liveness and version
+- `GET /api/autonomy/health` — autonomous control-plane readiness
+- `GET /metrics` — Prometheus-format operational metrics
 - `GET /api/strategies` — UI-ready strategy/parameter schemas
 - `POST /api/backtests?data_source=synthetic|market` — run an experiment matrix
 - `GET /docs` — generated OpenAPI explorer while FastAPI is running
@@ -151,9 +186,9 @@ make test
 make lint
 ```
 
-Current scope is daily, long-only stocks/ETFs. The Yahoo downloader is convenient research data, not a point-in-time fundamentals database or exchange-grade feed. Adjusted bars reduce corporate-action discontinuities but do not eliminate survivorship bias in a hand-selected present-day universe. There is no borrow model, taxes, market impact curve, intraday order book, delisting-return database, or live broker integration.
+Current autonomous scope is long-only, dollar-notional equities/ETFs in a dedicated Robinhood Agentic account. The Yahoo downloader is convenient research data, not an exchange-grade feed; live decisions use fresh Robinhood MCP quotes and tradability. Adjusted historical bars reduce corporate-action discontinuities but do not eliminate survivorship bias. There is no borrow model, tax optimizer, market-impact curve, intraday order book, or delisting-return database.
 
-Live proposals remain long-only equities, dollar-notional, and bounded by a checked-in policy. Options, shorting, leverage, margin, bracket orders, and autonomous strategy promotion are outside the execution scope. A proposal being approved means “safe enough to send to Robinhood's review tool,” not “profitable” and not “already placed.”
+Options, shorting, leverage, margin, crypto, bracket orders, and autonomous policy promotion are outside the execution scope. A proposal being approved means “eligible for an exact Robinhood review and a single-use Edgecraft permit,” not “profitable” and not “already placed.” Real read-only broker data and unattended shadow proposals were validated on July 20, 2026; no real order was placed as part of repository validation.
 
 The conformal classifier offers finite-sample coverage only under its exchangeability assumptions; financial regime shifts can violate them. DSR and PBO are diagnostics, not certificates of future profitability. Treat every displayed result as a hypothesis to challenge.
 

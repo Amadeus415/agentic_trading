@@ -13,8 +13,8 @@ test:
 	uv run pytest
 
 lint:
-	uv run ruff check src tests
-	uv run ruff format --check src tests
+	uv run ruff check src tests scripts/guard_robinhood_tool.py
+	uv run ruff format --check src tests scripts/guard_robinhood_tool.py
 	node --check frontend/app.js
 
 build:
@@ -27,5 +27,7 @@ health:
 	uv run edgecraft health
 
 validate: test lint
+	uv run edgecraft mandate-validate --config examples/mandate.index-dca.json
+	uv run edgecraft mandate-validate --config examples/mandate.index-dca-live.example.json
 	uv run edgecraft backtest --config examples/research.json --data-source synthetic --output artifacts/smoke-backtest.json
 	uv run edgecraft walk-forward --config examples/research.json --data-source synthetic --train-sessions 504 --test-sessions 126 --output artifacts/smoke-walk-forward.json

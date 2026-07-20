@@ -1,0 +1,29 @@
+{
+  "mandate_id": "index_dca_live",
+  "goal": "Invest up to $10 each week into a diversified, long-only index-fund portfolio using bounded tactical tilts and fresh Robinhood account and market data.",
+  "enabled": false,
+  "mode": "live",
+  "weekly_budget": "10.00",
+  "max_rollover_weeks": 0,
+  "risk_level": "balanced",
+  "universe": [
+    "VTI",
+    "VXUS",
+    "BND"
+  ],
+  "strategic_weights": {
+    "VTI": "0.60",
+    "VXUS": "0.25",
+    "BND": "0.15"
+  },
+  "minimum_confidence": "0.60",
+  "allow_sells": false,
+  "schedule_weekday": 0,
+  "schedule_time": "10:00:00",
+  "timezone": "America/New_York",
+  "benchmark": "SPY",
+  "decision_model": null,
+  "policy_path": "examples/policy.autonomous-live.example.json",
+  "research_evidence_path": null,
+  "owner_notes": "Example only. Review every field, then set enabled=true to arm this separately versioned live mandate."
+}
