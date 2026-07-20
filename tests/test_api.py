@@ -52,5 +52,52 @@ def test_frontend_serves_about_and_run_explorer():
     script = client.get("/app.js")
     assert index.status_code == 200
     assert script.status_code == 200
+    assert "Autonomy Workbench" in index.text
     assert "How it works" in script.text
+    assert "RUN REAL POLICY GATE" in script.text
+    assert "/api/learn/scenarios" in script.text
     assert "RUN EXPLORER" in script.text
+
+
+def test_learning_guide_traces_real_system_boundaries():
+    response = client.get("/api/learn")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["principle"] == "Models propose. Typed policy authorizes. The broker executes."
+    assert [step["id"] for step in payload["cycle"]] == [
+        "mandate",
+        "observe",
+        "decide",
+        "gate",
+        "execute",
+        "reconcile",
+    ]
+    assert "get_accounts" in payload["protocol"]["refresh_tools"]
+
+
+def test_learning_scenario_uses_the_real_policy_gate():
+    approved = client.post("/api/learn/scenarios", json={})
+    assert approved.status_code == 200
+    assert approved.json()["outcome"] == "shadow_complete"
+    assert approved.json()["risk"]["approved_for_review"]
+    assert sum(order["notional"] for order in approved.json()["orders"]) == 10
+
+    blocked = client.post(
+        "/api/learn/scenarios",
+        json={"weekly_budget": 10, "vti_notional": 11, "vxus_notional": 0, "bnd_notional": 0},
+    )
+    assert blocked.status_code == 200
+    assert blocked.json()["outcome"] == "risk_rejected"
+    assert any("cycle budget" in item for item in blocked.json()["risk"]["violations"])
+
+
+def test_learning_scenario_surfaces_stale_data_and_open_orders():
+    response = client.post(
+        "/api/learn/scenarios",
+        json={"snapshot_age_seconds": 600, "quote_age_seconds": 600, "has_open_order": True},
+    )
+    assert response.status_code == 200
+    violations = response.json()["risk"]["violations"]
+    assert any("snapshot is stale" in item for item in violations)
+    assert any("quote is stale" in item for item in violations)
+    assert any("open broker order" in item for item in violations)

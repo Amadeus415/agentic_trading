@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 
 from edgecraft import __version__
 from edgecraft.data import MarketDataError, MarketDataProvider, synthetic_market_data
+from edgecraft.learning import LearningScenarioRequest, learning_guide, run_learning_scenario
 from edgecraft.ledger import AuditLedger
 from edgecraft.models import BacktestRequest
 from edgecraft.observability import autonomy_health, prometheus_metrics
@@ -46,6 +47,16 @@ def metrics() -> str:
 @app.get("/api/strategies")
 def strategies() -> list[dict]:
     return STRATEGY_SCHEMAS
+
+
+@app.get("/api/learn")
+def learn() -> dict:
+    return learning_guide()
+
+
+@app.post("/api/learn/scenarios")
+def learning_scenario(request: LearningScenarioRequest) -> dict:
+    return run_learning_scenario(request)
 
 
 @app.post("/api/backtests")

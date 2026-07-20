@@ -1,5 +1,6 @@
 const COLORS = ['#b9ff66', '#71a7ff', '#ffbd69', '#d88cff', '#ff7184', '#57d5d0']
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+const preciseMoney = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const compactMoney = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 1 })
 const state = {
   schemas: [],
@@ -10,6 +11,9 @@ const state = {
   chartRange: 'all',
   visible: new Set(),
   hoverIndex: null,
+  guide: null,
+  activeCycleStep: 'mandate',
+  learningResult: null,
 }
 
 const pct = value => value == null ? '—' : `${(value * 100).toFixed(1)}%`
@@ -60,29 +64,98 @@ const CHART_MODES = {
 document.getElementById('root').innerHTML = `
   <div class="shell">
     <header class="topbar">
-      <a class="brand" href="#top" aria-label="Edgecraft home"><div class="mark">⌁</div><span>EDGECRAFT</span><small>RESEARCH TERMINAL</small></a>
-      <nav class="topnav" aria-label="Primary"><a href="#about">How it works</a><a href="#lab">Research lab</a></nav>
-      <div class="system"><span class="pulse"></span> POINT-IN-TIME ENGINE <span>v0.1</span></div>
+      <a class="brand" href="#top" aria-label="Edgecraft home"><div class="mark">⌁</div><span>EDGECRAFT</span><small>AUTONOMY WORKBENCH</small></a>
+      <nav class="topnav" aria-label="Primary"><a href="#cycle">How it works</a><a href="#safety-lab">Safety lab</a><a href="#research">Research lab</a></nav>
+      <div class="system"><span class="pulse"></span> SHADOW LEARNING MODE <span>v0.3</span></div>
     </header>
     <main id="top">
-      <section class="hero">
-        <div><p class="eyebrow">ADVERSARIAL STRATEGY LAB</p><h1>Build less convincing<br><em>backtests.</em></h1></div>
-        <p class="hero-copy">Design, falsify, and compare systematic stock strategies with next-bar execution, realistic costs, resampled uncertainty, and multiple-testing penalties.</p>
+      <section class="hero learning-hero">
+        <div><p class="eyebrow">THE AUTONOMY WORKBENCH</p><h1>See how the agent thinks.<br><em>Then see where code says no.</em></h1></div>
+        <div class="hero-side">
+          <p class="hero-copy">Follow one weekly contribution from your mandate, through broker observation and model reasoning, into deterministic policy gates. Nothing in this lesson can place a trade.</p>
+          <div class="hero-actions"><a class="primary-link" href="#cycle">START THE GUIDED CYCLE ↓</a><a href="#research">OPEN THE RESEARCH LAB</a></div>
+        </div>
       </section>
-      <section id="about" class="about-section">
+      <section class="trust-model" aria-label="Edgecraft trust model">
+        <article><span>01 · PROBABILISTIC</span><h2>Model proposes</h2><p>Codex interprets fresh evidence and returns a typed weekly recommendation—including the option to hold cash.</p></article>
+        <i>→</i>
+        <article><span>02 · DETERMINISTIC</span><h2>Policy authorizes</h2><p>Python checks every hard boundary. The reasoning model cannot enlarge its own budget or weaken a rule.</p></article>
+        <i>→</i>
+        <article><span>03 · EXTERNAL TRUTH</span><h2>Broker executes</h2><p>Robinhood is refreshed, reviews the exact order, and receives it only with a valid single-use permit.</p></article>
+      </section>
+      <section id="cycle" class="learning-section cycle-section">
         <div class="about-intro">
-          <p class="eyebrow">HOW IT WORKS</p>
-          <h2>From market hypothesis to an auditable result.</h2>
-          <p>Edgecraft keeps strategy decisions, simulated execution, and statistical validation separate so you can see where an apparently strong result actually came from.</p>
+          <p class="eyebrow">01 · GUIDED CYCLE</p>
+          <h2>One weekly decision. Six distinct responsibilities.</h2>
+          <p>Select a stage to see who owns it, what question it answers, and which real module implements the boundary.</p>
+        </div>
+        <div id="cycle-map" class="cycle-map loading-card">Loading the real system map…</div>
+        <div id="cycle-detail" class="cycle-detail"></div>
+      </section>
+      <section id="safety-lab" class="learning-section safety-section">
+        <div class="about-intro">
+          <p class="eyebrow">02 · POLICY SANDBOX</p>
+          <h2>Try to break the proposal.</h2>
+          <p>This sandbox calls the production mandate and risk-gate modules with synthetic inputs. It is hard-wired to shadow mode and never contacts Robinhood.</p>
+        </div>
+        <div class="preset-row" aria-label="Learning scenarios">
+          <button class="preset active" data-preset="healthy">Healthy cycle</button>
+          <button class="preset" data-preset="stale">Stale data</button>
+          <button class="preset" data-preset="budget">Over budget</button>
+          <button class="preset" data-preset="confidence">Low confidence</button>
+          <button class="preset" data-preset="tilt">Excess tilt</button>
+          <button class="preset" data-preset="open-order">Open order</button>
+        </div>
+        <div class="safety-grid">
+          <aside class="scenario-controls">
+            <div class="control-heading"><span>SYNTHETIC INPUTS</span><strong>Change one boundary at a time</strong></div>
+            <div class="control-grid">
+              ${rangeHTML('learning-budget', 'Weekly ceiling', 10, 1, 25, 1, ' USD')}
+              ${rangeHTML('learning-confidence', 'Model confidence', .7, .2, .95, .05)}
+              ${rangeHTML('learning-vti', 'VTI allocation', 6, 0, 20, .5, ' USD')}
+              ${rangeHTML('learning-vxus', 'VXUS allocation', 2.5, 0, 20, .5, ' USD')}
+              ${rangeHTML('learning-bnd', 'BND allocation', 1.5, 0, 20, .5, ' USD')}
+              ${rangeHTML('learning-buying-power', 'Buying power', 250, 0, 250, 5, ' USD')}
+            </div>
+            <div class="two-col">
+              <label>Snapshot age<select id="learning-snapshot-age"><option value="30">30 sec · fresh</option><option value="600">10 min · stale</option></select></label>
+              <label>Quote age<select id="learning-quote-age"><option value="30">30 sec · fresh</option><option value="600">10 min · stale</option></select></label>
+            </div>
+            <div class="check-row">
+              <label><input id="learning-eligible" type="checkbox" checked> Agentic account eligible</label>
+              <label><input id="learning-open-order" type="checkbox"> Existing open order</label>
+            </div>
+            <button id="run-learning" class="run-button learning-run">▶ RUN REAL POLICY GATE</button>
+            <p class="sandbox-note"><span>SAFE BY CONSTRUCTION</span> Synthetic account · shadow only · no broker session · no order placement</p>
+          </aside>
+          <section id="learning-result" class="scenario-result" aria-live="polite">
+            <div class="loading-card">Preparing the default shadow cycle…</div>
+          </section>
+        </div>
+      </section>
+      <section id="interfaces" class="learning-section interface-section">
+        <div class="about-intro">
+          <p class="eyebrow">03 · INTERFACES</p>
+          <h2>One engine. Three doors.</h2>
+          <p>The web app, CLI, and MCP are adapters for different users. They should stay thin so policy and financial math have one source of truth.</p>
+        </div>
+        <div id="interface-cards" class="interface-cards"></div>
+        <div id="protocol-invariants" class="protocol-panel"></div>
+      </section>
+      <section id="research" class="about-section research-intro">
+        <div class="about-intro">
+          <p class="eyebrow">04 · RESEARCH LAB</p>
+          <h2>Before autonomy, try to falsify the strategy.</h2>
+          <p>Backtests answer “what might have happened?” They do not authorize trades. Edgecraft keeps research evidence upstream of the weekly decision and policy gate.</p>
         </div>
         <div class="method-flow" aria-label="Four-stage research process">
-          ${aboutStep('01', 'Configure', 'Choose the universe, deposits, costs, and candidate strategies before seeing the outcome.')}
+          ${aboutStep('01', 'Configure', 'Choose the universe, deposits, costs, and candidates before seeing the outcome.')}
           ${aboutStep('02', 'Walk forward', 'Each close produces an intention. Orders execute no earlier than the next session open.')}
-          ${aboutStep('03', 'Stress test', 'Block bootstrap ranges, Deflated Sharpe, and CSCV challenge fragile winners.')}
+          ${aboutStep('03', 'Stress test', 'Bootstrap ranges, Deflated Sharpe, and CSCV challenge fragile winners.')}
           ${aboutStep('04', 'Inspect', 'Compare every run, trace drawdowns and cash drag, then audit the underlying fills.')}
         </div>
         <div class="causal-strip">
-          <span>SESSION t · CLOSE</span><b>Signal observes history</b><i>→</i><span>SESSION t+1 · OPEN</span><b>Order simulates a fill</b><i>→</i><span>SESSION t+1 · CLOSE</span><b>Portfolio is valued</b>
+          <span>SESSION t · CLOSE</span><b>Signal observes history</b><i>→</i><span>SESSION t+1 · OPEN</span><b>Order simulates a fill</b><i>→</i><span>OUT-OF-SAMPLE</span><b>Evidence faces stress tests</b>
         </div>
       </section>
       <section id="lab" class="workspace">
@@ -124,9 +197,129 @@ function emptyHTML(loading) {
   return `<div class="empty"><div class="radar"><div></div><div></div><b>${loading ? '⋯' : '⌁'}</b></div><p class="eyebrow">${loading ? 'SIMULATING' : 'EXPERIMENT READY'}</p><h2>${loading ? 'Walking forward through history…' : 'Configure the assumptions. Then try to break the idea.'}</h2><p>${loading ? 'Signals, next-open fills, costs, resampling, and multiple-testing controls are being evaluated.' : 'Start with the synthetic demo for a deterministic run, then switch to adjusted market data.'}</p></div>`
 }
 
+const LEARNING_PRESETS = {
+  healthy: { budget: 10, confidence: .7, vti: 6, vxus: 2.5, bnd: 1.5, buyingPower: 250, snapshotAge: 30, quoteAge: 30, eligible: true, openOrder: false },
+  stale: { budget: 10, confidence: .7, vti: 6, vxus: 2.5, bnd: 1.5, buyingPower: 250, snapshotAge: 600, quoteAge: 600, eligible: true, openOrder: false },
+  budget: { budget: 10, confidence: .8, vti: 7, vxus: 3, bnd: 2, buyingPower: 250, snapshotAge: 30, quoteAge: 30, eligible: true, openOrder: false },
+  confidence: { budget: 10, confidence: .4, vti: 6, vxus: 2.5, bnd: 1.5, buyingPower: 250, snapshotAge: 30, quoteAge: 30, eligible: true, openOrder: false },
+  tilt: { budget: 10, confidence: .8, vti: 10, vxus: 0, bnd: 0, buyingPower: 250, snapshotAge: 30, quoteAge: 30, eligible: true, openOrder: false },
+  'open-order': { budget: 10, confidence: .7, vti: 6, vxus: 2.5, bnd: 1.5, buyingPower: 250, snapshotAge: 30, quoteAge: 30, eligible: true, openOrder: true },
+}
+
+fetch('/api/learn').then(response => response.json()).then(guide => {
+  state.guide = guide
+  renderLearningGuide()
+}).catch(() => {
+  document.getElementById('cycle-map').innerHTML = '<div class="error">Could not load the system guide.</div>'
+})
+
+function renderLearningGuide() {
+  document.getElementById('cycle-map').classList.remove('loading-card')
+  document.getElementById('cycle-map').innerHTML = state.guide.cycle.map((step, index) => `
+    <button data-cycle-step="${step.id}" class="${step.id === state.activeCycleStep ? 'active' : ''}" aria-pressed="${step.id === state.activeCycleStep}">
+      <span>${String(index + 1).padStart(2, '0')}</span>
+      <strong>${esc(step.label)}</strong>
+      <small>${esc(step.owner)}</small>
+    </button>`).join('')
+  document.querySelectorAll('[data-cycle-step]').forEach(button => button.addEventListener('click', () => {
+    state.activeCycleStep = button.dataset.cycleStep
+    renderLearningGuide()
+  }))
+  const step = state.guide.cycle.find(item => item.id === state.activeCycleStep)
+  document.getElementById('cycle-detail').innerHTML = `
+    <div><span>THE QUESTION</span><h3>${esc(step.question)}</h3></div>
+    <p>${esc(step.detail)}</p>
+    <code>${esc(step.source)}</code>`
+  document.getElementById('interface-cards').innerHTML = state.guide.interfaces.map((item, index) => `
+    <article><span>0${index + 1}</span><div><p>${esc(item.audience)}</p><h3>${esc(item.name)}</h3><strong>${esc(item.path)}</strong><small>${esc(item.job)}</small></div></article>`).join('')
+  document.getElementById('protocol-invariants').innerHTML = `
+    <div><p class="eyebrow">NON-NEGOTIABLE INVARIANTS</p><h3>The agent can reason inside the box. It cannot redraw the box.</h3></div>
+    <ol>${state.guide.protocol.invariants.slice(0, 4).map(item => `<li>${esc(item)}</li>`).join('')}</ol>`
+}
+
+function applyLearningPreset(name) {
+  const preset = LEARNING_PRESETS[name]
+  const assignments = {
+    'learning-budget': preset.budget,
+    'learning-confidence': preset.confidence,
+    'learning-vti': preset.vti,
+    'learning-vxus': preset.vxus,
+    'learning-bnd': preset.bnd,
+    'learning-buying-power': preset.buyingPower,
+  }
+  Object.entries(assignments).forEach(([id, value]) => {
+    const input = document.getElementById(id)
+    input.value = value
+    document.getElementById(`${id}-out`).textContent = `${value}${input.dataset.suffix || ''}`
+  })
+  document.getElementById('learning-snapshot-age').value = preset.snapshotAge
+  document.getElementById('learning-quote-age').value = preset.quoteAge
+  document.getElementById('learning-eligible').checked = preset.eligible
+  document.getElementById('learning-open-order').checked = preset.openOrder
+  document.querySelectorAll('[data-preset]').forEach(button => button.classList.toggle('active', button.dataset.preset === name))
+  runLearningScenario()
+}
+
+document.querySelectorAll('[data-preset]').forEach(button => button.addEventListener('click', () => applyLearningPreset(button.dataset.preset)))
+document.getElementById('run-learning').addEventListener('click', runLearningScenario)
+
+async function runLearningScenario() {
+  const button = document.getElementById('run-learning')
+  button.disabled = true
+  button.textContent = '◌ RUNNING POLICY GATE'
+  document.getElementById('learning-result').innerHTML = '<div class="loading-card">Evaluating the typed mandate, decision, snapshot, quotes, and policy…</div>'
+  const value = id => Number(document.getElementById(id).value)
+  const body = {
+    weekly_budget: value('learning-budget'),
+    confidence: value('learning-confidence'),
+    vti_notional: value('learning-vti'),
+    vxus_notional: value('learning-vxus'),
+    bnd_notional: value('learning-bnd'),
+    buying_power: value('learning-buying-power'),
+    snapshot_age_seconds: value('learning-snapshot-age'),
+    quote_age_seconds: value('learning-quote-age'),
+    account_eligible: document.getElementById('learning-eligible').checked,
+    has_open_order: document.getElementById('learning-open-order').checked,
+  }
+  try {
+    const response = await fetch('/api/learn/scenarios', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    const payload = await response.json()
+    if (!response.ok) throw new Error(payload.detail?.[0]?.msg || payload.detail || 'Learning scenario failed')
+    state.learningResult = payload
+    renderLearningResult()
+  } catch (error) {
+    document.getElementById('learning-result').innerHTML = `<div class="error">⚠ ${esc(error.message)}</div>`
+  } finally {
+    button.disabled = false
+    button.textContent = '▶ RUN REAL POLICY GATE'
+  }
+}
+
+function renderLearningResult() {
+  const result = state.learningResult
+  const detail = result.approved
+    ? `<div class="order-preview"><span>SHADOW PROPOSAL</span>${result.orders.map(order => `<div><strong>${esc(order.symbol)}</strong><b>${preciseMoney.format(order.notional)}</b><small>@ synthetic ${preciseMoney.format(order.expected_price)}</small></div>`).join('')}</div>`
+    : `<div class="violation-list"><span>EXACT BLOCKERS</span>${result.risk.violations.map(item => `<p>× ${esc(item)}</p>`).join('')}</div>`
+  document.getElementById('learning-result').innerHTML = `
+    <div class="result-summary ${result.approved ? 'approved' : 'blocked'}">
+      <span>${result.approved ? '✓ SHADOW-APPROVED' : '× BLOCKED BY CODE'}</span>
+      <h3>${esc(result.headline)}</h3>
+      <p>${esc(result.summary)}</p>
+    </div>
+    <div class="learning-trace">${result.trace.map((step, index) => `
+      <article class="${step.status}">
+        <span>${String(index + 1).padStart(2, '0')}</span>
+        <div><small>${esc(step.status.replaceAll('_', ' '))}</small><strong>${esc(step.title)}</strong><p>${esc(step.detail)}</p></div>
+      </article>`).join('')}</div>
+    ${detail}
+    <div class="result-foot"><span>HANDOFF · ${esc(result.handoff_status.replaceAll('_', ' '))}</span><code>${esc(result.proposal_id)}</code></div>`
+}
+
 document.querySelectorAll('input[type="range"]').forEach(input => input.addEventListener('input', event => {
   document.getElementById(`${event.target.id}-out`).textContent = `${event.target.value}${event.target.dataset.suffix || ''}`
 }))
+
+runLearningScenario()
 
 fetch('/api/strategies').then(response => response.json()).then(schemas => {
   state.schemas = schemas
