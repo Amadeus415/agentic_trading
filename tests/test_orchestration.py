@@ -103,6 +103,28 @@ def test_live_proposal_requires_enabled_policy_and_passing_research(tmp_path):
     assert not approved.robinhood_handoff["placement_authorized"]
 
 
+def test_symbol_group_concentration_is_deterministically_blocked():
+    proposal = create_trade_proposal(
+        snapshot(),
+        quotes(),
+        TargetAllocation(weights={"SPY": 0.4}, rationale="group concentration test"),
+        RiskPolicy(
+            allowed_symbols=["SPY"],
+            max_order_notional=250,
+            max_daily_notional=250,
+            max_position_weight=0.8,
+            symbol_groups={"growth": ["SPY"]},
+            max_group_weight=0.35,
+        ),
+        strategy="plain_dca",
+        mode="shadow",
+        now=NOW,
+    )
+
+    assert not proposal.risk.approved_for_review
+    assert any("growth projected weight" in item for item in proposal.risk.violations)
+
+
 def test_stale_quote_and_duplicate_proposal_are_blocked(tmp_path):
     stale = datetime(2026, 7, 19, 17, 0, tzinfo=UTC)
     proposal = create_trade_proposal(

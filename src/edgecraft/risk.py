@@ -179,6 +179,13 @@ def evaluate_orders(
                 f"{symbol} projected weight {weight:.1%} exceeds max_position_weight="
                 f"{policy.max_position_weight:.1%}"
             )
+    for group_name, symbols in policy.symbol_groups.items():
+        group_weight = sum(projected_weights.get(symbol, 0.0) for symbol in symbols)
+        if group_weight > policy.max_group_weight + 1e-9:
+            violations.append(
+                f"{group_name} projected weight {group_weight:.1%} exceeds "
+                f"max_group_weight={policy.max_group_weight:.1%}"
+            )
 
     if policy.require_research_evidence:
         if research is None:

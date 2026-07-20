@@ -101,6 +101,14 @@ explicitly when a mandate needs a tighter limit.
 
 Live operation is a versioned policy decision, never a model decision.
 
+Market-day mandates use one idempotency key and one budget per weekday. Exchange
+holidays and unscheduled closures still resolve to a hold through fresh broker
+tradability and market-state checks. A policy may waive Robinhood's per-order
+preview only when the owner has explicitly granted standing unattended execution
+authority and `standing_execution_authorization=true`; all Edgecraft cash,
+symbol, concentration, freshness, permit, reconciliation, and kill-switch gates
+remain mandatory.
+
 1. Run repeated real-data shadow cycles and inspect proposals, holds, rejected
    decisions, quote freshness, and subsequent market prices.
 2. Keep the universe broad, liquid, fractionally tradable ETFs. Set the first

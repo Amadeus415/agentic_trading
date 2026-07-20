@@ -23,6 +23,8 @@ CENT = Decimal("0.01")
 
 def cycle_key(mandate: Mandate, now: datetime | None = None) -> str:
     current = _aware(now or datetime.now(UTC)).astimezone(ZoneInfo(mandate.timezone))
+    if mandate.cycle_frequency == "market_day":
+        return f"{mandate.mandate_id}:{current.date().isoformat()}"
     year, week, _ = current.isocalendar()
     return f"{mandate.mandate_id}:{year:04d}-W{week:02d}"
 
@@ -31,6 +33,13 @@ def cycle_due(mandate: Mandate, now: datetime | None = None) -> bool:
     if not mandate.enabled:
         return False
     current = _aware(now or datetime.now(UTC)).astimezone(ZoneInfo(mandate.timezone))
+    if mandate.cycle_frequency == "market_day":
+        if current.weekday() >= 5:
+            return False
+        scheduled = datetime.combine(
+            current.date(), mandate.schedule_time, tzinfo=ZoneInfo(mandate.timezone)
+        )
+        return current >= scheduled
     week_start = current.date() - timedelta(days=current.weekday())
     scheduled_date = week_start + timedelta(days=mandate.schedule_weekday)
     scheduled = datetime.combine(
@@ -47,9 +56,9 @@ def available_cycle_budget(
 ) -> Decimal:
     current_key = cycle_key(mandate, now)
     already_placed = Decimal(str(ledger.cycle_placed_notional(mandate.mandate_id, current_key)))
-    current_remaining = max(Decimal("0"), mandate.weekly_budget - already_placed)
+    current_remaining = max(Decimal("0"), mandate.cycle_budget - already_placed)
     rollover = Decimal("0")
-    if mandate.max_rollover_weeks:
+    if mandate.cycle_frequency == "weekly" and mandate.max_rollover_weeks:
         prior_placed = ledger.recent_cycle_placed_notionals(
             mandate.mandate_id,
             before_cycle_key=current_key,
@@ -57,7 +66,7 @@ def available_cycle_budget(
         )
         rollover = sum(
             (
-                max(Decimal("0"), mandate.weekly_budget - Decimal(str(placed)))
+                max(Decimal("0"), mandate.cycle_budget - Decimal(str(placed)))
                 for placed in prior_placed
             ),
             Decimal("0"),
@@ -98,7 +107,7 @@ def create_weekly_proposal(
         quotes,
         orders,
         policy,
-        strategy="agentic_weekly_dca",
+        strategy=_strategy_name(mandate),
         mode=mandate.mode,
         daily_placed_notional=daily_notional,
         unresolved_order_keys=unresolved,
@@ -125,7 +134,7 @@ def create_weekly_proposal(
         created_at=current_time,
         mode=mandate.mode,
         account_id=snapshot.account_id,
-        strategy="agentic_weekly_dca",
+        strategy=_strategy_name(mandate),
         rationale=decision.hypothesis,
         policy_name=policy.policy_name,
         snapshot_as_of=snapshot.as_of,
@@ -177,14 +186,15 @@ def _decision_orders(
         if quote is None:
             violations.append(f"missing quote for {allocation.symbol}")
             continue
-        allocation_share = allocation.notional / total if total > 0 else Decimal("0")
-        strategic = mandate.strategic_weights.get(allocation.symbol, Decimal("0"))
-        max_share = min(Decimal("1"), strategic + mandate.tactical_tilt_limit)
-        if allocation_share > max_share + Decimal("0.000001"):
-            violations.append(
-                f"{allocation.symbol} decision share {allocation_share:.1%} exceeds "
-                f"strategic+tactical limit {max_share:.1%}"
-            )
+        if mandate.cycle_frequency == "weekly":
+            allocation_share = allocation.notional / total if total > 0 else Decimal("0")
+            strategic = mandate.strategic_weights.get(allocation.symbol, Decimal("0"))
+            max_share = min(Decimal("1"), strategic + mandate.tactical_tilt_limit)
+            if allocation_share > max_share + Decimal("0.000001"):
+                violations.append(
+                    f"{allocation.symbol} decision share {allocation_share:.1%} exceeds "
+                    f"strategic+tactical limit {max_share:.1%}"
+                )
         notional = allocation.notional.quantize(CENT, rounding=ROUND_DOWN)
         if notional < min_order_notional:
             warnings.append(
@@ -229,6 +239,14 @@ def _weekly_proposal_id(
         ]
     )
     return "prop_" + hashlib.sha256(content.encode()).hexdigest()[:24]
+
+
+def _strategy_name(mandate: Mandate) -> str:
+    return (
+        "agentic_market_day_buy"
+        if mandate.cycle_frequency == "market_day"
+        else "agentic_weekly_dca"
+    )
 
 
 def _handoff(
