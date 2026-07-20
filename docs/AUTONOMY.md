@@ -6,6 +6,7 @@ approval. Autonomy is split across two trust domains:
 ```text
 launchd wakeup
   → Edgecraft due/idempotency/budget check
+  → Browserbase + public-source context collection and audit
   → Codex read-only Robinhood observation and structured recommendation
   → Edgecraft policy + freshness + cash + concentration + tilt gate
   → shadow complete
@@ -20,11 +21,15 @@ launchd wakeup
 Codex owns reasoning and the authenticated MCP session. Edgecraft owns
 authority. A model cannot make the weekly budget larger, add a symbol, weaken a
 limit, disable review, mint a permit, reuse a permit, or clear the kill switch.
+See [the external-context guide](EXTERNAL_CONTEXT.md) for provider setup,
+freshness requirements, and the untrusted-content boundary.
 
 ## Start with the supplied $10 shadow mandate
 
 ```bash
 uv sync --extra dev
+
+export BROWSERBASE_API_KEY='your-free-project-key'
 
 edgecraft health --real-data-symbol SPY
 edgecraft mandate-validate --config examples/mandate.index-dca.json
