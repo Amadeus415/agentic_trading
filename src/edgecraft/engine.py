@@ -30,6 +30,7 @@ class BacktestEngine:
         initial_capital: float,
         contribution_amount: float,
         contribution_frequency: str,
+        evaluation_start: pd.Timestamp | None = None,
     ) -> BacktestResult:
         dates = data[next(iter(data))].index
         state = PortfolioState(cash=initial_capital, shares={symbol: 0.0 for symbol in data})
@@ -39,12 +40,18 @@ class BacktestEngine:
         previous_date: pd.Timestamp | None = None
 
         for index, current_date in enumerate(dates):
-            opens = {symbol: float(frame.loc[current_date, "open"]) for symbol, frame in data.items()}
-            closes = {symbol: float(frame.loc[current_date, "close"]) for symbol, frame in data.items()}
+            if evaluation_start is not None and current_date < evaluation_start:
+                continue
+            opens = {
+                symbol: float(frame.loc[current_date, "open"]) for symbol, frame in data.items()
+            }
+            closes = {
+                symbol: float(frame.loc[current_date, "close"]) for symbol, frame in data.items()
+            }
             contribution_due = self._contribution_due(
                 current_date, previous_date, contribution_frequency
             )
-            contribution = contribution_amount if contribution_due and index > 0 else 0.0
+            contribution = contribution_amount if contribution_due and records else 0.0
             if contribution:
                 state.cash += contribution
                 state.external_contributions += contribution
@@ -83,9 +90,13 @@ class BacktestEngine:
             pending = strategy.generate(context)
             previous_date = current_date
 
+        if not records:
+            raise ValueError("evaluation_start is outside the available data")
         daily = pd.DataFrame.from_records(records).set_index("date")
         previous_equity = daily["equity"].shift()
-        daily["return"] = ((daily["equity"] - daily["contribution"]) / previous_equity - 1).fillna(0)
+        daily["return"] = ((daily["equity"] - daily["contribution"]) / previous_equity - 1).fillna(
+            0
+        )
         daily["drawdown"] = (1 + daily["return"]).cumprod()
         daily["drawdown"] = daily["drawdown"] / daily["drawdown"].cummax() - 1
         metrics = calculate_metrics(
@@ -128,12 +139,23 @@ class BacktestEngine:
             notional = quantity * price
             state.turnover_notional += notional
             fills.append(
-                Fill(date, intent.symbol, intent.side, quantity, price, notional, commission, intent.reason)
+                Fill(
+                    date,
+                    intent.symbol,
+                    intent.side,
+                    quantity,
+                    price,
+                    notional,
+                    commission,
+                    intent.reason,
+                )
             )
         return fills
 
     @staticmethod
-    def _contribution_due(current: pd.Timestamp, previous: pd.Timestamp | None, frequency: str) -> bool:
+    def _contribution_due(
+        current: pd.Timestamp, previous: pd.Timestamp | None, frequency: str
+    ) -> bool:
         if previous is None:
             return True
         if frequency == "daily":
