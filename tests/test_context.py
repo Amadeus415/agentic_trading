@@ -28,13 +28,22 @@ class FakeTransport:
         self.calls.append((method, url, body))
         if url.endswith("/v1/search"):
             query_number = sum(call[1].endswith("/v1/search") for call in self.calls)
+            is_social = "site:stocktwits.com" in body["query"]
             return {
                 "requestId": f"request-{query_number}",
                 "query": body["query"],
                 "results": [
                     {
                         "id": f"result-{query_number}",
-                        "url": f"https://source{query_number}.example/story",
+                        "url": (
+                            "https://stocktwits.com/symbol/VTI"
+                            if is_social
+                            else (
+                                "https://www.sec.gov/Archives/edgar/data/1/filing.htm"
+                                if "site:sec.gov" in body["query"]
+                                else f"https://source{query_number}.example/story"
+                            )
+                        ),
                         "title": f"Current market source {query_number}",
                         "publishedDate": "2026-07-20T20:00:00Z",
                     },
@@ -104,9 +113,17 @@ def test_context_collection_is_diverse_fresh_cached_and_bounded(tmp_path):
     snapshot = service.collect(["vti", "vxus"], now=NOW)
 
     assert snapshot.complete
-    assert snapshot.fresh_source_count == 4
+    assert snapshot.fresh_source_count >= 4
     assert {source.channel for source in snapshot.sources} == {"web", "social", "regulatory"}
     assert any(source.excerpt == "Current sourced facts." for source in snapshot.sources)
+    fetched_source = next(
+        source for source in snapshot.sources if source.metadata.get("content_sha256")
+    )
+    assert fetched_source.metadata["discovery_query"] in snapshot.queries
+    assert len(fetched_source.metadata["content_sha256"]) == 64
+    filing = next(source for source in snapshot.sources if source.metadata.get("form") == "8-K")
+    assert filing.metadata["form"] == "8-K"
+    assert filing.metadata["accession_number"] == "0000000001-26-000001"
     assert all(len(query) <= 200 for query in snapshot.queries)
     call_count = len(transport.calls)
 
@@ -126,6 +143,37 @@ def test_context_source_rejects_private_network_urls():
             url="https://127.0.0.1/secrets",
             retrieved_at=NOW,
         )
+
+
+def test_large_universe_respects_query_and_social_budgets():
+    transport = FakeTransport()
+    policy = WebContextPolicy(
+        symbols_per_query=4,
+        max_search_queries=6,
+        social_results=3,
+        fetch_pages=0,
+        max_total_sources=20,
+        min_sources=1,
+        min_web_sources=1,
+        min_fresh_sources=1,
+    )
+    service = ExternalContextService(
+        policy,
+        browserbase=BrowserbaseClient("test-key", transport=transport),
+        bluesky=BlueskyClient(transport=transport),
+    )
+    symbols = [f"S{index:02d}" for index in range(25)]
+
+    snapshot = service.collect(symbols, now=NOW)
+
+    search_calls = [call for call in transport.calls if call[1].endswith("/v1/search")]
+    social_calls = [call for call in transport.calls if "searchPosts" in call[1]]
+    assert len(search_calls) == 6
+    assert len(snapshot.queries) == 6
+    assert all(any(symbol in query for query in snapshot.queries) for symbol in symbols)
+    assert len(social_calls) <= 3
+    assert sum(source.channel == "social" for source in snapshot.sources) <= 3
+    assert len(snapshot.sources) <= 20
 
 
 def test_browserbase_key_file_must_be_private(tmp_path, monkeypatch):

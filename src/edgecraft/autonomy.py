@@ -163,8 +163,12 @@ def create_weekly_proposal(
             risks=decision.risks,
             data_sources=decision.data_sources,
             context_source_ids=decision.context_source_ids,
+            evidence_items=decision.evidence_items,
             allocation_rationales={
                 allocation.symbol: allocation.rationale for allocation in decision.allocations
+            },
+            allocation_evidence_ids={
+                allocation.symbol: allocation.evidence_ids for allocation in decision.allocations
             },
         ),
         policy_name=policy.policy_name,

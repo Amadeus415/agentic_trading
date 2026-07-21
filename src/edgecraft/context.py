@@ -8,7 +8,8 @@ import os
 import re
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from math import ceil
 from pathlib import Path
 from typing import Any, Literal, Protocol
 from urllib.error import HTTPError, URLError
@@ -30,8 +31,12 @@ class WebContextPolicy(BaseModel):
     lookback_hours: int = Field(168, ge=1, le=720)
     cache_ttl_minutes: int = Field(30, ge=0, le=1_440)
     search_results_per_query: int = Field(8, ge=1, le=25)
+    symbols_per_query: int = Field(10, ge=1, le=25)
+    max_search_queries: int = Field(12, ge=2, le=40)
+    include_social_search: bool = True
     fetch_pages: int = Field(3, ge=0, le=10)
     social_results: int = Field(10, ge=0, le=50)
+    max_total_sources: int = Field(100, ge=4, le=300)
     max_excerpt_chars: int = Field(1_200, ge=200, le=4_000)
     min_sources: int = Field(4, ge=1, le=30)
     min_web_sources: int = Field(2, ge=1, le=20)
@@ -180,7 +185,7 @@ class BrowserbaseClient:
 
 
 class BlueskyClient:
-    endpoint = "https://api.bsky.app/xrpc/app.bsky.feed.searchPosts"
+    endpoint = "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts"
 
     def __init__(
         self, *, transport: JsonTransport | None = None, timeout_seconds: float = 15
@@ -241,6 +246,7 @@ class SecEdgarClient:
                     "form": form,
                     "accepted": accepted[index] if index < len(accepted) else None,
                     "filed": filed[index] if index < len(filed) else None,
+                    "accession_number": accession[index],
                     "url": url,
                 }
             )
@@ -275,18 +281,14 @@ class ExternalContextService:
             return cached.model_copy(update={"cache_hit": True})
 
         since = (collected_at - timedelta(hours=self.policy.lookback_hours)).date().isoformat()
-        symbol_text = " ".join(clean_symbols)
-        queries = [
-            _bounded_query(f"{symbol_text} market news earnings catalysts since {since}"),
-            _bounded_query(f"site:sec.gov {symbol_text} filing 8-K 10-Q 10-K since {since}"),
-        ]
+        queries = _context_queries(clean_symbols, since, self.policy)
         warnings: list[str] = []
         sources: list[ContextSource] = []
         for query in queries:
             for result in self.browserbase.search(
                 query, num_results=self.policy.search_results_per_query
             ):
-                source = _web_source(result, collected_at)
+                source = _web_source(result, collected_at, query=query)
                 if source is not None:
                     sources.append(source)
 
@@ -301,8 +303,14 @@ class ExternalContextService:
                     raise ContextUnavailable(
                         f"fetch returned target status {response.get('statusCode')}"
                     )
-                excerpt = _content_excerpt(
-                    str(response.get("content", "")), self.policy.max_excerpt_chars
+                raw_content = str(response.get("content", ""))
+                excerpt = _content_excerpt(raw_content, self.policy.max_excerpt_chars)
+                source.metadata.update(
+                    {
+                        "fetch_status_code": 200,
+                        "content_sha256": hashlib.sha256(raw_content.encode()).hexdigest(),
+                        "excerpt_sha256": hashlib.sha256(excerpt.encode()).hexdigest(),
+                    }
                 )
                 if excerpt:
                     source.excerpt = excerpt
@@ -314,12 +322,15 @@ class ExternalContextService:
 
         if self.policy.social_results:
             try:
-                per_symbol = max(1, self.policy.social_results // len(clean_symbols))
-                for symbol in clean_symbols:
-                    posts = self.bluesky.search(f"${symbol} OR {symbol}", limit=per_symbol)
-                    sources.extend(
-                        _bluesky_sources(posts, collected_at, self.policy.max_excerpt_chars)
-                    )
+                social_sources: list[ContextSource] = []
+                social_symbols = _rotated_symbols(clean_symbols, collected_at.date())[
+                    : self.policy.social_results
+                ]
+                for symbol in social_symbols:
+                    posts = self.bluesky.search(f"${symbol} OR {symbol}", limit=1)
+                    found = _bluesky_sources(posts, collected_at, self.policy.max_excerpt_chars)
+                    social_sources.extend(found[:1])
+                sources.extend(social_sources)
             except ContextUnavailable as exc:
                 warnings.append(f"Bluesky unavailable: {exc}")
 
@@ -332,7 +343,10 @@ class ExternalContextService:
             except ContextUnavailable as exc:
                 warnings.append(f"SEC EDGAR unavailable for {symbol}: {exc}")
 
-        sources = _deduplicate_sources(sources)
+        sources = _select_sources(
+            _deduplicate_sources(sources),
+            limit=self.policy.max_total_sources,
+        )
         cutoff = collected_at - timedelta(hours=self.policy.lookback_hours)
         fresh_count = sum(
             source.published_at is not None and source.published_at >= cutoff for source in sources
@@ -473,6 +487,48 @@ def _bounded_query(value: str) -> str:
     return value[:200].rstrip()
 
 
+def _symbol_batches(symbols: list[str], size: int) -> list[list[str]]:
+    return [symbols[index : index + size] for index in range(0, len(symbols), size)]
+
+
+def _rotated_symbols(symbols: list[str], day: date) -> list[str]:
+    if not symbols:
+        return []
+    offset = day.toordinal() % len(symbols)
+    return [*symbols[offset:], *symbols[:offset]]
+
+
+def _context_queries(
+    symbols: list[str],
+    since: str,
+    policy: WebContextPolicy,
+) -> list[str]:
+    queries: list[str] = []
+    queries_per_batch = 3 if policy.include_social_search else 2
+    available_batches = max(1, ceil(policy.max_search_queries / queries_per_batch))
+    effective_batch_size = max(policy.symbols_per_query, ceil(len(symbols) / available_batches))
+    for batch in _symbol_batches(symbols, effective_batch_size):
+        symbol_text = " ".join(batch)
+        queries.extend(
+            [
+                _bounded_query(f"{symbol_text} market news earnings catalysts since {since}"),
+                _bounded_query(
+                    f"site:sec.gov {symbol_text} filing 8-K 10-Q 10-K 6-K since {since}"
+                ),
+            ]
+        )
+        if policy.include_social_search:
+            queries.append(
+                _bounded_query(
+                    "site:stocktwits.com OR site:reddit.com OR site:bsky.app "
+                    f"{symbol_text} market sentiment since {since}"
+                )
+            )
+        if len(queries) >= policy.max_search_queries:
+            break
+    return queries[: policy.max_search_queries]
+
+
 def _parse_datetime(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value.strip():
         return None
@@ -493,29 +549,53 @@ def _source_id(channel: str, url: str) -> str:
     return f"{channel}-{hashlib.sha256(url.encode()).hexdigest()[:12]}"
 
 
-def _web_source(result: dict[str, Any], now: datetime) -> ContextSource | None:
+def _web_source(
+    result: dict[str, Any],
+    now: datetime,
+    *,
+    query: str,
+) -> ContextSource | None:
     url = str(result.get("url", ""))
     try:
         _validate_public_https_url(url)
     except ValueError:
         return None
+    hostname = (urlparse(url).hostname or "").lower()
+    if hostname == "sec.gov" or hostname.endswith(".sec.gov"):
+        channel = "regulatory"
+    elif any(
+        hostname == domain or hostname.endswith(f".{domain}")
+        for domain in ("stocktwits.com", "reddit.com", "bsky.app")
+    ):
+        channel = "social"
+    else:
+        channel = "web"
     title = str(result.get("title") or urlparse(url).hostname or "Untitled source")[:500]
+    search_excerpt = str(result.get("snippet") or result.get("description") or "")
     return ContextSource(
-        source_id=_source_id("web", url),
-        channel="web",
+        source_id=_source_id(channel, url),
+        channel=channel,
         title=title,
         url=url,
         retrieved_at=now,
         published_at=_parse_datetime(result.get("publishedDate")),
         author=str(result["author"])[:200] if result.get("author") else None,
-        metadata={"search_result_id": str(result.get("id", ""))[:200]},
+        excerpt=_content_excerpt(search_excerpt, 1_200),
+        metadata={
+            "search_result_id": str(result.get("id", ""))[:200],
+            "discovery_query": query,
+        },
     )
 
 
 def _diverse_web_sources(sources: list[ContextSource]) -> list[ContextSource]:
     seen_hosts: set[str] = set()
     output: list[ContextSource] = []
-    for source in sources:
+    prioritized = sorted(
+        enumerate(sources),
+        key=lambda item: (0 if item[1].channel == "regulatory" else 1, item[0]),
+    )
+    for _, source in prioritized:
         host = urlparse(source.url).hostname or ""
         if host in seen_hosts:
             continue
@@ -581,7 +661,11 @@ def _sec_sources(filings: list[dict[str, Any]], now: datetime) -> list[ContextSo
                 retrieved_at=now,
                 published_at=_parse_datetime(filing.get("accepted") or filing.get("filed")),
                 author="U.S. Securities and Exchange Commission",
-                metadata={"symbol": symbol, "form": form},
+                metadata={
+                    "symbol": symbol,
+                    "form": form,
+                    "accession_number": str(filing.get("accession_number", "")),
+                },
             )
         )
     return sources
@@ -597,4 +681,22 @@ def _deduplicate_sources(sources: list[ContextSource]) -> list[ContextSource]:
             output.append(source)
         elif not existing.excerpt and source.excerpt:
             existing.excerpt = source.excerpt
+        if existing is not None:
+            existing.metadata.update(source.metadata)
     return output
+
+
+def _select_sources(sources: list[ContextSource], *, limit: int) -> list[ContextSource]:
+    """Bound model context while retaining regulatory, web, and social coverage."""
+    if len(sources) <= limit:
+        return sources
+    buckets = {
+        channel: [source for source in sources if source.channel == channel]
+        for channel in ("regulatory", "web", "social")
+    }
+    selected: list[ContextSource] = []
+    while len(selected) < limit and any(buckets.values()):
+        for channel in ("regulatory", "web", "social"):
+            if buckets[channel] and len(selected) < limit:
+                selected.append(buckets[channel].pop(0))
+    return selected

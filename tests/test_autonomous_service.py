@@ -10,7 +10,7 @@ from edgecraft.autonomous_service import AutonomousService, StaticObservationRun
 from edgecraft.autonomy import cycle_key
 from edgecraft.autonomy_models import AgentCyclePayload, ExecutionResult, Mandate
 from edgecraft.context import ContextSnapshot, ContextSource, WebContextPolicy
-from edgecraft.execution_models import ExecutionPreflight, TradeProposal
+from edgecraft.execution_models import DecisionEvidenceItem, ExecutionPreflight, TradeProposal
 from edgecraft.ledger import AuditLedger
 
 NOW = datetime(2026, 7, 20, 15, 0, tzinfo=UTC)
@@ -27,6 +27,7 @@ def _mandate(policy_path: str) -> Mandate:
         schedule_weekday=0,
         schedule_time=time(10),
         timezone="America/New_York",
+        benchmark="VTI",
         policy_path=policy_path,
     )
 
@@ -39,12 +40,14 @@ def _payload(run_id: str = "placeholder", *, action: str = "invest") -> AgentCyc
                 "notional": "6",
                 "conviction": "0.7",
                 "rationale": "Maintain the diversified US core.",
+                "evidence_ids": ["quote-vti", "history-vti", "account-state"],
             },
             {
                 "symbol": "VXUS",
                 "notional": "4",
                 "conviction": "0.7",
                 "rationale": "Maintain international diversification.",
+                "evidence_ids": ["quote-vxus", "history-vxus", "account-state"],
             },
         ]
         if action == "invest"
@@ -96,6 +99,54 @@ def _payload(run_id: str = "placeholder", *, action: str = "invest") -> AgentCyc
                 "risks": ["market prices can fall"],
                 "allocations": allocations,
                 "data_sources": ["captured Robinhood MCP fixture"],
+                "evidence_items": [
+                    {
+                        "evidence_id": "account-state",
+                        "category": "broker",
+                        "source": "captured Robinhood MCP fixture",
+                        "observed_at": NOW,
+                        "summary": "Agentic account is eligible with available buying power.",
+                        "metrics": [{"name": "buying_power", "value": "100", "unit": "USD"}],
+                    },
+                    {
+                        "evidence_id": "quote-vti",
+                        "category": "quote",
+                        "source": "captured Robinhood MCP fixture",
+                        "symbol": "VTI",
+                        "observed_at": NOW,
+                        "summary": "Fresh VTI quote used for the proposed allocation.",
+                        "metrics": [{"name": "last", "value": "330", "unit": "USD"}],
+                    },
+                    {
+                        "evidence_id": "quote-vxus",
+                        "category": "quote",
+                        "source": "captured Robinhood MCP fixture",
+                        "symbol": "VXUS",
+                        "observed_at": NOW,
+                        "summary": "Fresh VXUS quote used for the proposed allocation.",
+                        "metrics": [{"name": "last", "value": "75", "unit": "USD"}],
+                    },
+                    {
+                        "evidence_id": "history-vti",
+                        "category": "historical",
+                        "source": "captured completed-session history",
+                        "symbol": "VTI",
+                        "observed_at": NOW,
+                        "source_timestamp": NOW,
+                        "summary": "Completed-session VTI history supports the comparison.",
+                        "metrics": [{"name": "return_20d", "value": "0.01"}],
+                    },
+                    {
+                        "evidence_id": "history-vxus",
+                        "category": "historical",
+                        "source": "captured completed-session history",
+                        "symbol": "VXUS",
+                        "observed_at": NOW,
+                        "source_timestamp": NOW,
+                        "summary": "Completed-session VXUS history supports the comparison.",
+                        "metrics": [{"name": "return_20d", "value": "0.02"}],
+                    },
+                ],
             },
         }
     )
@@ -164,6 +215,23 @@ def test_shadow_cycle_is_idempotent_and_audited(tmp_path):
     assert first["run"]["status"] == "shadow_complete"
     assert first["run"]["payload"]["gross_notional"] == 10
     assert ledger.status()["proposals"] == 1
+    assert ledger.status()["decision_packets"] == 1
+    packets = ledger.decision_packets_for_run(first["run"]["run_id"])
+    assert len(packets) == 1
+    packet = packets[0]
+    assert packet["attempt"] == 1
+    assert packet["payload"]["runtime"]["prompt_version"]
+    assert packet["payload"]["mandate"]["mandate_id"] == "service_test"
+    assert packet["payload"]["risk_policy"]["policy_name"] == "service-shadow"
+    assert packet["payload"]["observation"]["account"]["account_id"].startswith("acct_")
+    assert packet["payload"]["observation"]["account"]["account_id"] != "agentic-test"
+    assert packet["payload"]["observation"]["quotes"][0]["symbol"] == "VTI"
+    assert (
+        packet["payload"]["observation"]["decision"]["evidence_items"][0]["evidence_id"]
+        == "account-state"
+    )
+    canonical = json.dumps(packet["payload"], sort_keys=True, separators=(",", ":"))
+    assert hashlib.sha256(canonical.encode()).hexdigest() == packet["payload_sha256"]
     proposal = ledger.observability_feed()["proposals"][0]["payload"]
     assert proposal["decision_reasoning"]["hypothesis"] == (
         "Follow the diversified strategic DCA allocation this week."
@@ -218,10 +286,34 @@ def test_external_context_is_audited_and_investment_requires_known_citations(tmp
     )
     snapshot = _context_snapshot()
     context_policy = WebContextPolicy(min_sources=2, min_fresh_sources=2)
+    base_decision = _payload().decision
+    context_evidence = DecisionEvidenceItem(
+        evidence_id="current-web-context",
+        category="web",
+        source="audited context fixture",
+        observed_at=NOW,
+        source_timestamp=NOW,
+        summary="Current primary reporting supports the allocation comparison.",
+        context_source_ids=["web-1"],
+    )
     cited_payload = _payload().model_copy(
         update={
-            "decision": _payload().decision.model_copy(
-                update={"context_source_ids": ["web-1", "web-2"]}
+            "decision": base_decision.model_copy(
+                update={
+                    "context_source_ids": ["web-1", "web-2"],
+                    "evidence_items": [*base_decision.evidence_items, context_evidence],
+                    "allocations": [
+                        allocation.model_copy(
+                            update={
+                                "evidence_ids": [
+                                    *allocation.evidence_ids,
+                                    "current-web-context",
+                                ]
+                            }
+                        )
+                        for allocation in base_decision.allocations
+                    ],
+                }
             )
         }
     )
@@ -241,6 +333,12 @@ def test_external_context_is_audited_and_investment_requires_known_citations(tmp
         event["event_type"] == "external_context_collected"
         for event in ledger.observability_feed()["runtime_events"]
     )
+    packet = ledger.decision_packets_for_run(result["run"]["run_id"])[0]["payload"]
+    assert packet["external_context"]["queries"] == ["test query"]
+    assert {item["source_id"] for item in packet["external_context"]["sources"]} == {
+        "web-1",
+        "web-2",
+    }
 
     uncited_ledger = AuditLedger(tmp_path / "uncited.db")
     uncited = AutonomousService(
@@ -252,6 +350,27 @@ def test_external_context_is_audited_and_investment_requires_known_citations(tmp
     )
     with pytest.raises(ValueError, match="at least 2 external context citations"):
         uncited.run_cycle(mandate, now=NOW)
+
+    unknown_evidence = context_evidence.model_copy(
+        update={"context_source_ids": ["not-in-the-snapshot"]}
+    )
+    unknown_payload = cited_payload.model_copy(
+        update={
+            "decision": cited_payload.decision.model_copy(
+                update={"evidence_items": [*base_decision.evidence_items, unknown_evidence]}
+            )
+        }
+    )
+    unknown_ledger = AuditLedger(tmp_path / "unknown-evidence.db")
+    unknown_service = AutonomousService(
+        tmp_path,
+        unknown_ledger,
+        StaticObservationRuntime(unknown_payload),
+        context_collector=FixedContextCollector(snapshot),
+        context_policy=context_policy,
+    )
+    with pytest.raises(ValueError, match="evidence cited unknown external context"):
+        unknown_service.run_cycle(mandate, now=NOW)
 
 
 def test_incomplete_context_blocks_live_cycle_before_authority(tmp_path):
@@ -285,6 +404,33 @@ def test_hold_is_a_successful_terminal_decision(tmp_path):
     assert result["run"]["payload"]["approved_for_review"] is False
 
 
+def test_investment_without_structured_evidence_is_rejected_before_proposal(tmp_path):
+    policy = _write_policy(tmp_path)
+    mandate = _mandate(str(policy))
+    original = _payload()
+    payload = original.model_copy(
+        update={
+            "decision": original.decision.model_copy(
+                update={
+                    "evidence_items": [],
+                    "allocations": [
+                        allocation.model_copy(update={"evidence_ids": []})
+                        for allocation in original.decision.allocations
+                    ],
+                }
+            )
+        }
+    )
+    ledger = AuditLedger(tmp_path / "state.db")
+    service = AutonomousService(tmp_path, ledger, StaticObservationRuntime(payload))
+
+    with pytest.raises(ValueError, match="structured evidence inventory"):
+        service.run_cycle(mandate, now=NOW)
+
+    assert ledger.status()["decision_packets"] == 0
+    assert ledger.status()["proposals"] == 0
+
+
 def test_before_schedule_returns_not_due_without_starting_run(tmp_path):
     policy = _write_policy(tmp_path)
     mandate = _mandate(str(policy))
@@ -309,7 +455,9 @@ class FailsOnceRuntime(StaticObservationRuntime):
         run_id,
         remaining_budget,
         ledger_path,
+        risk_policy,
         external_context=None,
+        market_intelligence=None,
     ):
         self.calls += 1
         if self.calls == 1:
@@ -319,7 +467,9 @@ class FailsOnceRuntime(StaticObservationRuntime):
             run_id=run_id,
             remaining_budget=remaining_budget,
             ledger_path=ledger_path,
+            risk_policy=risk_policy,
             external_context=external_context,
+            market_intelligence=market_intelligence,
         )
 
 
@@ -445,9 +595,21 @@ class FilledLiveRuntime(StaticObservationRuntime):
             side=order.side,
             requested_notional=Decimal(str(order.notional)),
             filled_notional=Decimal(str(order.notional)),
-            average_fill_price=Decimal("330"),
+            average_fill_price=Decimal(str(order.expected_price)),
             observed_at=NOW,
         )
+
+    def reconcile_order(
+        self,
+        mandate,
+        proposal,
+        order,
+        placed_result,
+        *,
+        ledger_path,
+    ):
+        del mandate, proposal, order, ledger_path
+        return placed_result
 
 
 class PlacedThenFilledRuntime(FilledLiveRuntime):
@@ -488,7 +650,13 @@ class PlacedThenFilledRuntime(FilledLiveRuntime):
 
 class MalformedAfterFillRuntime(FilledLiveRuntime):
     def execute_order(self, mandate, proposal, order, *, permit_token, ledger_path):
-        del mandate, proposal, order, permit_token, ledger_path
+        super().execute_order(
+            mandate,
+            proposal,
+            order,
+            permit_token=permit_token,
+            ledger_path=ledger_path,
+        )
         raise RuntimeError("structured execution result was malformed")
 
     def recover_order(
@@ -514,6 +682,65 @@ class MalformedAfterFillRuntime(FilledLiveRuntime):
             filled_notional=Decimal("1.999999"),
             average_fill_price=Decimal("330.123456"),
             observed_at=NOW,
+        )
+
+
+class UnknownAfterPlacementRuntime(MalformedAfterFillRuntime):
+    def recover_order(
+        self,
+        mandate,
+        proposal,
+        order,
+        *,
+        authority_issued_at,
+        failure_observed_at,
+        ledger_path,
+    ):
+        result = super().recover_order(
+            mandate,
+            proposal,
+            order,
+            authority_issued_at=authority_issued_at,
+            failure_observed_at=failure_observed_at,
+            ledger_path=ledger_path,
+        )
+        return result.model_copy(
+            update={
+                "status": "unknown",
+                "broker_order_id": None,
+                "filled_notional": Decimal("0"),
+                "average_fill_price": None,
+            }
+        )
+
+
+class RejectedRecoveryRuntime(FilledLiveRuntime):
+    def execute_order(self, mandate, proposal, order, *, permit_token, ledger_path):
+        del mandate, proposal, order, permit_token, ledger_path
+        raise RuntimeError("broker rejected before a structured response was returned")
+
+    def recover_order(
+        self,
+        mandate,
+        proposal,
+        order,
+        *,
+        authority_issued_at,
+        failure_observed_at,
+        ledger_path,
+    ):
+        del mandate, authority_issued_at, failure_observed_at, ledger_path
+        return ExecutionResult(
+            run_id=proposal.run_id,
+            proposal_id=proposal.proposal_id,
+            order_key=order.order_key,
+            status="rejected",
+            broker_order_id="broker-rejected-order",
+            symbol=order.symbol,
+            side=order.side,
+            requested_notional=Decimal(str(order.notional)),
+            observed_at=NOW,
+            detail="broker independently confirmed rejection",
         )
 
 
@@ -576,6 +803,10 @@ def test_live_cycle_records_guarded_fill_and_spend(tmp_path):
     assert ledger.daily_placed_notional(NOW.date()) == 10
     assert not ledger.unresolved_order_keys()
     assert ledger.operational_snapshot()["permits_by_status"]["claimed"] == 2
+    quality = ledger.execution_quality(mandate.mandate_id)
+    assert quality["fill_count"] == 2
+    assert quality["notional_weighted_slippage_bps"] == pytest.approx(0)
+    assert quality["fees"] == 0
 
 
 def test_live_preflight_rejection_occurs_before_permit_issuance(tmp_path):
@@ -693,11 +924,10 @@ def test_execution_schema_failure_recovers_broker_fill_and_reasoning(tmp_path):
     ledger = AuditLedger(tmp_path / "state.db")
     runtime = MalformedAfterFillRuntime(_payload())
 
-    with pytest.raises(RuntimeError, match="broker recovery status=filled"):
-        AutonomousService(tmp_path, ledger, runtime).run_cycle(mandate, now=NOW)
+    result = AutonomousService(tmp_path, ledger, runtime).run_cycle(mandate, now=NOW)
 
-    assert ledger.list_runs()[0]["status"] == "failed"
-    assert ledger.trading_halted()
+    assert result["run"]["status"] == "completed"
+    assert not ledger.trading_halted()
     feed = ledger.observability_feed()
     events = {item["event_type"]: item for item in feed["order_events"]}
     assert set(events) == {"placed", "filled"}
@@ -706,4 +936,104 @@ def test_execution_schema_failure_recovers_broker_fill_and_reasoning(tmp_path):
     reasoning = events["filled"]["payload"]["reasoning"]
     assert reasoning["decision_reasoning"]["risks"] == ["market prices can fall"]
     assert reasoning["order_rationale"] == "Maintain the diversified US core."
-    assert ledger.operational_snapshot()["permits_by_status"] == {"revoked": 1}
+    assert ledger.operational_snapshot()["permits_by_status"] == {"claimed": 2}
+    runtime_types = {event["event_type"] for event in feed["runtime_events"]}
+    assert "execution_recovery_terminal" in runtime_types
+
+
+def test_terminal_rejection_recovery_revokes_unused_permits_without_halting(tmp_path):
+    policy_path = tmp_path / "live-policy.json"
+    policy_path.write_text(
+        json.dumps(
+            {
+                "policy_name": "service-live-rejection-recovery",
+                "trading_enabled": True,
+                "allowed_symbols": ["VTI", "VXUS"],
+                "managed_capital_limit": 1000,
+                "max_order_notional": 10,
+                "max_daily_notional": 10,
+                "max_orders_per_day": 2,
+                "max_position_weight": 0.75,
+                "min_cash_reserve": 0,
+                "require_research_evidence": False,
+            }
+        )
+    )
+    mandate = _mandate(str(policy_path)).model_copy(update={"mode": "live"})
+    ledger = AuditLedger(tmp_path / "state.db")
+
+    result = AutonomousService(
+        tmp_path,
+        ledger,
+        RejectedRecoveryRuntime(_payload()),
+    ).run_cycle(mandate, now=NOW)
+
+    assert result["run"]["status"] == "failed"
+    assert not ledger.trading_halted()
+    assert ledger.operational_snapshot()["permits_by_status"] == {"revoked": 2}
+
+
+def test_uncertain_recovery_halts_and_requires_incident_reconciliation(tmp_path):
+    policy_path = tmp_path / "live-policy.json"
+    policy_path.write_text(
+        json.dumps(
+            {
+                "policy_name": "service-live-uncertain-recovery",
+                "trading_enabled": True,
+                "allowed_symbols": ["VTI", "VXUS"],
+                "managed_capital_limit": 1000,
+                "max_order_notional": 10,
+                "max_daily_notional": 10,
+                "max_orders_per_day": 2,
+                "max_position_weight": 0.75,
+                "min_cash_reserve": 0,
+                "require_research_evidence": False,
+            }
+        )
+    )
+    mandate = _mandate(str(policy_path)).model_copy(update={"mode": "live"})
+    ledger = AuditLedger(tmp_path / "state.db")
+
+    with pytest.raises(RuntimeError, match="broker recovery status=unknown"):
+        AutonomousService(
+            tmp_path,
+            ledger,
+            UnknownAfterPlacementRuntime(_payload()),
+        ).run_cycle(mandate, now=NOW)
+
+    run = ledger.list_runs()[0]
+    assert run["status"] == "failed"
+    assert ledger.trading_halted()
+    proposal = ledger.observability_feed()["proposals"][0]["payload"]
+    for index, order in enumerate(proposal["orders"]):
+        broker_order_id = f"independently-verified-order-{index}"
+        ledger.record_event(
+            proposal["proposal_id"],
+            "placed",
+            {
+                "order_key": order["order_key"],
+                "notional": order["notional"],
+                "broker_order_id": broker_order_id,
+            },
+            occurred_at=NOW,
+        )
+        ledger.record_event(
+            proposal["proposal_id"],
+            "filled",
+            {
+                "order_key": order["order_key"],
+                "notional": order["notional"],
+                "filled_notional": order["notional"],
+                "broker_order_id": broker_order_id,
+            },
+            occurred_at=NOW,
+        )
+
+    reconciled = ledger.reconcile_failed_run(
+        run["run_id"],
+        reason="broker order, position, and cash independently verified",
+        now=NOW,
+    )
+    assert reconciled["status"] == "completed"
+    assert reconciled["payload"]["incident_reconciled"] is True
+    assert ledger.trading_halted()

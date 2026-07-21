@@ -17,6 +17,7 @@ from edgecraft.autonomy_models import AgentCyclePayload, Mandate
 from edgecraft.codex_runtime import PROMPT_VERSION, CodexRuntime, CodexRuntimeConfig
 from edgecraft.context import browserbase_api_key, load_context_service
 from edgecraft.data import MarketDataProvider, synthetic_market_data
+from edgecraft.evaluation import evaluation_report
 from edgecraft.execution_models import (
     MarketQuote,
     PortfolioSnapshot,
@@ -24,6 +25,7 @@ from edgecraft.execution_models import (
     RiskPolicy,
     TargetAllocation,
 )
+from edgecraft.intelligence import YahooMarketIntelligenceCollector
 from edgecraft.ledger import AuditLedger
 from edgecraft.models import BacktestRequest, CostModel
 from edgecraft.observability import autonomy_health, prometheus_metrics
@@ -64,6 +66,13 @@ def build_parser() -> argparse.ArgumentParser:
     context.add_argument("--config", required=True, type=Path)
     context.add_argument("--symbols", required=True, help="Comma-separated equity symbols.")
     context.add_argument("--output", type=Path)
+
+    intelligence = commands.add_parser(
+        "intelligence",
+        help="Build a point-in-time cross-sectional market and regime snapshot.",
+    )
+    intelligence.add_argument("--mandate", required=True, type=Path)
+    intelligence.add_argument("--output", type=Path)
 
     market = commands.add_parser(
         "market",
@@ -189,6 +198,34 @@ def build_parser() -> argparse.ArgumentParser:
     runs.add_argument("--ledger", default="state/edgecraft.db")
     runs.add_argument("--limit", type=int, default=20)
 
+    decision = commands.add_parser(
+        "decision", help="Show immutable decision packets for one autonomous run."
+    )
+    decision.add_argument("--ledger", default="state/edgecraft.db")
+    decision.add_argument("--run-id", required=True)
+
+    performance = commands.add_parser(
+        "performance",
+        help="Report the cash-flow-matched agent, benchmark, and strategic shadow books.",
+    )
+    performance.add_argument("--ledger", default="state/edgecraft.db")
+    performance.add_argument("--mandate-id", required=True)
+
+    execution_quality = commands.add_parser(
+        "execution-quality",
+        help="Report decision-to-fill slippage, fill notional, and broker fees.",
+    )
+    execution_quality.add_argument("--ledger", default="state/edgecraft.db")
+    execution_quality.add_argument("--mandate-id", required=True)
+
+    incident_reconcile = commands.add_parser(
+        "incident-reconcile",
+        help="Close a failed run after independently verified terminal broker events.",
+    )
+    incident_reconcile.add_argument("--ledger", default="state/edgecraft.db")
+    incident_reconcile.add_argument("--run-id", required=True)
+    incident_reconcile.add_argument("--reason", required=True)
+
     halt = commands.add_parser("halt", help="Activate the global trading kill switch.")
     halt.add_argument("--ledger", default="state/edgecraft.db")
     halt.add_argument("--reason", required=True)
@@ -268,6 +305,16 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
         service = load_context_service(Path.cwd(), args.config)
         symbols = [item.strip().upper() for item in args.symbols.split(",") if item.strip()]
         return service.collect(symbols).model_dump(mode="json")
+    if args.command == "intelligence":
+        mandate = Mandate.model_validate(_read_json(args.mandate))
+        return (
+            YahooMarketIntelligenceCollector()
+            .collect(
+                mandate.universe,
+                benchmark=mandate.benchmark,
+            )
+            .model_dump(mode="json")
+        )
     if args.command == "market":
         symbols = _symbols(args.symbols, args.benchmark)
         data = MarketDataProvider().load(symbols, args.start, args.end)
@@ -292,6 +339,21 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
         ]
     if args.command == "runs":
         return AuditLedger(args.ledger).list_runs(limit=args.limit)
+    if args.command == "decision":
+        packets = AuditLedger(args.ledger).decision_packets_for_run(args.run_id)
+        if not packets:
+            raise ValueError(f"no decision packet found for run_id: {args.run_id}")
+        return packets
+    if args.command == "performance":
+        ledger = AuditLedger(args.ledger)
+        return evaluation_report(
+            ledger.evaluation_state(args.mandate_id),
+            ledger.evaluation_observations(args.mandate_id),
+        )
+    if args.command == "execution-quality":
+        return AuditLedger(args.ledger).execution_quality(args.mandate_id)
+    if args.command == "incident-reconcile":
+        return AuditLedger(args.ledger).reconcile_failed_run(args.run_id, reason=args.reason)
     if args.command == "metrics":
         ledger = AuditLedger(args.ledger)
         return (
@@ -336,8 +398,10 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
                 raise ValueError("captured observations are restricted to shadow mandates")
             payload = AgentCyclePayload.model_validate(_read_json(args.observation))
             runtime = StaticObservationRuntime(payload)
+            market_intelligence_collector = None
         else:
             runtime = CodexRuntime(CodexRuntimeConfig(repository=Path.cwd()))
+            market_intelligence_collector = YahooMarketIntelligenceCollector()
         context_service = (
             load_context_service(Path.cwd(), mandate.external_context_path)
             if mandate.external_context_path
@@ -349,6 +413,7 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
             runtime,
             context_collector=context_service,
             context_policy=context_service.policy if context_service else None,
+            market_intelligence_collector=market_intelligence_collector,
         ).run_cycle(mandate, force=args.force)
     if args.command == "backtest":
         request = BacktestRequest.model_validate(_read_json(args.config))

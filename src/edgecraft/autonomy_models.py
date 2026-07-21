@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from edgecraft.execution_models import MarketQuote, PortfolioSnapshot
+from edgecraft.execution_models import DecisionEvidenceItem, MarketQuote, PortfolioSnapshot
 
 RunMode = Literal["shadow", "live"]
 RiskLevel = Literal["conservative", "balanced", "aggressive"]
@@ -37,6 +37,7 @@ class Mandate(BaseModel):
     schedule_time: time = time(10, 0)
     timezone: str = "America/New_York"
     benchmark: str = "SPY"
+    evaluation_cost_bps: Decimal = Field(Decimal("10"), ge=Decimal("0"), le=Decimal("1000"))
     decision_model: str | None = None
     decision_reasoning_effort: Literal["low", "medium", "high", "xhigh", "max", "ultra"] | None = (
         None
@@ -135,6 +136,7 @@ class DecisionAllocation(BaseModel):
     notional: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
     conviction: Decimal = Field(ge=Decimal("0"), le=Decimal("1"))
     rationale: str = Field(min_length=5, max_length=1_000)
+    evidence_ids: list[str] = Field(default_factory=list, max_length=30)
 
     @field_validator("symbol")
     @classmethod
@@ -144,11 +146,18 @@ class DecisionAllocation(BaseModel):
             raise ValueError("symbol cannot be empty")
         return clean
 
+    @field_validator("evidence_ids")
+    @classmethod
+    def unique_evidence_ids(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)):
+            raise ValueError("allocation evidence_ids must be unique")
+        return value
+
 
 class WeeklyDecision(BaseModel):
     """Structured cycle output from the reasoning agent; never execution authority."""
 
-    schema_version: str = "edgecraft.weekly-decision.v1"
+    schema_version: str = "edgecraft.weekly-decision.v2"
     mandate_id: str
     run_id: str
     as_of: datetime
@@ -161,6 +170,7 @@ class WeeklyDecision(BaseModel):
     allocations: list[DecisionAllocation] = Field(default_factory=list, max_length=20)
     data_sources: list[str] = Field(default_factory=list, max_length=30)
     context_source_ids: list[str] = Field(default_factory=list, max_length=30)
+    evidence_items: list[DecisionEvidenceItem] = Field(default_factory=list, max_length=100)
 
     @field_validator("as_of")
     @classmethod
@@ -180,6 +190,19 @@ class WeeklyDecision(BaseModel):
             raise ValueError("decision allocations must contain unique symbols")
         if len(self.context_source_ids) != len(set(self.context_source_ids)):
             raise ValueError("context_source_ids must be unique")
+        evidence_ids = [item.evidence_id for item in self.evidence_items]
+        if len(evidence_ids) != len(set(evidence_ids)):
+            raise ValueError("decision evidence IDs must be unique")
+        unknown = sorted(
+            {
+                evidence_id
+                for allocation in self.allocations
+                for evidence_id in allocation.evidence_ids
+                if evidence_id not in set(evidence_ids)
+            }
+        )
+        if unknown:
+            raise ValueError(f"allocations cite unknown evidence IDs: {unknown}")
         return self
 
 
@@ -232,6 +255,7 @@ class ExecutionResult(BaseModel):
     requested_notional: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
     filled_notional: Decimal = Field(Decimal("0"), ge=0, max_digits=12, decimal_places=2)
     average_fill_price: Decimal | None = Field(default=None, gt=0)
+    fees: Decimal = Field(Decimal("0"), ge=0, max_digits=12, decimal_places=6)
     observed_at: datetime
     review_warnings: list[str] = Field(default_factory=list)
     detail: str = ""
@@ -240,6 +264,11 @@ class ExecutionResult(BaseModel):
     @classmethod
     def normalize_money_to_cents(cls, value):
         return Decimal(str(value)).quantize(Decimal("0.01"))
+
+    @field_validator("fees", mode="before")
+    @classmethod
+    def normalize_fees(cls, value):
+        return Decimal(str(value)).quantize(Decimal("0.000001"))
 
     @field_validator("observed_at")
     @classmethod

@@ -133,6 +133,65 @@ class ResearchEvidence(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class EvidenceMetric(BaseModel):
+    """One normalized value that materially informed the model decision."""
+
+    name: str = Field(min_length=1, max_length=200)
+    value: str = Field(min_length=1, max_length=2_000)
+    unit: str | None = Field(default=None, max_length=100)
+
+
+class DecisionEvidenceItem(BaseModel):
+    """Source-attributed fact or calculation used by the reasoning model."""
+
+    evidence_id: str = Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{1,127}$")
+    category: Literal[
+        "broker",
+        "quote",
+        "fundamental",
+        "technical",
+        "historical",
+        "research",
+        "web",
+        "regulatory",
+        "social",
+        "other",
+    ]
+    source: str = Field(min_length=1, max_length=500)
+    symbol: str | None = Field(default=None, max_length=32)
+    observed_at: datetime
+    source_timestamp: datetime | None = None
+    summary: str = Field(min_length=1, max_length=2_000)
+    metrics: list[EvidenceMetric] = Field(default_factory=list, max_length=50)
+    context_source_ids: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("symbol")
+    @classmethod
+    def normalize_optional_symbol(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        clean = value.strip().upper()
+        if not clean:
+            raise ValueError("evidence symbol cannot be blank")
+        return clean
+
+    @field_validator("observed_at", "source_timestamp")
+    @classmethod
+    def evidence_timezone_aware(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            raise ValueError("evidence timestamps must include a timezone")
+        return value.astimezone(UTC)
+
+    @field_validator("context_source_ids")
+    @classmethod
+    def unique_context_sources(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)):
+            raise ValueError("evidence context_source_ids must be unique")
+        return value
+
+
 class DecisionReasoning(BaseModel):
     """Immutable explanation captured before any live execution authority exists."""
 
@@ -145,7 +204,9 @@ class DecisionReasoning(BaseModel):
     risks: list[str] = Field(default_factory=list, max_length=30)
     data_sources: list[str] = Field(default_factory=list, max_length=30)
     context_source_ids: list[str] = Field(default_factory=list, max_length=30)
+    evidence_items: list[DecisionEvidenceItem] = Field(default_factory=list, max_length=100)
     allocation_rationales: dict[str, str] = Field(default_factory=dict)
+    allocation_evidence_ids: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class RiskPolicy(BaseModel):
@@ -301,4 +362,48 @@ class ExecutionPreflight(BaseModel):
     def sources_precede_completion(self) -> ExecutionPreflight:
         if self.account.as_of > self.observed_at or self.quote.as_of > self.observed_at:
             raise ValueError("preflight source timestamps cannot exceed observed_at")
+        return self
+
+
+class BrokerOrderReceipt(BaseModel):
+    """Minimal model-authored broker receipt; Edgecraft owns immutable order identity."""
+
+    schema_version: str = "edgecraft.broker-order-receipt.v1"
+    status: Literal[
+        "placed",
+        "filled",
+        "partially_filled",
+        "rejected",
+        "canceled",
+        "unknown",
+    ]
+    broker_order_id: str | None = None
+    filled_notional: Decimal = Field(Decimal("0"), ge=0, max_digits=12, decimal_places=2)
+    average_fill_price: Decimal | None = Field(default=None, gt=0)
+    fees: Decimal = Field(Decimal("0"), ge=0, max_digits=12, decimal_places=6)
+    observed_at: datetime
+    warnings: list[str] = Field(default_factory=list, max_length=20)
+    detail: str = Field(default="", max_length=2_000)
+
+    @field_validator("filled_notional", mode="before")
+    @classmethod
+    def normalize_receipt_money(cls, value):
+        return Decimal(str(value)).quantize(Decimal("0.01"))
+
+    @field_validator("fees", mode="before")
+    @classmethod
+    def normalize_receipt_fees(cls, value):
+        return Decimal(str(value)).quantize(Decimal("0.000001"))
+
+    @field_validator("observed_at")
+    @classmethod
+    def receipt_timezone_aware(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("observed_at must include a timezone")
+        return value.astimezone(UTC)
+
+    @model_validator(mode="after")
+    def broker_identity_for_observed_orders(self) -> BrokerOrderReceipt:
+        if self.status in {"placed", "filled", "partially_filled"} and not self.broker_order_id:
+            raise ValueError("broker_order_id is required for an observed broker order")
         return self

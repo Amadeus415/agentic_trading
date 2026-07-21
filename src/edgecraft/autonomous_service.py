@@ -7,6 +7,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Protocol
 
+from edgecraft.audit_models import DecisionAuditPacket, DecisionRuntimeMetadata
 from edgecraft.autonomy import (
     available_cycle_budget,
     create_weekly_proposal,
@@ -21,6 +22,7 @@ from edgecraft.autonomy_models import (
 )
 from edgecraft.codex_runtime import PROMPT_VERSION, CodexRuntime, CodexRuntimeConfig
 from edgecraft.context import ContextCollector, ContextSnapshot, WebContextPolicy
+from edgecraft.evaluation import advance_evaluation
 from edgecraft.execution_models import (
     ExecutionPreflight,
     ProposedOrder,
@@ -28,6 +30,7 @@ from edgecraft.execution_models import (
     RiskPolicy,
     TradeProposal,
 )
+from edgecraft.intelligence import MarketIntelligenceCollector, MarketIntelligenceSnapshot
 from edgecraft.ledger import AuditLedger, DuplicateProposalError
 from edgecraft.observability import log_event
 from edgecraft.risk import evaluate_orders
@@ -51,7 +54,9 @@ class AgentRuntime(Protocol):
         run_id: str,
         remaining_budget: Decimal,
         ledger_path: str | Path,
+        risk_policy: RiskPolicy,
         external_context: ContextSnapshot | None = None,
+        market_intelligence: MarketIntelligenceSnapshot | None = None,
     ) -> AgentCyclePayload: ...
 
     def preflight_order(
@@ -103,12 +108,14 @@ class AutonomousService:
         runtime: AgentRuntime | None = None,
         context_collector: ContextCollector | None = None,
         context_policy: WebContextPolicy | None = None,
+        market_intelligence_collector: MarketIntelligenceCollector | None = None,
     ) -> None:
         self.repository = Path(repository).resolve()
         self.ledger = ledger
         self.runtime = runtime
         self.context_collector = context_collector
         self.context_policy = context_policy
+        self.market_intelligence_collector = market_intelligence_collector
 
     def run_cycle(
         self,
@@ -271,13 +278,22 @@ class AutonomousService:
             payload={"remaining_budget": str(budget)},
             now=now,
         )
+        policy = self._load_model(mandate.policy_path, RiskPolicy)
+        research = (
+            self._load_model(mandate.research_evidence_path, ResearchEvidence)
+            if mandate.research_evidence_path
+            else None
+        )
+        market_intelligence = self._collect_market_intelligence(mandate, run_id, now)
         external_context = self._collect_context(mandate, run_id, now)
         observation = self.runtime.observe(
             mandate,
             run_id=run_id,
             remaining_budget=budget,
             ledger_path=self.ledger.path,
+            risk_policy=policy,
             external_context=external_context,
+            market_intelligence=market_intelligence,
         )
         self._validate_observation(
             mandate,
@@ -286,18 +302,30 @@ class AutonomousService:
             external_context=external_context,
             context_policy=self.context_policy,
         )
+        recorded_at = observation.observed_at
+        decision_packet = DecisionAuditPacket(
+            run_id=run_id,
+            attempt=self.ledger.run_attempt_count(run_id),
+            recorded_at=recorded_at,
+            runtime=DecisionRuntimeMetadata(
+                prompt_version=PROMPT_VERSION,
+                model=mandate.decision_model or "configured_default",
+                reasoning_effort=mandate.decision_reasoning_effort,
+            ),
+            mandate=mandate,
+            risk_policy=policy,
+            research_evidence=research,
+            external_context=external_context,
+            market_intelligence=market_intelligence,
+            observation=observation,
+        )
+        packet_id = self.ledger.add_decision_packet(decision_packet)
         self.ledger.record_runtime_event(
             run_id,
             "observation_completed",
-            _sanitized_observation_summary(observation),
+            {**_sanitized_observation_summary(observation), "decision_packet_id": packet_id},
         )
 
-        policy = self._load_model(mandate.policy_path, RiskPolicy)
-        research = (
-            self._load_model(mandate.research_evidence_path, ResearchEvidence)
-            if mandate.research_evidence_path
-            else None
-        )
         proposal = create_weekly_proposal(
             mandate,
             observation.decision,
@@ -326,6 +354,35 @@ class AutonomousService:
             "decision_model": mandate.decision_model or "configured_default",
         }
         self.ledger.record_runtime_event(run_id, "proposal_created", proposal_summary)
+        evaluation_state, evaluation_observation = advance_evaluation(
+            mandate,
+            proposal,
+            observation.quotes,
+            run_id=run_id,
+            cycle_key=self.ledger.get_run(run_id)["cycle_key"],
+            observed_at=observation.observed_at,
+            prior=self.ledger.evaluation_state(mandate.mandate_id),
+            cost_bps=mandate.evaluation_cost_bps,
+        )
+        evaluation_digest = self.ledger.record_evaluation(
+            evaluation_observation,
+            evaluation_state,
+        )
+        self.ledger.record_runtime_event(
+            run_id,
+            "benchmark_evaluation_recorded",
+            {
+                "benchmark": mandate.benchmark,
+                "agent_action": evaluation_observation.agent_action,
+                "contribution": str(evaluation_observation.contribution),
+                "payload_sha256": evaluation_digest,
+                "post_trade_values": {
+                    name: str(value)
+                    for name, value in evaluation_observation.post_trade_values.items()
+                },
+            },
+            now=observation.observed_at,
+        )
 
         if observation.decision.action == "hold":
             self.ledger.update_run(
@@ -496,7 +553,12 @@ class AutonomousService:
                 permit_token=token,
                 ledger_path=self.ledger.path,
             )
-            if result.status == "placed":
+            if result.broker_order_id and result.status in {
+                "placed",
+                "filled",
+                "partially_filled",
+                "unknown",
+            }:
                 result = self.runtime.reconcile_order(
                     mandate,
                     proposal,
@@ -526,6 +588,7 @@ class AutonomousService:
                 },
                 now=failure_observed_at,
             )
+            recovered: ExecutionResult | None = None
             try:
                 recovered = self.runtime.recover_order(
                     mandate,
@@ -559,6 +622,20 @@ class AutonomousService:
                     },
                 )
                 recovery_status = "unavailable"
+            if recovered is not None and recovered.status in {"filled", "rejected", "canceled"}:
+                if recovered.status in {"rejected", "canceled"}:
+                    self.ledger.revoke_permit(token)
+                self.ledger.record_runtime_event(
+                    proposal.run_id or "",
+                    "execution_recovery_terminal",
+                    {
+                        "proposal_id": proposal.proposal_id,
+                        "order_key": order.order_key,
+                        "status": recovered.status,
+                        "original_error_type": type(execution_error).__name__,
+                    },
+                )
+                return recovered
             self.ledger.set_trading_halt(
                 True,
                 reason=f"automatic halt after live execution recovery in {proposal.run_id}",
@@ -637,6 +714,7 @@ class AutonomousService:
                 "average_fill_price": (
                     float(result.average_fill_price) if result.average_fill_price else None
                 ),
+                "fees": str(result.fees),
                 "reasoning": reasoning,
             }
             self._record_once(
@@ -704,7 +782,8 @@ class AutonomousService:
             raise RuntimeError(
                 "mandate requires external context but no context collector is configured"
             )
-        snapshot = self.context_collector.collect(mandate.universe, now=now)
+        context_symbols = list(dict.fromkeys([*mandate.universe, mandate.benchmark]))
+        snapshot = self.context_collector.collect(context_symbols, now=now)
         self.ledger.record_runtime_event(
             run_id,
             "external_context_collected",
@@ -717,6 +796,35 @@ class AutonomousService:
             and not snapshot.complete
         ):
             raise RuntimeError("live cycle blocked because required external context is incomplete")
+        return snapshot
+
+    def _collect_market_intelligence(
+        self,
+        mandate: Mandate,
+        run_id: str,
+        now: datetime,
+    ) -> MarketIntelligenceSnapshot | None:
+        if self.market_intelligence_collector is None:
+            return None
+        snapshot = self.market_intelligence_collector.collect(
+            mandate.universe,
+            benchmark=mandate.benchmark,
+            now=now,
+        )
+        self.ledger.record_runtime_event(
+            run_id,
+            "market_intelligence_collected",
+            {
+                "provider": snapshot.provider,
+                "benchmark": snapshot.benchmark,
+                "symbol_count": len(snapshot.symbols),
+                "history_sessions": snapshot.history_sessions,
+                "last_completed_session": snapshot.last_completed_session.isoformat(),
+                "input_sha256": snapshot.input_sha256,
+                "warnings": snapshot.warnings,
+            },
+            now=now,
+        )
         return snapshot
 
     @staticmethod
@@ -735,6 +843,11 @@ class AutonomousService:
         decision_symbols = {allocation.symbol for allocation in observation.decision.allocations}
         if not decision_symbols.issubset(set(mandate.universe)):
             raise ValueError("agent observation proposed a symbol outside the mandate universe")
+        quote_symbols = {quote.symbol for quote in observation.quotes}
+        required_quotes = {mandate.benchmark, *mandate.strategic_weights}
+        missing_quotes = sorted(required_quotes - quote_symbols)
+        if missing_quotes:
+            raise ValueError(f"agent observation is missing evaluation quotes: {missing_quotes}")
         if external_context is not None:
             known_ids = {source.source_id for source in external_context.sources}
             cited_ids = set(observation.decision.context_source_ids)
@@ -745,6 +858,71 @@ class AutonomousService:
                 raise ValueError(
                     f"invest decision requires at least {required} external context citations"
                 )
+        evidence_by_id = {item.evidence_id: item for item in observation.decision.evidence_items}
+        evidence_ids = set(evidence_by_id)
+        if not evidence_ids:
+            raise ValueError("every decision requires a structured evidence inventory")
+        if external_context is not None:
+            evidence_context_ids = {
+                source_id
+                for item in observation.decision.evidence_items
+                for source_id in item.context_source_ids
+            }
+            unknown_evidence_context = evidence_context_ids - known_ids
+            if unknown_evidence_context:
+                raise ValueError(
+                    "decision evidence cited unknown external context sources: "
+                    f"{sorted(unknown_evidence_context)}"
+                )
+            uncited_evidence_context = evidence_context_ids - cited_ids
+            if uncited_evidence_context:
+                raise ValueError(
+                    "decision evidence used external context absent from the decision citations: "
+                    f"{sorted(uncited_evidence_context)}"
+                )
+        future_evidence = [
+            item.evidence_id
+            for item in observation.decision.evidence_items
+            if item.observed_at > observation.observed_at
+            or (
+                item.source_timestamp is not None
+                and item.source_timestamp > observation.observed_at
+            )
+        ]
+        if future_evidence:
+            raise ValueError(f"decision evidence is newer than observation: {future_evidence}")
+        if observation.decision.action == "invest":
+            uncited_allocations = [
+                allocation.symbol
+                for allocation in observation.decision.allocations
+                if not allocation.evidence_ids
+            ]
+            if uncited_allocations:
+                raise ValueError(
+                    f"invest allocations require evidence IDs: {sorted(uncited_allocations)}"
+                )
+            for allocation in observation.decision.allocations:
+                cited = [evidence_by_id[evidence_id] for evidence_id in allocation.evidence_ids]
+                has_quote = any(
+                    item.category == "quote" and item.symbol == allocation.symbol for item in cited
+                )
+                has_market_history = any(
+                    item.category in {"technical", "historical", "research"}
+                    and item.symbol == allocation.symbol
+                    for item in cited
+                )
+                if not has_quote or not has_market_history:
+                    raise ValueError(
+                        f"allocation {allocation.symbol} requires symbol-specific quote and "
+                        "historical/technical/research evidence"
+                    )
+                if external_context is not None and not any(
+                    item.category in {"web", "regulatory"} and item.context_source_ids
+                    for item in cited
+                ):
+                    raise ValueError(
+                        f"allocation {allocation.symbol} requires cited web or regulatory evidence"
+                    )
 
     def _summary(self, run_id: str) -> dict:
         run = self.ledger.get_run(run_id)
@@ -776,9 +954,18 @@ class StaticObservationRuntime:
         run_id: str,
         remaining_budget: Decimal,
         ledger_path: str | Path,
+        risk_policy: RiskPolicy,
         external_context: ContextSnapshot | None = None,
+        market_intelligence: MarketIntelligenceSnapshot | None = None,
     ) -> AgentCyclePayload:
-        del mandate, remaining_budget, ledger_path, external_context
+        del (
+            mandate,
+            remaining_budget,
+            ledger_path,
+            risk_policy,
+            external_context,
+            market_intelligence,
+        )
         if self.payload.decision.run_id != run_id:
             return self.payload.model_copy(
                 update={"decision": self.payload.decision.model_copy(update={"run_id": run_id})}
