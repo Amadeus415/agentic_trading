@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_DOWN, Decimal
 from zoneinfo import ZoneInfo
@@ -101,6 +102,18 @@ def create_weekly_proposal(
         min_order_notional=Decimal(str(policy.min_order_notional)),
     )
     daily_notional = ledger.daily_placed_notional(current_time.date()) if ledger else 0.0
+    daily_order_count = ledger.daily_placed_order_count(current_time.date()) if ledger else 0
+    rolling_notional = (
+        ledger.rolling_placed_notional(
+            since=current_time - timedelta(days=7),
+            before=current_time,
+        )
+        if ledger
+        else 0.0
+    )
+    high_watermark = ledger.portfolio_high_watermark(mandate.mandate_id) if ledger else None
+    shadow_history_id = mandate.promotion_source_mandate_id or mandate.mandate_id
+    shadow_cycles = ledger.successful_shadow_cycle_count(shadow_history_id) if ledger else 0
     unresolved = ledger.unresolved_order_keys() if ledger else []
     risk = evaluate_orders(
         snapshot,
@@ -110,6 +123,10 @@ def create_weekly_proposal(
         strategy=_strategy_name(mandate),
         mode=mandate.mode,
         daily_placed_notional=daily_notional,
+        daily_placed_order_count=daily_order_count,
+        rolling_7d_placed_notional=rolling_notional,
+        portfolio_high_watermark=high_watermark,
+        successful_shadow_cycles=shadow_cycles,
         unresolved_order_keys=unresolved,
         research=research,
         now=current_time,
@@ -137,6 +154,7 @@ def create_weekly_proposal(
         strategy=_strategy_name(mandate),
         rationale=decision.hypothesis,
         policy_name=policy.policy_name,
+        policy_digest=policy_digest(policy),
         snapshot_as_of=snapshot.as_of,
         orders=orders,
         risk=risk,
@@ -247,6 +265,15 @@ def _strategy_name(mandate: Mandate) -> str:
         if mandate.cycle_frequency == "market_day"
         else "agentic_weekly_dca"
     )
+
+
+def policy_digest(policy: RiskPolicy) -> str:
+    payload = json.dumps(
+        policy.model_dump(mode="json"),
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 def _handoff(

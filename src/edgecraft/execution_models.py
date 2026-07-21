@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -54,6 +55,13 @@ class PortfolioSnapshot(BaseModel):
     account_restricted: bool = False
     source: str = "robinhood_mcp"
 
+    @field_validator("as_of")
+    @classmethod
+    def snapshot_timezone_aware(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("as_of must include a timezone")
+        return value.astimezone(UTC)
+
     @field_validator("positions")
     @classmethod
     def unique_positions(cls, value: list[PositionSnapshot]) -> list[PositionSnapshot]:
@@ -71,6 +79,8 @@ class MarketQuote(BaseModel):
     as_of: datetime
     tradable: bool = True
     fractionally_tradable: bool = True
+    market_session: Literal["regular", "pre_market", "after_hours", "closed", "unknown"] = "unknown"
+    average_daily_dollar_volume: Decimal | None = Field(default=None, gt=0)
 
     @field_validator("symbol")
     @classmethod
@@ -79,6 +89,13 @@ class MarketQuote(BaseModel):
         if not clean:
             raise ValueError("symbol cannot be empty")
         return clean
+
+    @field_validator("as_of")
+    @classmethod
+    def quote_timezone_aware(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("as_of must include a timezone")
+        return value.astimezone(UTC)
 
     @model_validator(mode="after")
     def valid_market(self) -> MarketQuote:
@@ -133,6 +150,14 @@ class RiskPolicy(BaseModel):
     max_snapshot_age_seconds: int = Field(300, ge=1, le=86_400)
     max_research_age_days: int = Field(45, ge=1, le=365)
     max_price_deviation_bps: float = Field(100.0, ge=0, le=10_000)
+    max_spread_bps: float = Field(50.0, ge=0, le=10_000)
+    max_order_adv_fraction: float = Field(0.01, gt=0, le=1)
+    allowed_market_sessions: list[Literal["regular", "pre_market", "after_hours"]] = Field(
+        default_factory=lambda: ["regular"]
+    )
+    max_rolling_7d_turnover: float = Field(0.50, gt=0, le=10)
+    max_drawdown_fraction: float = Field(0.10, gt=0, le=1)
+    min_shadow_cycles_before_live: int = Field(0, ge=0, le=10_000)
     allow_sells: bool = False
     require_research_evidence: bool = True
     require_review: bool = True
@@ -166,6 +191,8 @@ class RiskPolicy(BaseModel):
             raise ValueError("max_order_notional cannot exceed max_daily_notional")
         if self.min_cash_reserve >= self.managed_capital_limit:
             raise ValueError("min_cash_reserve must be below managed_capital_limit")
+        if not self.allowed_market_sessions:
+            raise ValueError("allowed_market_sessions must not be empty")
         allowed = set(self.allowed_symbols)
         grouped: set[str] = set()
         for name, symbols in self.symbol_groups.items():
@@ -209,6 +236,9 @@ class RiskDecision(BaseModel):
     projected_cash: float
     projected_weights: dict[str, float]
     gross_notional: float
+    spread_bps: dict[str, float] = Field(default_factory=dict)
+    rolling_7d_turnover: float | None = None
+    drawdown_fraction: float | None = None
 
 
 class TradeProposal(BaseModel):
@@ -222,8 +252,37 @@ class TradeProposal(BaseModel):
     strategy: str
     rationale: str
     policy_name: str
+    policy_digest: str = ""
     snapshot_as_of: datetime
     orders: list[ProposedOrder]
     risk: RiskDecision
     research: ResearchEvidence | None = None
     robinhood_handoff: dict
+
+
+class ExecutionPreflight(BaseModel):
+    """Fresh, read-only broker truth collected before execution authority exists."""
+
+    schema_version: str = "edgecraft.execution-preflight.v1"
+    run_id: str
+    proposal_id: str
+    order_key: str
+    observed_at: datetime
+    account: PortfolioSnapshot
+    quote: MarketQuote
+    review_approved: bool
+    review_warnings: list[str] = Field(default_factory=list)
+    reviewed_notional: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+
+    @field_validator("observed_at")
+    @classmethod
+    def preflight_timezone_aware(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("observed_at must include a timezone")
+        return value.astimezone(UTC)
+
+    @model_validator(mode="after")
+    def sources_precede_completion(self) -> ExecutionPreflight:
+        if self.account.as_of > self.observed_at or self.quote.as_of > self.observed_at:
+            raise ValueError("preflight source timestamps cannot exceed observed_at")
+        return self

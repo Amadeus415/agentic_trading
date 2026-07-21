@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from contextlib import suppress
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Protocol
@@ -12,15 +12,17 @@ from edgecraft.autonomy import (
     create_weekly_proposal,
     cycle_due,
     cycle_key,
+    policy_digest,
 )
 from edgecraft.autonomy_models import (
     AgentCyclePayload,
     ExecutionResult,
     Mandate,
 )
-from edgecraft.codex_runtime import CodexRuntime, CodexRuntimeConfig
+from edgecraft.codex_runtime import PROMPT_VERSION, CodexRuntime, CodexRuntimeConfig
 from edgecraft.context import ContextCollector, ContextSnapshot, WebContextPolicy
 from edgecraft.execution_models import (
+    ExecutionPreflight,
     ProposedOrder,
     ResearchEvidence,
     RiskPolicy,
@@ -28,6 +30,7 @@ from edgecraft.execution_models import (
 )
 from edgecraft.ledger import AuditLedger, DuplicateProposalError
 from edgecraft.observability import log_event
+from edgecraft.risk import evaluate_orders
 
 TERMINAL_RUN_STATUSES = {
     "not_due",
@@ -50,6 +53,15 @@ class AgentRuntime(Protocol):
         ledger_path: str | Path,
         external_context: ContextSnapshot | None = None,
     ) -> AgentCyclePayload: ...
+
+    def preflight_order(
+        self,
+        mandate: Mandate,
+        proposal: TradeProposal,
+        order: ProposedOrder,
+        *,
+        ledger_path: str | Path,
+    ) -> ExecutionPreflight: ...
 
     def execute_order(
         self,
@@ -298,6 +310,9 @@ class AutonomousService:
             "warnings": proposal.risk.warnings,
             "gross_notional": proposal.risk.gross_notional,
             "order_count": len(proposal.orders),
+            "policy_digest": proposal.policy_digest,
+            "prompt_version": PROMPT_VERSION,
+            "decision_model": mandate.decision_model or "configured_default",
         }
         self.ledger.record_runtime_event(run_id, "proposal_created", proposal_summary)
 
@@ -334,7 +349,15 @@ class AutonomousService:
         )
         results = []
         for order in proposal.orders:
-            result = self._execute_one(mandate, proposal, order)
+            result = self._execute_one(
+                mandate,
+                proposal,
+                order,
+                policy,
+                research,
+                now=now,
+                use_wall_clock=use_wall_clock,
+            )
             results.append(result.model_dump(mode="json"))
             if result.status in {"unknown", "partially_filled"}:
                 self.ledger.set_trading_halt(
@@ -364,7 +387,76 @@ class AutonomousService:
         mandate: Mandate,
         proposal: TradeProposal,
         order: ProposedOrder,
+        policy: RiskPolicy,
+        research: ResearchEvidence | None,
+        *,
+        now: datetime,
+        use_wall_clock: bool,
     ) -> ExecutionResult:
+        current_policy = self._load_model(mandate.policy_path, RiskPolicy)
+        if policy_digest(current_policy) != proposal.policy_digest:
+            raise RuntimeError("live policy changed after proposal creation")
+        preflight = self.runtime.preflight_order(
+            mandate,
+            proposal,
+            order,
+            ledger_path=self.ledger.path,
+        )
+        risk_time = datetime.now(UTC) if use_wall_clock else now
+        self._validate_preflight(proposal, order, preflight, policy)
+        preflight_risk = evaluate_orders(
+            preflight.account,
+            [preflight.quote],
+            [order],
+            policy,
+            strategy=proposal.strategy,
+            mode="live",
+            daily_placed_notional=self.ledger.daily_placed_notional(risk_time.date()),
+            daily_placed_order_count=self.ledger.daily_placed_order_count(risk_time.date()),
+            rolling_7d_placed_notional=self.ledger.rolling_placed_notional(
+                since=risk_time - timedelta(days=7),
+                before=risk_time,
+            ),
+            portfolio_high_watermark=self.ledger.portfolio_high_watermark(mandate.mandate_id),
+            successful_shadow_cycles=self.ledger.successful_shadow_cycle_count(
+                mandate.promotion_source_mandate_id or mandate.mandate_id
+            ),
+            unresolved_order_keys=self.ledger.unresolved_order_keys(),
+            research=research,
+            now=risk_time,
+        )
+        self.ledger.record_runtime_event(
+            proposal.run_id or "",
+            "execution_preflight_completed",
+            {
+                "proposal_id": proposal.proposal_id,
+                "order_key": order.order_key,
+                "approved": preflight_risk.approved_for_review,
+                "violations": preflight_risk.violations,
+                "warnings": preflight.review_warnings,
+                "market_session": preflight.quote.market_session,
+                "spread_bps": preflight_risk.spread_bps.get(order.symbol),
+            },
+            now=risk_time,
+        )
+        if not preflight_risk.approved_for_review:
+            return ExecutionResult(
+                run_id=proposal.run_id or "",
+                proposal_id=proposal.proposal_id,
+                order_key=order.order_key,
+                status="aborted",
+                symbol=order.symbol,
+                side=order.side,
+                requested_notional=Decimal(str(order.notional)),
+                observed_at=risk_time,
+                review_warnings=preflight_risk.violations,
+                detail="deterministic execution preflight rejected the order",
+            )
+        if (
+            policy_digest(self._load_model(mandate.policy_path, RiskPolicy))
+            != proposal.policy_digest
+        ):
+            raise RuntimeError("live policy changed during execution preflight")
         constraints = {
             "account_id": proposal.account_id,
             "symbol": order.symbol,
@@ -460,6 +552,28 @@ class AutonomousService:
                 occurred_at=result.observed_at,
             )
         return result
+
+    @staticmethod
+    def _validate_preflight(
+        proposal: TradeProposal,
+        order: ProposedOrder,
+        preflight: ExecutionPreflight,
+        policy: RiskPolicy,
+    ) -> None:
+        if (
+            preflight.run_id != proposal.run_id
+            or preflight.proposal_id != proposal.proposal_id
+            or preflight.order_key != order.order_key
+            or preflight.account.account_id != proposal.account_id
+            or preflight.quote.symbol != order.symbol
+            or preflight.reviewed_notional != Decimal(str(order.notional))
+        ):
+            raise RuntimeError("execution preflight identity does not match the approved order")
+        if not preflight.review_approved or preflight.review_warnings:
+            review_kind = (
+                "Robinhood review" if policy.require_review else "standing-authority preflight"
+            )
+            raise RuntimeError(f"{review_kind} did not approve the exact order")
 
     def _record_once(
         self,
@@ -589,6 +703,17 @@ class StaticObservationRuntime:
     ) -> ExecutionResult:
         del mandate, proposal, order, permit_token, ledger_path
         raise RuntimeError("captured observations cannot execute live orders")
+
+    def preflight_order(
+        self,
+        mandate: Mandate,
+        proposal: TradeProposal,
+        order: ProposedOrder,
+        *,
+        ledger_path: str | Path,
+    ) -> ExecutionPreflight:
+        del mandate, proposal, order, ledger_path
+        raise RuntimeError("captured observations cannot preflight live orders")
 
     def reconcile_order(
         self,

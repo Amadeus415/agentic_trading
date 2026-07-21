@@ -10,7 +10,7 @@ from edgecraft.autonomous_service import AutonomousService, StaticObservationRun
 from edgecraft.autonomy import cycle_key
 from edgecraft.autonomy_models import AgentCyclePayload, ExecutionResult, Mandate
 from edgecraft.context import ContextSnapshot, ContextSource, WebContextPolicy
-from edgecraft.execution_models import TradeProposal
+from edgecraft.execution_models import ExecutionPreflight, TradeProposal
 from edgecraft.ledger import AuditLedger
 
 NOW = datetime(2026, 7, 20, 15, 0, tzinfo=UTC)
@@ -63,8 +63,24 @@ def _payload(run_id: str = "placeholder", *, action: str = "invest") -> AgentCyc
                 "open_orders": [],
             },
             "quotes": [
-                {"symbol": "VTI", "last": 330, "as_of": NOW},
-                {"symbol": "VXUS", "last": 75, "as_of": NOW},
+                {
+                    "symbol": "VTI",
+                    "last": 330,
+                    "bid": 329.95,
+                    "ask": 330.05,
+                    "as_of": NOW,
+                    "market_session": "regular",
+                    "average_daily_dollar_volume": "1000000000",
+                },
+                {
+                    "symbol": "VXUS",
+                    "last": 75,
+                    "bid": 74.99,
+                    "ask": 75.01,
+                    "as_of": NOW,
+                    "market_session": "regular",
+                    "average_daily_dollar_volume": "100000000",
+                },
             ],
             "recent_order_summary": [],
             "realized_pnl_summary": "No realized P&L.",
@@ -376,6 +392,20 @@ def test_permit_makes_failed_run_non_retryable(tmp_path):
 
 
 class FilledLiveRuntime(StaticObservationRuntime):
+    def preflight_order(self, mandate, proposal, order, *, ledger_path):
+        del mandate, ledger_path
+        quote = next(item for item in self.payload.quotes if item.symbol == order.symbol)
+        return ExecutionPreflight(
+            run_id=proposal.run_id,
+            proposal_id=proposal.proposal_id,
+            order_key=order.order_key,
+            observed_at=NOW,
+            account=self.payload.account,
+            quote=quote,
+            review_approved=True,
+            reviewed_notional=Decimal(str(order.notional)),
+        )
+
     def execute_order(
         self,
         mandate,
@@ -448,6 +478,37 @@ class PlacedThenFilledRuntime(FilledLiveRuntime):
         )
 
 
+class ClosedMarketPreflightRuntime(FilledLiveRuntime):
+    def preflight_order(self, mandate, proposal, order, *, ledger_path):
+        result = super().preflight_order(
+            mandate,
+            proposal,
+            order,
+            ledger_path=ledger_path,
+        )
+        return result.model_copy(
+            update={"quote": result.quote.model_copy(update={"market_session": "closed"})}
+        )
+
+
+class PolicyMutatingPreflightRuntime(FilledLiveRuntime):
+    def __init__(self, payload, policy_path):
+        super().__init__(payload)
+        self.policy_path = policy_path
+
+    def preflight_order(self, mandate, proposal, order, *, ledger_path):
+        result = super().preflight_order(
+            mandate,
+            proposal,
+            order,
+            ledger_path=ledger_path,
+        )
+        policy = json.loads(self.policy_path.read_text())
+        policy["max_daily_notional"] = 11
+        self.policy_path.write_text(json.dumps(policy))
+        return result
+
+
 def test_live_cycle_records_guarded_fill_and_spend(tmp_path):
     policy_path = tmp_path / "live-policy.json"
     policy_path.write_text(
@@ -476,6 +537,72 @@ def test_live_cycle_records_guarded_fill_and_spend(tmp_path):
     assert ledger.daily_placed_notional(NOW.date()) == 10
     assert not ledger.unresolved_order_keys()
     assert ledger.operational_snapshot()["permits_by_status"]["claimed"] == 2
+
+
+def test_live_preflight_rejection_occurs_before_permit_issuance(tmp_path):
+    policy_path = tmp_path / "live-policy.json"
+    policy_path.write_text(
+        json.dumps(
+            {
+                "policy_name": "service-live-preflight",
+                "trading_enabled": True,
+                "allowed_symbols": ["VTI", "VXUS"],
+                "managed_capital_limit": 1000,
+                "max_order_notional": 10,
+                "max_daily_notional": 10,
+                "max_orders_per_day": 2,
+                "max_position_weight": 0.75,
+                "min_cash_reserve": 0,
+                "require_research_evidence": False,
+            }
+        )
+    )
+    mandate = _mandate(str(policy_path)).model_copy(update={"mode": "live"})
+    ledger = AuditLedger(tmp_path / "state.db")
+
+    result = AutonomousService(
+        tmp_path,
+        ledger,
+        ClosedMarketPreflightRuntime(_payload()),
+    ).run_cycle(mandate, now=NOW)
+
+    assert result["run"]["status"] == "failed"
+    assert not ledger.run_has_permit(result["run"]["run_id"])
+    events = ledger.observability_feed()["runtime_events"]
+    preflight = next(
+        item for item in events if item["event_type"] == "execution_preflight_completed"
+    )
+    assert any("market session closed" in item for item in preflight["payload"]["violations"])
+
+
+def test_live_policy_drift_during_preflight_aborts_before_permit(tmp_path):
+    policy_path = tmp_path / "live-policy.json"
+    policy_path.write_text(
+        json.dumps(
+            {
+                "policy_name": "service-live-policy-drift",
+                "trading_enabled": True,
+                "allowed_symbols": ["VTI", "VXUS"],
+                "managed_capital_limit": 1000,
+                "max_order_notional": 10,
+                "max_daily_notional": 10,
+                "max_orders_per_day": 2,
+                "max_position_weight": 0.75,
+                "min_cash_reserve": 0,
+                "require_research_evidence": False,
+            }
+        )
+    )
+    mandate = _mandate(str(policy_path)).model_copy(update={"mode": "live"})
+    ledger = AuditLedger(tmp_path / "state.db")
+    runtime = PolicyMutatingPreflightRuntime(_payload(), policy_path)
+
+    with pytest.raises(RuntimeError, match="policy changed during execution preflight"):
+        AutonomousService(tmp_path, ledger, runtime).run_cycle(mandate, now=NOW)
+
+    run = ledger.list_runs()[0]
+    assert run["status"] == "failed"
+    assert not ledger.run_has_permit(run["run_id"])
 
 
 def test_placed_orders_receive_independent_terminal_reconciliation(tmp_path):

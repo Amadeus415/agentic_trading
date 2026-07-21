@@ -12,8 +12,9 @@ from typing import Any
 from edgecraft import __version__
 from edgecraft.analytics import market_diagnostics, portfolio_market_risk
 from edgecraft.autonomous_service import AutonomousService, StaticObservationRuntime
+from edgecraft.autonomy import policy_digest
 from edgecraft.autonomy_models import AgentCyclePayload, Mandate
-from edgecraft.codex_runtime import CodexRuntime, CodexRuntimeConfig
+from edgecraft.codex_runtime import PROMPT_VERSION, CodexRuntime, CodexRuntimeConfig
 from edgecraft.context import browserbase_api_key, load_context_service
 from edgecraft.data import MarketDataProvider, synthetic_market_data
 from edgecraft.execution_models import (
@@ -203,6 +204,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     autonomous_health.add_argument("--ledger", default="state/edgecraft.db")
 
+    readiness = commands.add_parser(
+        "readiness",
+        help="Fail-closed operational readiness review for one scheduled mandate.",
+    )
+    readiness.add_argument("--mandate", required=True, type=Path)
+    readiness.add_argument("--ledger", default="state/edgecraft.db")
+    readiness.add_argument(
+        "--require-ready",
+        action="store_true",
+        help="Exit nonzero when any deterministic readiness check fails.",
+    )
+
     schedule_install = commands.add_parser(
         "schedule-install", help="Install an unattended macOS launchd cycle runner."
     )
@@ -282,6 +295,11 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
         )
     if args.command == "autonomy-health":
         return autonomy_health(AuditLedger(args.ledger))
+    if args.command == "readiness":
+        result = operational_readiness(Path.cwd(), args.mandate, args.ledger)
+        if args.require_ready and not result["ok"]:
+            raise RuntimeError("; ".join(result["reasons"]))
+        return result
     if args.command == "schedule-install":
         mandate = Mandate.model_validate(_read_json(args.mandate))
         ledger = AuditLedger(args.ledger)
@@ -468,6 +486,75 @@ def health_check(ledger_path: str, real_data_symbol: str | None = None) -> dict[
             "fetch_endpoint": "https://api.browserbase.com/v1/fetch",
         },
         "note": "Health verifies configuration, not current account eligibility; refresh get_accounts.",
+    }
+
+
+def operational_readiness(
+    repository: Path,
+    mandate_path: Path,
+    ledger_path: str | Path,
+) -> dict[str, Any]:
+    mandate_file = mandate_path if mandate_path.is_absolute() else repository / mandate_path
+    mandate = Mandate.model_validate(_read_json(mandate_file))
+    policy_file = Path(mandate.policy_path)
+    policy_file = policy_file if policy_file.is_absolute() else repository / policy_file
+    raw_policy = _read_json(policy_file)
+    policy = RiskPolicy.model_validate(raw_policy)
+    ledger = AuditLedger(ledger_path)
+    reasons: list[str] = []
+    if not mandate.enabled:
+        reasons.append("mandate is disabled")
+    if mandate.mode == "live" and not policy.trading_enabled:
+        reasons.append("live mandate policy has trading_enabled=false")
+    if not set(mandate.universe).issubset(set(policy.allowed_symbols)):
+        reasons.append("mandate universe is not a subset of the policy whitelist")
+    if ledger.trading_halted():
+        reasons.append("trading kill switch is active")
+    if ledger.unresolved_order_keys():
+        reasons.append("audit ledger contains unresolved broker orders")
+    if shutil.which("codex") is None:
+        reasons.append("codex executable is unavailable")
+    hook_path = repository / ".codex" / "hooks.json"
+    if mandate.mode == "live" and not hook_path.is_file():
+        reasons.append("live mandate requires the repository trade-permit hook")
+    if mandate.external_context_path:
+        context_path = Path(mandate.external_context_path)
+        context_path = context_path if context_path.is_absolute() else repository / context_path
+        if not context_path.is_file():
+            reasons.append("external context configuration is missing")
+    if mandate.mode == "live":
+        required_policy_fields = {
+            "allowed_market_sessions",
+            "max_drawdown_fraction",
+            "max_order_adv_fraction",
+            "max_rolling_7d_turnover",
+            "max_spread_bps",
+            "min_shadow_cycles_before_live",
+        }
+        missing = sorted(required_policy_fields - set(raw_policy))
+        if missing:
+            reasons.append(
+                "live policy must explicitly set production controls: " + ", ".join(missing)
+            )
+        history_id = mandate.promotion_source_mandate_id or mandate.mandate_id
+        shadow_cycles = ledger.successful_shadow_cycle_count(history_id)
+        if shadow_cycles < policy.min_shadow_cycles_before_live:
+            reasons.append(
+                f"shadow history has {shadow_cycles} successful cycle(s), "
+                f"below required {policy.min_shadow_cycles_before_live}"
+            )
+    else:
+        shadow_cycles = ledger.successful_shadow_cycle_count(mandate.mandate_id)
+    return {
+        "ok": not reasons,
+        "checked_at": datetime.now(UTC).isoformat(),
+        "mandate_id": mandate.mandate_id,
+        "mode": mandate.mode,
+        "policy_name": policy.policy_name,
+        "policy_digest": policy_digest(policy),
+        "prompt_version": PROMPT_VERSION,
+        "successful_shadow_cycles": shadow_cycles,
+        "reasons": reasons,
     }
 
 

@@ -57,7 +57,15 @@ def test_tiny_live_policy_allows_one_two_dollar_position(tmp_path):
         portfolio_value=5,
         as_of=NOW,
     )
-    quote = MarketQuote(symbol="NVDA", last=200, as_of=NOW)
+    quote = MarketQuote(
+        symbol="NVDA",
+        last=200,
+        bid=199.95,
+        ask=200.05,
+        as_of=NOW,
+        market_session="regular",
+        average_daily_dollar_volume="1000000000",
+    )
     policy = RiskPolicy.model_validate_json(LIVE_POLICY.read_text(encoding="utf-8"))
 
     proposal = create_weekly_proposal(
@@ -119,7 +127,15 @@ def _setup_live_permit(tmp_path):
         portfolio_value=100,
         as_of=NOW,
     )
-    quote = MarketQuote(symbol="VTI", last=330, as_of=NOW)
+    quote = MarketQuote(
+        symbol="VTI",
+        last=330,
+        bid=329.95,
+        ask=330.05,
+        as_of=NOW,
+        market_session="regular",
+        average_daily_dollar_volume="1000000000",
+    )
     policy = RiskPolicy(
         policy_name="guard-live",
         trading_enabled=True,

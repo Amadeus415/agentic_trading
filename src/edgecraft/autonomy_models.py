@@ -42,6 +42,10 @@ class Mandate(BaseModel):
         None
     )
     policy_path: str
+    promotion_source_mandate_id: str | None = Field(
+        default=None,
+        pattern=r"^[a-z][a-z0-9_-]{2,63}$",
+    )
     research_evidence_path: str | None = None
     external_context_path: str | None = None
     owner_notes: str = Field(default="", max_length=2_000)

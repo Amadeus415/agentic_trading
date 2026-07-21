@@ -789,6 +789,68 @@ class AuditLedger:
             total += float(payload.get("notional", 0.0))
         return total
 
+    def daily_placed_order_count(self, day: date | None = None) -> int:
+        target = day or datetime.now(UTC).date()
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS count FROM events
+                WHERE event_type = 'placed' AND substr(occurred_at, 1, 10) = ?
+                """,
+                (target.isoformat(),),
+            ).fetchone()
+        return int(row["count"])
+
+    def rolling_placed_notional(
+        self,
+        *,
+        since: datetime,
+        before: datetime | None = None,
+    ) -> float:
+        start = _aware(since).isoformat()
+        end = _aware(before or datetime.now(UTC)).isoformat()
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload FROM events
+                WHERE event_type = 'placed'
+                  AND occurred_at >= ?
+                  AND occurred_at < ?
+                """,
+                (start, end),
+            ).fetchall()
+        return sum(float(json.loads(row["payload"]).get("notional", 0.0)) for row in rows)
+
+    def portfolio_high_watermark(self, mandate_id: str) -> float | None:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT e.payload
+                FROM runtime_events AS e
+                JOIN runs AS r ON r.run_id = e.run_id
+                WHERE r.mandate_id = ? AND e.event_type = 'observation_completed'
+                """,
+                (mandate_id,),
+            ).fetchall()
+        values = [
+            float(payload["portfolio_value"])
+            for row in rows
+            if (payload := json.loads(row["payload"])).get("portfolio_value") is not None
+        ]
+        return max(values) if values else None
+
+    def successful_shadow_cycle_count(self, mandate_id: str) -> int:
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS count FROM runs
+                WHERE mandate_id = ? AND mode = 'shadow'
+                  AND status IN ('held', 'shadow_complete')
+                """,
+                (mandate_id,),
+            ).fetchone()
+        return int(row["count"])
+
     def status(self) -> dict[str, Any]:
         with self._connection() as connection:
             proposals = connection.execute("SELECT COUNT(*) AS count FROM proposals").fetchone()
@@ -832,6 +894,10 @@ def _event_key(proposal_id: str, event_type: str, payload: dict[str, Any]) -> st
         separators=(",", ":"),
     )
     return "evt_" + hashlib.sha256(raw.encode()).hexdigest()[:24]
+
+
+def _aware(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 def _account_reference(account_id: str) -> str:

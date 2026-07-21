@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from decimal import Decimal
 
 import pytest
 
@@ -12,6 +13,7 @@ from edgecraft.execution_models import (
 )
 from edgecraft.ledger import AuditLedger, DuplicateProposalError
 from edgecraft.orchestration import create_trade_proposal, robinhood_protocol
+from edgecraft.risk import build_rebalance_orders, evaluate_orders
 
 NOW = datetime(2026, 7, 19, 18, 0, tzinfo=UTC)
 
@@ -38,6 +40,8 @@ def quotes(as_of: datetime = NOW) -> list[MarketQuote]:
             as_of=as_of,
             tradable=True,
             fractionally_tradable=True,
+            market_session="regular",
+            average_daily_dollar_volume="1000000000",
         )
     ]
 
@@ -71,7 +75,7 @@ def test_shadow_proposal_is_approved_but_cannot_place(tmp_path):
     assert proposal.orders[0].notional == 50
     assert proposal.robinhood_handoff["status"] == "shadow_only"
     assert not proposal.robinhood_handoff["placement_authorized"]
-    assert "research evidence" in proposal.risk.warnings[0]
+    assert any("research evidence" in warning for warning in proposal.risk.warnings)
 
 
 def test_live_proposal_requires_enabled_policy_and_passing_research(tmp_path):
@@ -249,3 +253,52 @@ def test_protocol_names_official_two_phase_tools():
     assert "review_equity_order" in protocol["execution_tools"]
     assert "place_equity_order" in protocol["execution_tools"]
     assert any("same proposal" in item for item in protocol["invariants"])
+
+
+def test_live_market_liquidity_drawdown_turnover_and_order_count_fail_closed():
+    current_snapshot = snapshot().model_copy(update={"portfolio_value": 400, "buying_power": 400})
+    illiquid_quote = quotes()[0].model_copy(
+        update={
+            "bid": 599,
+            "ask": 601,
+            "market_session": "after_hours",
+            "average_daily_dollar_volume": Decimal("1000"),
+        }
+    )
+    policy = RiskPolicy(
+        trading_enabled=True,
+        allowed_symbols=["SPY"],
+        require_research_evidence=False,
+        max_orders_per_day=1,
+        max_spread_bps=5,
+        max_order_adv_fraction=0.01,
+        max_rolling_7d_turnover=0.10,
+        max_drawdown_fraction=0.10,
+    )
+    orders = build_rebalance_orders(
+        current_snapshot,
+        [illiquid_quote],
+        TargetAllocation(weights={"SPY": 0.1}, rationale="exercise hard controls"),
+        policy,
+    )
+
+    decision = evaluate_orders(
+        current_snapshot,
+        [illiquid_quote],
+        orders,
+        policy,
+        strategy="plain_dca",
+        mode="live",
+        daily_placed_order_count=1,
+        rolling_7d_placed_notional=25,
+        portfolio_high_watermark=500,
+        now=NOW,
+    )
+
+    assert not decision.approved_for_review
+    assert any("market session" in item for item in decision.violations)
+    assert any("spread" in item for item in decision.violations)
+    assert any("max_order_adv_fraction" in item for item in decision.violations)
+    assert any("drawdown" in item for item in decision.violations)
+    assert any("turnover" in item for item in decision.violations)
+    assert any("placed order(s)" in item for item in decision.violations)
