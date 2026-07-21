@@ -380,15 +380,15 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.116,<1" },
     { name = "httpx2", marker = "extra == 'dev'", specifier = ">=2.7,<3" },
     { name = "numpy", specifier = ">=2.2,<3" },
-    { name = "pandas", specifier = ">=2.2,<3" },
+    { name = "pandas", specifier = ">=2.2,<4" },
     { name = "pydantic", specifier = ">=2.11,<3" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4,<9" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6.2,<7" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4,<10" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6.2,<8" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.12,<1" },
     { name = "scikit-learn", specifier = ">=1.7,<2" },
     { name = "scipy", specifier = ">=1.15,<2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.35,<1" },
-    { name = "yfinance", specifier = ">=0.2.65,<1" },
+    { name = "yfinance", specifier = ">=0.2.65,<2" },
 ]
 provides-extras = ["dev"]
 
