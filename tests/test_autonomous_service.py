@@ -226,6 +226,10 @@ def test_shadow_cycle_is_idempotent_and_audited(tmp_path):
     assert packet["payload"]["observation"]["account"]["account_id"].startswith("acct_")
     assert packet["payload"]["observation"]["account"]["account_id"] != "agentic-test"
     assert packet["payload"]["observation"]["quotes"][0]["symbol"] == "VTI"
+    portfolio_feed = ledger.portfolio_snapshot_feed()
+    assert portfolio_feed[0]["packet_id"] == packet["packet_id"]
+    assert portfolio_feed[0]["payload"]["observation"]["account"]["portfolio_value"] == 100
+    assert "market_intelligence" not in portfolio_feed[0]["payload"]
     assert (
         packet["payload"]["observation"]["decision"]["evidence_items"][0]["evidence_id"]
         == "account-state"
