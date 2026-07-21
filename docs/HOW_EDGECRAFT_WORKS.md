@@ -66,7 +66,7 @@ The model may rank opportunities, explain uncertainty, and elect to hold. It may
 
 The control plane decides whether an idea may reach the broker.
 
-- `risk.py` builds rebalance orders and evaluates cash, concentration, group exposure, liquidity, spread, turnover, drawdown, market session, data freshness, and research requirements.
+- `risk.py` evaluates cash, concentration, group exposure, liquidity, spread, turnover, drawdown, market session, data freshness, and research requirements.
 - `autonomous_service.py` owns the live state machine and recovery behavior.
 - `ledger.py` owns cycle locks, idempotency, permits, broker lifecycle events, unresolved-order detection, and the audit trail.
 - `scripts/guard_robinhood_tool.py` is the fail-closed `PreToolUse` boundary around the order-placement tool.
@@ -171,7 +171,7 @@ That is still only a typed recommendation. The complete decision packet—mandat
 
 ### Step 5 — ordinary Python builds and judges the proposal
 
-`create_weekly_proposal()` in `autonomy.py` converts the target allocation into a candidate order. `build_rebalance_orders()` and `evaluate_orders()` in `risk.py` do the arithmetic.
+`create_weekly_proposal()` in `autonomy.py` converts the typed decision into candidate orders. `evaluate_orders()` in `risk.py` applies the deterministic account, liquidity, exposure, and promotion controls.
 
 For the illustrative order:
 
@@ -253,7 +253,7 @@ The run becomes `completed` only after its execution path is safely accounted fo
 
 This avoids comparing a small, periodic contribution strategy with a benchmark that received different cash flows.
 
-The README console, local dashboard, CLI, logs, and metrics all derive their summaries from the same ledger rather than inventing separate truth.
+The local dashboard, CLI, logs, and metrics all derive their summaries from the same ledger rather than inventing separate truth.
 
 ## The evidence ladder
 
@@ -294,7 +294,7 @@ Follow this order if you want to learn the implementation without getting lost:
 
 1. `src/edgecraft/autonomy_models.py` — learn the nouns: mandate, decision, evidence, observation.
 2. `src/edgecraft/autonomous_service.py` — read `run_cycle()`, `_run_started_cycle()`, then `_execute_one()`.
-3. `src/edgecraft/risk.py` — see how an allocation becomes an order and why a proposal passes or fails.
+3. `src/edgecraft/autonomy.py` and `src/edgecraft/risk.py` — see how allocations become orders and why a proposal passes or fails.
 4. `src/edgecraft/ledger.py` — inspect locks, runs, permits, events, unresolved orders, and health snapshots.
 5. `src/edgecraft/codex_runtime.py` — see the structured prompts and Robinhood MCP boundaries.
 6. `scripts/guard_robinhood_tool.py` — inspect the last deterministic gate before placement.
@@ -304,7 +304,6 @@ Follow this order if you want to learn the implementation without getting lost:
 Then use the operational guides:
 
 - [Autonomous operations](AUTONOMY.md)
-- [Orchestrator contract](ORCHESTRATOR.md)
 - [Decision data model](DECISION_DATA_MODEL.md)
 - [Performance evaluation](PERFORMANCE_EVALUATION.md)
 - [Production readiness](PRODUCTION_READINESS.md)

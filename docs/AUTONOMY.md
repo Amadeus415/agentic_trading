@@ -4,7 +4,7 @@ Edgecraft can run a weekly, long-only index-fund mandate without routine human
 approval. Autonomy is split across two trust domains:
 
 ```text
-launchd wakeup
+Codex Scheduled wakeup
   → Edgecraft due/idempotency/budget check
   → Browserbase + public-source context collection and audit
   → Codex read-only Robinhood observation and structured recommendation
@@ -61,25 +61,11 @@ The supplied mandate is:
 
 ## Unattended scheduling
 
-On macOS:
-
-```bash
-edgecraft schedule-install \
-  --mandate examples/mandate.index-dca.json \
-  --ledger state/edgecraft.db \
-  --interval-seconds 1800
-
-edgecraft schedule-status --mandate-id index_dca
-```
-
-The launchd service wakes every 30 minutes and at login. Most wakeups are cheap:
-before the scheduled weekly time they return `not_due`; after one run exists for
-the ISO week they return the same run without invoking the model. Logs live in
-ignored `state/scheduler/` files. Remove the service with:
-
-```bash
-edgecraft schedule-remove --mandate-id index_dca
-```
+Use a Codex Scheduled task as the single wake-up mechanism. Follow
+[the scheduled-task operating guide](CODEX_SCHEDULED_TASK.md) and keep the task
+in the local checkout so it shares the durable ledger and kill switch. Wakeups
+before the configured time return `not_due`; repeated wakeups return the same
+idempotent run without invoking the model again.
 
 The Mac must be on, the user session available, Codex authenticated, and
 Robinhood MCP OAuth current. A side-effect-free transient failure may retry up
@@ -135,11 +121,7 @@ edgecraft cycle \
   --force
 ```
 
-6. Confirm the broker order and ledger reconcile. Then install its schedule.
-
-For Codex Scheduled rather than launchd, use
-[the scheduled-task operating guide](CODEX_SCHEDULED_TASK.md). Keep the task in
-the local checkout so it shares the durable ledger and kill switch.
+6. Confirm the broker order and ledger reconcile. Then enable its Codex Scheduled task.
 
 Do not reuse the shadow mandate ID for a materially different policy. A live
 placement receives one opaque permit per order, valid for at most five minutes.
@@ -169,7 +151,7 @@ Placed and terminal order events retain that immutable reasoning snapshot next
 to the broker state, notional, fill amount, and average fill price. This makes a
 trade explainable even when later model output or external context changes. The
 ledger adds this canonical reasoning from the stored proposal for every trade
-event, including events entered through the generic `edgecraft record` command;
+event recorded by the autonomous execution and reconciliation path;
 callers cannot omit or replace it.
 
 Before proposal creation, Edgecraft also writes a content-hashed decision packet
@@ -225,7 +207,7 @@ See [the performance guide](PERFORMANCE_EVALUATION.md) for interpretation.
 Repository validation includes unit/integration tests for schedule timing,
 budget accounting, confidence/tilt limits, quote/account freshness, duplicate
 cycles, retries, permit mismatch/reuse/kill behavior, simulated fills,
-readiness, metrics, and launchd generation. It also includes current Yahoo
+readiness, and metrics. It also includes current Yahoo
 market data, authenticated Robinhood account discovery, full read-only account
 and market observations, and unattended shadow proposals.
 

@@ -55,20 +55,17 @@ uv run edgecraft context \
   --output artifacts/current-context.json
 ```
 
-For unattended `launchd` operation, put only the key in a private file outside
-the repository, set its permissions to `0600`, and export its path before
-installing the schedule:
+For unattended operation, put only the key in a private file outside the
+repository, set its permissions to `0600`, and export its path in the local
+scheduled-task environment:
 
 ```bash
 export BROWSERBASE_API_KEY_FILE="$HOME/.config/edgecraft/browserbase_api_key"
-edgecraft schedule-install \
-  --mandate examples/mandate.index-dca.json \
-  --ledger state/edgecraft.db
 ```
 
-The scheduler copies only the file path into its private plist; it deliberately
-does not copy `BROWSERBASE_API_KEY`. `edgecraft health` reports whether either
-credential form is available but never prints the key.
+The scheduled task receives only the file path; it should not copy
+`BROWSERBASE_API_KEY`. `edgecraft health` reports whether either credential
+form is available but never prints the key.
 
 ## Safety and decision contract
 

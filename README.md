@@ -18,37 +18,6 @@ Researches the market. Forms a thesis. Tests the downside. Places only permitted
 > [!IMPORTANT]
 > Edgecraft is an engineering and research project, not investment advice. Backtests are estimates, live markets are adversarial, and no software can promise a return.
 
-## Agentic trading console
-
-This is the public, privacy-safe pulse of the local hedge-fund loop. It answers the questions that matter operationally: Is the control plane healthy? Did the latest cycle finish? Did the agent hold cash? Did an order merely get proposed, or was a broker fill actually recorded and reconciled?
-
-<!-- edgecraft-console:start -->
-### Daily operations snapshot
-
-> **READY** · aggregate ledger snapshot for **2026-07-21 UTC**<br>
-> No control-plane warnings.
-
-| Control | Current reading |
-|:--|:--|
-| Mandate mode | `live` |
-| Latest cycle | `COMPLETED` · 2026-07-21 18:10 UTC |
-| Last successful cycle | 2026-07-21 18:10 UTC |
-| Kill switch | `INACTIVE` |
-| Unresolved broker orders | `0` |
-
-| Audited lifecycle | Count | What it means |
-|:--|--:|:--|
-| Autonomous cycles | **2** | Idempotent runs persisted |
-| Approved proposals | **1** | Passed deterministic review gates |
-| Held / rejected proposals | **2** | Cash preserved or policy blocked action |
-| Orders placed | **1** | Broker placement events recorded |
-| Fills recorded | **1** | Filled lifecycle events recorded and reconciled |
-
-<sub>Generated from privacy-safe aggregate ledger fields. Account identifiers, symbols, positions, order sizes, broker payloads, and model prompts are never written here. A test, proposal, or permit is not counted as a fill.</sub>
-<!-- edgecraft-console:end -->
-
-The snapshot is regenerated from aggregate fields in the append-only ledger. It is intentionally not a portfolio screenshot: public docs should never leak account identifiers, holdings, raw broker responses, or private reasoning payloads.
-
 ## The fund in one screen
 
 | Layer | What is allowed to be smart | What must stay deterministic |
@@ -94,7 +63,7 @@ flowchart LR
 
 Want the mental model rather than the feature list? **[Walk through the codebase and one complete trade →](docs/HOW_EDGECRAFT_WORKS.md)**
 
-## Run the research terminal
+## Run Edgecraft locally
 
 Requirements: Python 3.11–3.14, [uv](https://docs.astral.sh/uv/), and Node.js for the frontend syntax check.
 
@@ -123,14 +92,6 @@ uv run edgecraft runs --ledger state/edgecraft.db --limit 10
 
 The checked-in mandate is shadow-only. Read the [autonomy runbook](docs/AUTONOMY.md) before creating a separately versioned live mandate.
 
-## How the console stays current
-
-```bash
-make readme-dashboard
-```
-
-That command replaces only the marked console block near the top of this file. It reads aggregate ledger counters and deliberately excludes sensitive payloads. The local daily Codex task runs the same command, validates the focused change, and creates a small README-only commit when the snapshot changes.
-
 ## Repository map
 
 ```text
@@ -138,7 +99,7 @@ src/edgecraft/
 ├── autonomous_service.py   # the end-to-end state machine
 ├── codex_runtime.py        # structured reasoning and Robinhood MCP handoff
 ├── autonomy.py             # mandate cadence, budget, and proposal assembly
-├── risk.py                 # deterministic order construction and gates
+├── risk.py                 # deterministic policy and risk gates
 ├── ledger.py               # idempotency, permits, events, reconciliation trail
 ├── engine.py               # causal backtest execution
 ├── research.py             # experiment matrix and robustness evidence
@@ -163,7 +124,6 @@ Never commit account exports, OAuth material, tax records, raw broker responses,
 |:--|:--|
 | [How Edgecraft works](docs/HOW_EDGECRAFT_WORKS.md) | Build a mental model, follow the code, and trace a trade step by step |
 | [Autonomous operations](docs/AUTONOMY.md) | Configure shadow/live mandates, scheduling, monitoring, and incidents |
-| [Orchestrator contract](docs/ORCHESTRATOR.md) | Understand the exact Robinhood MCP handoff and stop conditions |
 | [Decision data model](docs/DECISION_DATA_MODEL.md) | See what evidence and reasoning are retained for every decision |
 | [Performance evaluation](docs/PERFORMANCE_EVALUATION.md) | Compare the agent with SPY and the strategic baseline fairly |
 | [Production readiness](docs/PRODUCTION_READINESS.md) | Review controls, gaps, and the path toward dependable operation |
