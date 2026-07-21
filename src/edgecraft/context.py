@@ -283,6 +283,24 @@ class ExternalContextService:
         since = (collected_at - timedelta(hours=self.policy.lookback_hours)).date().isoformat()
         queries = _context_queries(clean_symbols, since, self.policy)
         warnings: list[str] = []
+        sources = self._search_web(queries, collected_at)
+        fetch_failures = self._fetch_web_excerpts(sources)
+        if fetch_failures:
+            warnings.append(f"Browserbase Fetch failed for {fetch_failures} selected result(s)")
+
+        sources.extend(self._collect_social(clean_symbols, collected_at, warnings))
+        sources.extend(self._collect_sec(clean_symbols, collected_at, warnings))
+        snapshot = self._build_snapshot(
+            clean_symbols,
+            queries,
+            sources,
+            warnings,
+            collected_at,
+        )
+        self._write_cache(clean_symbols, snapshot)
+        return snapshot
+
+    def _search_web(self, queries: list[str], collected_at: datetime) -> list[ContextSource]:
         sources: list[ContextSource] = []
         for query in queries:
             for result in self.browserbase.search(
@@ -291,7 +309,9 @@ class ExternalContextService:
                 source = _web_source(result, collected_at, query=query)
                 if source is not None:
                     sources.append(source)
+        return sources
 
+    def _fetch_web_excerpts(self, sources: list[ContextSource]) -> int:
         fetch_failures = 0
         fetched = 0
         for source in _diverse_web_sources(sources):
@@ -317,32 +337,53 @@ class ExternalContextService:
                     fetched += 1
             except ContextUnavailable:
                 fetch_failures += 1
-        if fetch_failures:
-            warnings.append(f"Browserbase Fetch failed for {fetch_failures} selected result(s)")
+        return fetch_failures
 
-        if self.policy.social_results:
-            try:
-                social_sources: list[ContextSource] = []
-                social_symbols = _rotated_symbols(clean_symbols, collected_at.date())[
-                    : self.policy.social_results
-                ]
-                for symbol in social_symbols:
-                    posts = self.bluesky.search(f"${symbol} OR {symbol}", limit=1)
-                    found = _bluesky_sources(posts, collected_at, self.policy.max_excerpt_chars)
-                    social_sources.extend(found[:1])
-                sources.extend(social_sources)
-            except ContextUnavailable as exc:
-                warnings.append(f"Bluesky unavailable: {exc}")
+    def _collect_social(
+        self,
+        symbols: list[str],
+        collected_at: datetime,
+        warnings: list[str],
+    ) -> list[ContextSource]:
+        if not self.policy.social_results:
+            return []
+        try:
+            sources: list[ContextSource] = []
+            rotated = _rotated_symbols(symbols, collected_at.date())
+            for symbol in rotated[: self.policy.social_results]:
+                posts = self.bluesky.search(f"${symbol} OR {symbol}", limit=1)
+                found = _bluesky_sources(posts, collected_at, self.policy.max_excerpt_chars)
+                sources.extend(found[:1])
+            return sources
+        except ContextUnavailable as exc:
+            warnings.append(f"Bluesky unavailable: {exc}")
+            return []
 
+    def _collect_sec(
+        self,
+        symbols: list[str],
+        collected_at: datetime,
+        warnings: list[str],
+    ) -> list[ContextSource]:
+        sources: list[ContextSource] = []
         for symbol, cik in self.policy.sec_ciks.items():
-            if symbol not in clean_symbols:
+            if symbol not in symbols:
                 continue
             try:
                 filings = self.sec.recent_filings(symbol, cik)
                 sources.extend(_sec_sources(filings, collected_at))
             except ContextUnavailable as exc:
                 warnings.append(f"SEC EDGAR unavailable for {symbol}: {exc}")
+        return sources
 
+    def _build_snapshot(
+        self,
+        symbols: list[str],
+        queries: list[str],
+        sources: list[ContextSource],
+        warnings: list[str],
+        collected_at: datetime,
+    ) -> ContextSnapshot:
         sources = _select_sources(
             _deduplicate_sources(sources),
             limit=self.policy.max_total_sources,
@@ -364,18 +405,16 @@ class ExternalContextService:
             warnings.append(
                 "context did not meet configured source, freshness, and channel requirements"
             )
-        snapshot = ContextSnapshot(
+        return ContextSnapshot(
             collected_at=collected_at,
             provider="browserbase+public-apis",
-            symbols=clean_symbols,
+            symbols=symbols,
             queries=queries,
             sources=sources,
             fresh_source_count=fresh_count,
             complete=complete,
             warnings=warnings,
         )
-        self._write_cache(clean_symbols, snapshot)
-        return snapshot
 
     def _cache_path(self, symbols: list[str]) -> Path | None:
         if self.cache_directory is None:

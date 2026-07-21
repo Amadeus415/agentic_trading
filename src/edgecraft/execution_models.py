@@ -104,23 +104,6 @@ class MarketQuote(BaseModel):
         return self
 
 
-class TargetAllocation(BaseModel):
-    weights: dict[str, float]
-    rationale: str = Field(min_length=1)
-
-    @field_validator("weights")
-    @classmethod
-    def normalize_weights(cls, value: dict[str, float]) -> dict[str, float]:
-        clean = {symbol.strip().upper(): float(weight) for symbol, weight in value.items()}
-        if not clean or any(not symbol for symbol in clean):
-            raise ValueError("at least one non-empty target symbol is required")
-        if any(weight < 0 or weight > 1 for weight in clean.values()):
-            raise ValueError("target weights must be between 0 and 1")
-        if sum(clean.values()) > 1.000001:
-            raise ValueError("target weights cannot sum above 1")
-        return clean
-
-
 class ResearchEvidence(BaseModel):
     experiment_id: str = Field(min_length=1)
     strategy: str = Field(min_length=1)
@@ -318,7 +301,7 @@ class RiskDecision(BaseModel):
 
 
 class TradeProposal(BaseModel):
-    schema_version: str = "edgecraft.trade-proposal.v1"
+    schema_version: str = "edgecraft.trade-proposal.v2"
     proposal_id: str
     mandate_id: str | None = None
     run_id: str | None = None

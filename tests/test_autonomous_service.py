@@ -435,6 +435,26 @@ def test_investment_without_structured_evidence_is_rejected_before_proposal(tmp_
     assert ledger.status()["proposals"] == 0
 
 
+def test_investment_cannot_reference_unknown_evidence(tmp_path):
+    policy = _write_policy(tmp_path)
+    mandate = _mandate(str(policy))
+    original = _payload()
+    allocations = list(original.decision.allocations)
+    allocations[0] = allocations[0].model_copy(update={"evidence_ids": ["unknown-evidence"]})
+    payload = original.model_copy(
+        update={
+            "decision": original.decision.model_copy(update={"allocations": allocations}),
+        }
+    )
+    ledger = AuditLedger(tmp_path / "state.db")
+    service = AutonomousService(tmp_path, ledger, StaticObservationRuntime(payload))
+
+    with pytest.raises(ValueError, match="cited unknown evidence IDs"):
+        service.run_cycle(mandate, now=NOW)
+
+    assert ledger.status()["proposals"] == 0
+
+
 def test_before_schedule_returns_not_due_without_starting_run(tmp_path):
     policy = _write_policy(tmp_path)
     mandate = _mandate(str(policy))

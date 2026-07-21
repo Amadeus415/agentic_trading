@@ -449,69 +449,8 @@ class AuditLedger:
             raise ValueError("incident reconciliation requires a specific reason")
         timestamp = now or datetime.now(UTC)
         with self._connection() as connection:
-            run = connection.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
-            if run is None:
-                raise ValueError(f"unknown run_id: {run_id}")
-            if run["status"] != "failed":
-                raise ValueError("only failed runs can be incident-reconciled")
-            proposals = connection.execute(
-                "SELECT proposal_id, payload FROM proposals WHERE run_id = ?", (run_id,)
-            ).fetchall()
-            if not proposals:
-                raise ValueError("failed run has no persisted proposal")
-
-            reconciled: list[dict[str, Any]] = []
-            for proposal_row in proposals:
-                proposal = json.loads(proposal_row["payload"])
-                for order in proposal.get("orders", []):
-                    order_key = order.get("order_key")
-                    rows = connection.execute(
-                        """
-                        SELECT event_type, payload FROM events
-                        WHERE proposal_id = ? ORDER BY occurred_at, id
-                        """,
-                        (proposal_row["proposal_id"],),
-                    ).fetchall()
-                    relevant = [
-                        (row["event_type"], json.loads(row["payload"]))
-                        for row in rows
-                        if json.loads(row["payload"]).get("order_key") == order_key
-                    ]
-                    partials = [item for item in relevant if item[0] == "partially_filled"]
-                    terminals = [
-                        item for item in relevant if item[0] in {"filled", "rejected", "canceled"}
-                    ]
-                    if partials:
-                        raise ValueError(f"order {order_key} has a partial-fill incident")
-                    if len(terminals) != 1:
-                        raise ValueError(
-                            f"order {order_key} requires exactly one terminal broker event"
-                        )
-                    event_type, event_payload = terminals[0]
-                    if event_type == "filled":
-                        expected = Decimal(str(order.get("notional")))
-                        observed = Decimal(str(event_payload.get("filled_notional", "0")))
-                        if abs(expected - observed) > Decimal("0.01"):
-                            raise ValueError(
-                                f"order {order_key} filled notional does not match proposal"
-                            )
-                        placed_ids = {
-                            payload.get("broker_order_id")
-                            for kind, payload in relevant
-                            if kind == "placed" and payload.get("broker_order_id")
-                        }
-                        terminal_id = event_payload.get("broker_order_id")
-                        if len(placed_ids) != 1 or terminal_id not in placed_ids:
-                            raise ValueError(
-                                f"order {order_key} broker identity is not coherently recorded"
-                            )
-                    reconciled.append(
-                        {
-                            "proposal_id": proposal_row["proposal_id"],
-                            "order_key": order_key,
-                            "terminal_status": event_type,
-                        }
-                    )
+            run, proposals = self._failed_run_records(connection, run_id)
+            reconciled = self._reconcile_proposals(connection, proposals)
             if not reconciled:
                 raise ValueError("failed run has no orders to reconcile")
             payload = json.loads(run["payload"])
@@ -541,6 +480,96 @@ class AuditLedger:
             now=timestamp,
         )
         return self.get_run(run_id)
+
+    @staticmethod
+    def _failed_run_records(
+        connection: sqlite3.Connection,
+        run_id: str,
+    ) -> tuple[sqlite3.Row, list[sqlite3.Row]]:
+        run = connection.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+        if run is None:
+            raise ValueError(f"unknown run_id: {run_id}")
+        if run["status"] != "failed":
+            raise ValueError("only failed runs can be incident-reconciled")
+        proposals = connection.execute(
+            "SELECT proposal_id, payload FROM proposals WHERE run_id = ?", (run_id,)
+        ).fetchall()
+        if not proposals:
+            raise ValueError("failed run has no persisted proposal")
+        return run, proposals
+
+    @classmethod
+    def _reconcile_proposals(
+        cls,
+        connection: sqlite3.Connection,
+        proposals: list[sqlite3.Row],
+    ) -> list[dict[str, Any]]:
+        reconciled: list[dict[str, Any]] = []
+        for proposal_row in proposals:
+            proposal = json.loads(proposal_row["payload"])
+            events = cls._proposal_order_events(connection, proposal_row["proposal_id"])
+            for order in proposal.get("orders", []):
+                order_key = order.get("order_key")
+                relevant = [item for item in events if item[1].get("order_key") == order_key]
+                terminal_status = cls._validate_terminal_order(order, relevant)
+                reconciled.append(
+                    {
+                        "proposal_id": proposal_row["proposal_id"],
+                        "order_key": order_key,
+                        "terminal_status": terminal_status,
+                    }
+                )
+        return reconciled
+
+    @staticmethod
+    def _proposal_order_events(
+        connection: sqlite3.Connection,
+        proposal_id: str,
+    ) -> list[tuple[str, dict[str, Any]]]:
+        rows = connection.execute(
+            """
+            SELECT event_type, payload FROM events
+            WHERE proposal_id = ? ORDER BY occurred_at, id
+            """,
+            (proposal_id,),
+        ).fetchall()
+        return [(row["event_type"], json.loads(row["payload"])) for row in rows]
+
+    @classmethod
+    def _validate_terminal_order(
+        cls,
+        order: dict[str, Any],
+        events: list[tuple[str, dict[str, Any]]],
+    ) -> str:
+        order_key = order.get("order_key")
+        if any(kind == "partially_filled" for kind, _ in events):
+            raise ValueError(f"order {order_key} has a partial-fill incident")
+        terminals = [item for item in events if item[0] in {"filled", "rejected", "canceled"}]
+        if len(terminals) != 1:
+            raise ValueError(f"order {order_key} requires exactly one terminal broker event")
+        event_type, event_payload = terminals[0]
+        if event_type == "filled":
+            cls._validate_filled_order(order, events, event_payload)
+        return event_type
+
+    @staticmethod
+    def _validate_filled_order(
+        order: dict[str, Any],
+        events: list[tuple[str, dict[str, Any]]],
+        terminal: dict[str, Any],
+    ) -> None:
+        order_key = order.get("order_key")
+        expected = Decimal(str(order.get("notional")))
+        observed = Decimal(str(terminal.get("filled_notional", "0")))
+        if abs(expected - observed) > Decimal("0.01"):
+            raise ValueError(f"order {order_key} filled notional does not match proposal")
+        placed_ids = {
+            payload.get("broker_order_id")
+            for kind, payload in events
+            if kind == "placed" and payload.get("broker_order_id")
+        }
+        if len(placed_ids) != 1 or terminal.get("broker_order_id") not in placed_ids:
+            raise ValueError(f"order {order_key} broker identity is not coherently recorded")
 
     def list_runs(self, *, limit: int = 50) -> list[dict[str, Any]]:
         with self._connection() as connection:
@@ -643,109 +672,92 @@ class AuditLedger:
         if not clean_order_key:
             raise ValueError("order_key cannot be empty")
         with self._connection() as connection:
-            proposal_rows = connection.execute(
-                """
-                SELECT proposal_id, mandate_id, run_id, created_at, mode,
-                       approved_for_review, payload
-                FROM proposals ORDER BY created_at DESC
-                """
-            ).fetchall()
-            selected: tuple[sqlite3.Row, dict[str, Any], dict[str, Any]] | None = None
-            for row in proposal_rows:
-                proposal_payload = json.loads(row["payload"])
-                order = next(
-                    (
-                        item
-                        for item in proposal_payload.get("orders", [])
-                        if item.get("order_key") == clean_order_key
-                    ),
-                    None,
-                )
-                if order is not None:
-                    selected = (row, proposal_payload, order)
-                    break
-            if selected is None:
-                raise ValueError(f"unknown order_key: {clean_order_key}")
+            proposal_row, proposal_payload, order = self._find_audit_order(
+                connection, clean_order_key
+            )
+            rows = self._load_audit_rows(connection, proposal_row, clean_order_key)
+        return self._format_trade_audit(proposal_row, proposal_payload, order, rows)
 
-            proposal_row, proposal_payload, order = selected
-            run_id = proposal_row["run_id"]
-            run_row = connection.execute(
-                "SELECT * FROM runs WHERE run_id = ?", (run_id,)
-            ).fetchone()
-            event_rows = connection.execute(
-                """
-                SELECT id, event_type, occurred_at, payload
-                FROM events WHERE proposal_id = ? ORDER BY occurred_at, id
-                """,
-                (proposal_row["proposal_id"],),
-            ).fetchall()
-            runtime_rows = connection.execute(
-                """
-                SELECT id, event_type, occurred_at, payload
-                FROM runtime_events WHERE run_id = ? ORDER BY occurred_at, id
-                """,
-                (run_id,),
-            ).fetchall()
-            packet_rows = connection.execute(
-                """
-                SELECT packet_id, run_id, attempt, recorded_at, schema_version,
-                       payload_sha256, payload
-                FROM decision_packets WHERE run_id = ? ORDER BY attempt
-                """,
-                (run_id,),
-            ).fetchall()
-            permit_rows = connection.execute(
-                """
-                SELECT order_key, allowed_tool, constraints, status, issued_at,
-                       expires_at, claimed_at
-                FROM permits WHERE run_id = ? AND order_key = ? ORDER BY issued_at
-                """,
-                (run_id, clean_order_key),
-            ).fetchall()
-            evaluation_row = connection.execute(
-                """
-                SELECT observed_at, payload_sha256, payload
-                FROM evaluation_observations WHERE run_id = ?
-                """,
-                (run_id,),
-            ).fetchone()
+    @staticmethod
+    def _find_audit_order(
+        connection: sqlite3.Connection,
+        order_key: str,
+    ) -> tuple[sqlite3.Row, dict[str, Any], dict[str, Any]]:
+        rows = connection.execute(
+            """
+            SELECT proposal_id, mandate_id, run_id, created_at, mode,
+                   approved_for_review, payload
+            FROM proposals ORDER BY created_at DESC
+            """
+        ).fetchall()
+        for row in rows:
+            payload = json.loads(row["payload"])
+            order = next(
+                (item for item in payload.get("orders", []) if item.get("order_key") == order_key),
+                None,
+            )
+            if order is not None:
+                return row, payload, order
+        raise ValueError(f"unknown order_key: {order_key}")
 
-        def decode(row: sqlite3.Row) -> dict[str, Any]:
-            item = dict(row)
-            if "payload" in item:
-                item["payload"] = json.loads(item["payload"])
-            if "constraints" in item:
-                item["constraints"] = json.loads(item["constraints"])
-            return item
+    @staticmethod
+    def _load_audit_rows(
+        connection: sqlite3.Connection,
+        proposal: sqlite3.Row,
+        order_key: str,
+    ) -> dict[str, Any]:
+        run_id = proposal["run_id"]
+        proposal_id = proposal["proposal_id"]
+        return {
+            "run": connection.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone(),
+            "events": connection.execute(
+                "SELECT id, event_type, occurred_at, payload FROM events "
+                "WHERE proposal_id = ? ORDER BY occurred_at, id",
+                (proposal_id,),
+            ).fetchall(),
+            "runtime": connection.execute(
+                "SELECT id, event_type, occurred_at, payload FROM runtime_events "
+                "WHERE run_id = ? ORDER BY occurred_at, id",
+                (run_id,),
+            ).fetchall(),
+            "packets": connection.execute(
+                "SELECT packet_id, run_id, attempt, recorded_at, schema_version, "
+                "payload_sha256, payload FROM decision_packets "
+                "WHERE run_id = ? ORDER BY attempt",
+                (run_id,),
+            ).fetchall(),
+            "permits": connection.execute(
+                "SELECT order_key, allowed_tool, constraints, status, issued_at, expires_at, "
+                "claimed_at FROM permits WHERE run_id = ? AND order_key = ? ORDER BY issued_at",
+                (run_id, order_key),
+            ).fetchall(),
+            "evaluation": connection.execute(
+                "SELECT observed_at, payload_sha256, payload "
+                "FROM evaluation_observations WHERE run_id = ?",
+                (run_id,),
+            ).fetchone(),
+        }
 
+    @classmethod
+    def _format_trade_audit(
+        cls,
+        proposal_row: sqlite3.Row,
+        proposal_payload: dict[str, Any],
+        order: dict[str, Any],
+        rows: dict[str, Any],
+    ) -> dict[str, Any]:
+        order_key = order["order_key"]
         order_events = [
-            decode(row)
-            for row in event_rows
-            if json.loads(row["payload"]).get("order_key") == clean_order_key
+            cls._decode_audit_row(row)
+            for row in rows["events"]
+            if json.loads(row["payload"]).get("order_key") == order_key
         ]
-        packets = [decode(row) for row in packet_rows]
-        packet = next(
-            (
-                item
-                for item in reversed(packets)
-                if item["recorded_at"] <= proposal_row["created_at"]
-            ),
-            packets[-1] if packets else None,
+        packets = [cls._decode_audit_row(row) for row in rows["packets"]]
+        packet = cls._audit_packet(packets, proposal_row["created_at"])
+        run = cls._decode_audit_row(rows["run"]) if rows["run"] is not None else None
+        evaluation = (
+            cls._decode_audit_row(rows["evaluation"]) if rows["evaluation"] is not None else None
         )
-        packet_integrity = None
-        if packet is not None:
-            canonical = json.dumps(packet["payload"], sort_keys=True, separators=(",", ":"))
-            actual_digest = hashlib.sha256(canonical.encode()).hexdigest()
-            packet_integrity = {
-                "verified": secrets.compare_digest(actual_digest, packet["payload_sha256"]),
-                "recorded_sha256": packet["payload_sha256"],
-                "recomputed_sha256": actual_digest,
-            }
-
-        run = decode(run_row) if run_row is not None else None
-        if run is not None:
-            run["payload"] = json.loads(run_row["payload"])
-        evaluation = decode(evaluation_row) if evaluation_row is not None else None
         terminal = next(
             (
                 item
@@ -754,37 +766,9 @@ class AuditLedger:
             ),
             None,
         )
-        placed = next(
-            (item for item in order_events if item["event_type"] == "placed"),
-            None,
-        )
-        status = (
-            terminal["event_type"]
-            if terminal
-            else (order_events[-1]["event_type"] if order_events else "proposed")
-        )
-        timeline = [{**decode(row), "stream": "runtime"} for row in runtime_rows] + [
-            {**item, "stream": "broker"} for item in order_events
-        ]
-        timeline.sort(key=lambda item: (item["occurred_at"], item["id"], item["stream"]))
-        recovered_reasoning = next(
-            (
-                item["payload"].get("reasoning", {}).get("decision_reasoning")
-                for item in reversed(order_events)
-                if item["payload"].get("reasoning", {}).get("decision_reasoning")
-            ),
-            proposal_payload.get("decision_reasoning"),
-        )
-        audit_gaps = []
-        if packet is None:
-            audit_gaps.append(
-                "No immutable decision packet was recorded for this historical run; "
-                "only the recovered proposal reasoning and runtime summaries are available."
-            )
-        if evaluation is None:
-            audit_gaps.append("No cash-flow-matched performance observation was recorded.")
-        if recovered_reasoning and recovered_reasoning.get("recovery_note"):
-            audit_gaps.append(str(recovered_reasoning["recovery_note"]))
+        placed = next((item for item in order_events if item["event_type"] == "placed"), None)
+        status = terminal["event_type"] if terminal else cls._latest_order_status(order_events)
+        recovered_reasoning = cls._recovered_reasoning(order_events, proposal_payload)
         proposal_record = dict(proposal_row)
         proposal_record.pop("payload")
         return {
@@ -798,26 +782,14 @@ class AuditLedger:
             "run": run,
             "decision_packet": packet,
             "recovered_decision_reasoning": recovered_reasoning,
-            "decision_attempts": [
-                {
-                    key: item[key]
-                    for key in (
-                        "packet_id",
-                        "attempt",
-                        "recorded_at",
-                        "schema_version",
-                        "payload_sha256",
-                    )
-                }
-                for item in packets
-            ],
-            "packet_integrity": packet_integrity,
-            "permits": [decode(row) for row in permit_rows],
+            "decision_attempts": cls._decision_attempts(packets),
+            "packet_integrity": cls._packet_integrity(packet),
+            "permits": [cls._decode_audit_row(row) for row in rows["permits"]],
             "order_events": order_events,
-            "runtime_events": [decode(row) for row in runtime_rows],
-            "timeline": timeline,
+            "runtime_events": [cls._decode_audit_row(row) for row in rows["runtime"]],
+            "timeline": cls._audit_timeline(rows["runtime"], order_events),
             "evaluation": evaluation,
-            "audit_gaps": audit_gaps,
+            "audit_gaps": cls._audit_gaps(packet, evaluation, recovered_reasoning),
             "reconciliation": {
                 "broker_placement_recorded": placed is not None,
                 "terminal_state_recorded": terminal is not None,
@@ -832,6 +804,90 @@ class AuditLedger:
                 ),
             },
         }
+
+    @staticmethod
+    def _decode_audit_row(row: sqlite3.Row) -> dict[str, Any]:
+        item = dict(row)
+        if "payload" in item:
+            item["payload"] = json.loads(item["payload"])
+        if "constraints" in item:
+            item["constraints"] = json.loads(item["constraints"])
+        return item
+
+    @staticmethod
+    def _audit_packet(
+        packets: list[dict[str, Any]],
+        proposal_created_at: str,
+    ) -> dict[str, Any] | None:
+        return next(
+            (item for item in reversed(packets) if item["recorded_at"] <= proposal_created_at),
+            packets[-1] if packets else None,
+        )
+
+    @staticmethod
+    def _packet_integrity(packet: dict[str, Any] | None) -> dict[str, Any] | None:
+        if packet is None:
+            return None
+        canonical = json.dumps(packet["payload"], sort_keys=True, separators=(",", ":"))
+        actual_digest = hashlib.sha256(canonical.encode()).hexdigest()
+        return {
+            "verified": secrets.compare_digest(actual_digest, packet["payload_sha256"]),
+            "recorded_sha256": packet["payload_sha256"],
+            "recomputed_sha256": actual_digest,
+        }
+
+    @staticmethod
+    def _latest_order_status(order_events: list[dict[str, Any]]) -> str:
+        return order_events[-1]["event_type"] if order_events else "proposed"
+
+    @staticmethod
+    def _recovered_reasoning(
+        order_events: list[dict[str, Any]],
+        proposal_payload: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        return next(
+            (
+                item["payload"].get("reasoning", {}).get("decision_reasoning")
+                for item in reversed(order_events)
+                if item["payload"].get("reasoning", {}).get("decision_reasoning")
+            ),
+            proposal_payload.get("decision_reasoning"),
+        )
+
+    @classmethod
+    def _audit_timeline(
+        cls,
+        runtime_rows: list[sqlite3.Row],
+        order_events: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        timeline = [{**cls._decode_audit_row(row), "stream": "runtime"} for row in runtime_rows] + [
+            {**item, "stream": "broker"} for item in order_events
+        ]
+        timeline.sort(key=lambda item: (item["occurred_at"], item["id"], item["stream"]))
+        return timeline
+
+    @staticmethod
+    def _decision_attempts(packets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        keys = ("packet_id", "attempt", "recorded_at", "schema_version", "payload_sha256")
+        return [{key: item[key] for key in keys} for item in packets]
+
+    @staticmethod
+    def _audit_gaps(
+        packet: dict[str, Any] | None,
+        evaluation: dict[str, Any] | None,
+        reasoning: dict[str, Any] | None,
+    ) -> list[str]:
+        gaps = []
+        if packet is None:
+            gaps.append(
+                "No immutable decision packet was recorded for this historical run; "
+                "only the recovered proposal reasoning and runtime summaries are available."
+            )
+        if evaluation is None:
+            gaps.append("No cash-flow-matched performance observation was recorded.")
+        if reasoning and reasoning.get("recovery_note"):
+            gaps.append(str(reasoning["recovery_note"]))
+        return gaps
 
     def add_decision_packet(self, packet: DecisionAuditPacket) -> str:
         """Append one privacy-redacted, content-addressed decision record."""

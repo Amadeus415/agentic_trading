@@ -20,10 +20,11 @@ from edgecraft.autonomy_models import (
     ExecutionResult,
     Mandate,
 )
-from edgecraft.codex_runtime import PROMPT_VERSION, CodexRuntime, CodexRuntimeConfig
+from edgecraft.codex_runtime import PROMPT_VERSION
 from edgecraft.context import ContextCollector, ContextSnapshot, WebContextPolicy
 from edgecraft.evaluation import advance_evaluation
 from edgecraft.execution_models import (
+    DecisionEvidenceItem,
     ExecutionPreflight,
     ProposedOrder,
     ResearchEvidence,
@@ -44,6 +45,132 @@ TERMINAL_RUN_STATUSES = {
     "failed",
 }
 SUCCESSFUL_RUN_STATUSES = TERMINAL_RUN_STATUSES - {"failed"}
+
+
+def _validate_observation_identity(
+    mandate: Mandate,
+    run_id: str,
+    observation: AgentCyclePayload,
+) -> None:
+    if observation.decision.mandate_id != mandate.mandate_id:
+        raise ValueError("agent observation returned the wrong mandate_id")
+    if observation.decision.run_id != run_id:
+        raise ValueError("agent observation returned the wrong run_id")
+
+    decision_symbols = {allocation.symbol for allocation in observation.decision.allocations}
+    if not decision_symbols.issubset(set(mandate.universe)):
+        raise ValueError("agent observation proposed a symbol outside the mandate universe")
+
+    quote_symbols = {quote.symbol for quote in observation.quotes}
+    missing_quotes = sorted({mandate.benchmark, *mandate.strategic_weights} - quote_symbols)
+    if missing_quotes:
+        raise ValueError(f"agent observation is missing evaluation quotes: {missing_quotes}")
+
+
+def _context_citations(
+    observation: AgentCyclePayload,
+    external_context: ContextSnapshot | None,
+    context_policy: WebContextPolicy | None,
+) -> tuple[set[str], set[str]]:
+    if external_context is None:
+        return set(), set()
+
+    known_ids = {source.source_id for source in external_context.sources}
+    cited_ids = set(observation.decision.context_source_ids)
+    if not cited_ids.issubset(known_ids):
+        raise ValueError("agent observation cited an unknown external context source")
+
+    required = context_policy.min_decision_citations if context_policy else 1
+    if observation.decision.action == "invest" and len(cited_ids) < required:
+        raise ValueError(f"invest decision requires at least {required} external context citations")
+    return known_ids, cited_ids
+
+
+def _validate_evidence_inventory(
+    observation: AgentCyclePayload,
+    *,
+    known_context_ids: set[str],
+    cited_context_ids: set[str],
+    require_context: bool,
+) -> dict[str, DecisionEvidenceItem]:
+    evidence_by_id = {item.evidence_id: item for item in observation.decision.evidence_items}
+    if not evidence_by_id:
+        raise ValueError("every decision requires a structured evidence inventory")
+    if len(evidence_by_id) != len(observation.decision.evidence_items):
+        raise ValueError("decision evidence IDs must be unique")
+
+    if require_context:
+        evidence_context_ids = {
+            source_id
+            for item in observation.decision.evidence_items
+            for source_id in item.context_source_ids
+        }
+        unknown_ids = evidence_context_ids - known_context_ids
+        if unknown_ids:
+            raise ValueError(
+                f"decision evidence cited unknown external context sources: {sorted(unknown_ids)}"
+            )
+        uncited_ids = evidence_context_ids - cited_context_ids
+        if uncited_ids:
+            raise ValueError(
+                "decision evidence used external context absent from the decision citations: "
+                f"{sorted(uncited_ids)}"
+            )
+
+    future_evidence = [
+        item.evidence_id
+        for item in observation.decision.evidence_items
+        if item.observed_at > observation.observed_at
+        or (item.source_timestamp is not None and item.source_timestamp > observation.observed_at)
+    ]
+    if future_evidence:
+        raise ValueError(f"decision evidence is newer than observation: {future_evidence}")
+    return evidence_by_id
+
+
+def _validate_allocation_evidence(
+    observation: AgentCyclePayload,
+    evidence_by_id: dict[str, DecisionEvidenceItem],
+    *,
+    require_context: bool,
+) -> None:
+    if observation.decision.action != "invest":
+        return
+
+    uncited_allocations = [
+        allocation.symbol
+        for allocation in observation.decision.allocations
+        if not allocation.evidence_ids
+    ]
+    if uncited_allocations:
+        raise ValueError(f"invest allocations require evidence IDs: {sorted(uncited_allocations)}")
+
+    for allocation in observation.decision.allocations:
+        unknown_ids = set(allocation.evidence_ids) - set(evidence_by_id)
+        if unknown_ids:
+            raise ValueError(
+                f"allocation {allocation.symbol} cited unknown evidence IDs: {sorted(unknown_ids)}"
+            )
+        cited = [evidence_by_id[evidence_id] for evidence_id in allocation.evidence_ids]
+        has_quote = any(
+            item.category == "quote" and item.symbol == allocation.symbol for item in cited
+        )
+        has_market_history = any(
+            item.category in {"technical", "historical", "research"}
+            and item.symbol == allocation.symbol
+            for item in cited
+        )
+        if not has_quote or not has_market_history:
+            raise ValueError(
+                f"allocation {allocation.symbol} requires symbol-specific quote and "
+                "historical/technical/research evidence"
+            )
+        if require_context and not any(
+            item.category in {"web", "regulatory"} and item.context_source_ids for item in cited
+        ):
+            raise ValueError(
+                f"allocation {allocation.symbol} requires cited web or regulatory evidence"
+            )
 
 
 class AgentRuntime(Protocol):
@@ -836,93 +963,23 @@ class AutonomousService:
         external_context: ContextSnapshot | None = None,
         context_policy: WebContextPolicy | None = None,
     ) -> None:
-        if observation.decision.mandate_id != mandate.mandate_id:
-            raise ValueError("agent observation returned the wrong mandate_id")
-        if observation.decision.run_id != run_id:
-            raise ValueError("agent observation returned the wrong run_id")
-        decision_symbols = {allocation.symbol for allocation in observation.decision.allocations}
-        if not decision_symbols.issubset(set(mandate.universe)):
-            raise ValueError("agent observation proposed a symbol outside the mandate universe")
-        quote_symbols = {quote.symbol for quote in observation.quotes}
-        required_quotes = {mandate.benchmark, *mandate.strategic_weights}
-        missing_quotes = sorted(required_quotes - quote_symbols)
-        if missing_quotes:
-            raise ValueError(f"agent observation is missing evaluation quotes: {missing_quotes}")
-        if external_context is not None:
-            known_ids = {source.source_id for source in external_context.sources}
-            cited_ids = set(observation.decision.context_source_ids)
-            if not cited_ids.issubset(known_ids):
-                raise ValueError("agent observation cited an unknown external context source")
-            required = context_policy.min_decision_citations if context_policy else 1
-            if observation.decision.action == "invest" and len(cited_ids) < required:
-                raise ValueError(
-                    f"invest decision requires at least {required} external context citations"
-                )
-        evidence_by_id = {item.evidence_id: item for item in observation.decision.evidence_items}
-        evidence_ids = set(evidence_by_id)
-        if not evidence_ids:
-            raise ValueError("every decision requires a structured evidence inventory")
-        if external_context is not None:
-            evidence_context_ids = {
-                source_id
-                for item in observation.decision.evidence_items
-                for source_id in item.context_source_ids
-            }
-            unknown_evidence_context = evidence_context_ids - known_ids
-            if unknown_evidence_context:
-                raise ValueError(
-                    "decision evidence cited unknown external context sources: "
-                    f"{sorted(unknown_evidence_context)}"
-                )
-            uncited_evidence_context = evidence_context_ids - cited_ids
-            if uncited_evidence_context:
-                raise ValueError(
-                    "decision evidence used external context absent from the decision citations: "
-                    f"{sorted(uncited_evidence_context)}"
-                )
-        future_evidence = [
-            item.evidence_id
-            for item in observation.decision.evidence_items
-            if item.observed_at > observation.observed_at
-            or (
-                item.source_timestamp is not None
-                and item.source_timestamp > observation.observed_at
-            )
-        ]
-        if future_evidence:
-            raise ValueError(f"decision evidence is newer than observation: {future_evidence}")
-        if observation.decision.action == "invest":
-            uncited_allocations = [
-                allocation.symbol
-                for allocation in observation.decision.allocations
-                if not allocation.evidence_ids
-            ]
-            if uncited_allocations:
-                raise ValueError(
-                    f"invest allocations require evidence IDs: {sorted(uncited_allocations)}"
-                )
-            for allocation in observation.decision.allocations:
-                cited = [evidence_by_id[evidence_id] for evidence_id in allocation.evidence_ids]
-                has_quote = any(
-                    item.category == "quote" and item.symbol == allocation.symbol for item in cited
-                )
-                has_market_history = any(
-                    item.category in {"technical", "historical", "research"}
-                    and item.symbol == allocation.symbol
-                    for item in cited
-                )
-                if not has_quote or not has_market_history:
-                    raise ValueError(
-                        f"allocation {allocation.symbol} requires symbol-specific quote and "
-                        "historical/technical/research evidence"
-                    )
-                if external_context is not None and not any(
-                    item.category in {"web", "regulatory"} and item.context_source_ids
-                    for item in cited
-                ):
-                    raise ValueError(
-                        f"allocation {allocation.symbol} requires cited web or regulatory evidence"
-                    )
+        _validate_observation_identity(mandate, run_id, observation)
+        known_ids, cited_ids = _context_citations(
+            observation,
+            external_context,
+            context_policy,
+        )
+        evidence_by_id = _validate_evidence_inventory(
+            observation,
+            known_context_ids=known_ids,
+            cited_context_ids=cited_ids,
+            require_context=external_context is not None,
+        )
+        _validate_allocation_evidence(
+            observation,
+            evidence_by_id,
+            require_context=external_context is not None,
+        )
 
     def _summary(self, run_id: str) -> dict:
         run = self.ledger.get_run(run_id)
@@ -1006,16 +1063,6 @@ class StaticObservationRuntime:
     ) -> ExecutionResult:
         del mandate, proposal, order, placed_result, ledger_path
         raise RuntimeError("captured observations cannot reconcile live orders")
-
-
-def build_default_service(
-    repository: str | Path,
-    ledger_path: str | Path,
-) -> AutonomousService:
-    repository_path = Path(repository).resolve()
-    ledger = AuditLedger(ledger_path)
-    runtime = CodexRuntime(config=CodexRuntimeConfig(repository=repository_path))
-    return AutonomousService(repository_path, ledger, runtime)
 
 
 def _sanitized_observation_summary(observation: AgentCyclePayload) -> dict:

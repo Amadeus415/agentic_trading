@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import ROUND_DOWN, Decimal
 from zoneinfo import ZoneInfo
 
-from edgecraft.autonomy_models import Mandate, WeeklyDecision
+from edgecraft.autonomy_models import DecisionAllocation, Mandate, WeeklyDecision
 from edgecraft.execution_models import (
     DecisionReasoning,
     MarketQuote,
@@ -145,7 +145,6 @@ def create_weekly_proposal(
 
     identifier = _weekly_proposal_id(mandate, run_id, snapshot, orders, policy, decision)
     proposal = TradeProposal(
-        schema_version="edgecraft.trade-proposal.v2",
         proposal_id=identifier,
         mandate_id=mandate.mandate_id,
         run_id=run_id,
@@ -192,68 +191,111 @@ def _decision_orders(
     cycle_budget: Decimal,
     min_order_notional: Decimal,
 ) -> tuple[list[ProposedOrder], list[str], list[str]]:
-    quote_map = {quote.symbol: quote for quote in quotes}
-    violations: list[str] = []
-    warnings: list[str] = []
     if decision.action == "hold":
-        violations.append("reasoning agent elected to hold this cycle")
-        return [], violations, warnings
+        return [], ["reasoning agent elected to hold this cycle"], []
+
+    total = sum((allocation.notional for allocation in decision.allocations), Decimal("0"))
+    violations = _decision_level_violations(mandate, decision, total, cycle_budget)
+    warnings: list[str] = []
+    quote_map = {quote.symbol: quote for quote in quotes}
+    orders: list[ProposedOrder] = []
+    for allocation in decision.allocations:
+        order, allocation_violations, allocation_warnings = _allocation_order(
+            mandate,
+            decision.run_id,
+            allocation,
+            quote_map.get(allocation.symbol),
+            total=total,
+            min_order_notional=min_order_notional,
+        )
+        violations.extend(allocation_violations)
+        warnings.extend(allocation_warnings)
+        if order is not None:
+            orders.append(order)
+    return orders, violations, warnings
+
+
+def _decision_level_violations(
+    mandate: Mandate,
+    decision: WeeklyDecision,
+    total: Decimal,
+    cycle_budget: Decimal,
+) -> list[str]:
+    violations: list[str] = []
     if decision.confidence < mandate.minimum_confidence:
         violations.append(
             "decision confidence "
             f"{decision.confidence} is below minimum {mandate.minimum_confidence}"
         )
-
-    allowed = set(mandate.universe)
-    total = sum((allocation.notional for allocation in decision.allocations), Decimal("0"))
     if total > cycle_budget:
         violations.append(
             f"decision notional {total:.2f} exceeds remaining cycle budget {cycle_budget:.2f}"
         )
     if total <= 0:
         violations.append("decision contains no positive investment notional")
+    return violations
 
-    orders: list[ProposedOrder] = []
-    for allocation in decision.allocations:
-        if allocation.symbol not in allowed:
-            violations.append(f"{allocation.symbol} is outside the mandate universe")
-            continue
-        quote = quote_map.get(allocation.symbol)
-        if quote is None:
-            violations.append(f"missing quote for {allocation.symbol}")
-            continue
-        if mandate.cycle_frequency == "weekly":
-            allocation_share = allocation.notional / total if total > 0 else Decimal("0")
-            strategic = mandate.strategic_weights.get(allocation.symbol, Decimal("0"))
-            max_share = min(Decimal("1"), strategic + mandate.tactical_tilt_limit)
-            if allocation_share > max_share + Decimal("0.000001"):
-                violations.append(
-                    f"{allocation.symbol} decision share {allocation_share:.1%} exceeds "
-                    f"strategic+tactical limit {max_share:.1%}"
-                )
-        notional = allocation.notional.quantize(CENT, rounding=ROUND_DOWN)
-        if notional < min_order_notional:
-            warnings.append(
+
+def _allocation_order(
+    mandate: Mandate,
+    run_id: str,
+    allocation: DecisionAllocation,
+    quote: MarketQuote | None,
+    *,
+    total: Decimal,
+    min_order_notional: Decimal,
+) -> tuple[ProposedOrder | None, list[str], list[str]]:
+    if allocation.symbol not in mandate.universe:
+        return None, [f"{allocation.symbol} is outside the mandate universe"], []
+    if quote is None:
+        return None, [f"missing quote for {allocation.symbol}"], []
+
+    violations = _allocation_share_violations(mandate, allocation, total)
+    notional = allocation.notional.quantize(CENT, rounding=ROUND_DOWN)
+    if notional < min_order_notional:
+        return (
+            None,
+            violations,
+            [
                 f"dropped {allocation.symbol} allocation {notional:.2f} below "
                 f"min_order_notional={min_order_notional:.2f}"
-            )
-            continue
-        identity = (
-            f"{mandate.mandate_id}:{decision.run_id}:{allocation.symbol}:"
-            f"{notional}:{quote.as_of.isoformat()}"
+            ],
         )
-        orders.append(
-            ProposedOrder(
-                order_key=hashlib.sha256(identity.encode()).hexdigest()[:20],
-                symbol=allocation.symbol,
-                side="buy",
-                notional=float(notional),
-                expected_price=quote.last,
-                rationale=allocation.rationale,
-                quote_as_of=quote.as_of,
-            )
-        )
-    return orders, violations, warnings
+
+    identity = (
+        f"{mandate.mandate_id}:{run_id}:{allocation.symbol}:{notional}:{quote.as_of.isoformat()}"
+    )
+    return (
+        ProposedOrder(
+            order_key=hashlib.sha256(identity.encode()).hexdigest()[:20],
+            symbol=allocation.symbol,
+            side="buy",
+            notional=float(notional),
+            expected_price=quote.last,
+            rationale=allocation.rationale,
+            quote_as_of=quote.as_of,
+        ),
+        violations,
+        [],
+    )
+
+
+def _allocation_share_violations(
+    mandate: Mandate,
+    allocation: DecisionAllocation,
+    total: Decimal,
+) -> list[str]:
+    if mandate.cycle_frequency != "weekly":
+        return []
+    allocation_share = allocation.notional / total if total > 0 else Decimal("0")
+    strategic = mandate.strategic_weights.get(allocation.symbol, Decimal("0"))
+    max_share = min(Decimal("1"), strategic + mandate.tactical_tilt_limit)
+    if allocation_share <= max_share + Decimal("0.000001"):
+        return []
+    return [
+        f"{allocation.symbol} decision share {allocation_share:.1%} exceeds "
+        f"strategic+tactical limit {max_share:.1%}"
+    ]
 
 
 def _weekly_proposal_id(

@@ -227,6 +227,28 @@ class CodexRuntime:
         ledger_path: str | Path,
         permit_token: str | None = None,
     ) -> OutputModel:
+        schema_path, result_path = self._prepare_phase_files(run_id, phase, output_model)
+        command = self._phase_command(
+            schema_path,
+            result_path,
+            prompt,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            ephemeral=permit_token is None,
+        )
+        environment = self._phase_environment(ledger_path, permit_token)
+        completed = self._execute_phase(command, environment, run_id=run_id, phase=phase)
+        if completed.returncode != 0:
+            detail = _safe_process_detail(completed.stdout, completed.stderr)
+            raise CodexRuntimeError(f"Codex {phase} phase exited {completed.returncode}: {detail}")
+        return self._read_phase_result(result_path, output_model, phase)
+
+    def _prepare_phase_files(
+        self,
+        run_id: str,
+        phase: str,
+        output_model: type[OutputModel],
+    ) -> tuple[Path, Path]:
         run_directory = self.state_directory / run_id
         run_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         schema_path = run_directory / f"{phase}.schema.json"
@@ -242,7 +264,18 @@ class CodexRuntime:
         )
         schema_path.chmod(0o600)
         result_path.unlink(missing_ok=True)
+        return schema_path, result_path
 
+    def _phase_command(
+        self,
+        schema_path: Path,
+        result_path: Path,
+        prompt: str,
+        *,
+        model: str | None,
+        reasoning_effort: str | None,
+        ephemeral: bool,
+    ) -> list[str]:
         command = [
             self.executable,
             "exec",
@@ -262,14 +295,20 @@ class CodexRuntime:
             "--cd",
             str(self.repository),
         ]
-        if permit_token is None:
+        if ephemeral:
             command.insert(2, "--ephemeral")
         if model:
             command.extend(["--model", model])
         if reasoning_effort:
             command.extend(["--config", f'model_reasoning_effort="{reasoning_effort}"'])
         command.append(prompt)
+        return command
 
+    @staticmethod
+    def _phase_environment(
+        ledger_path: str | Path,
+        permit_token: str | None,
+    ) -> dict[str, str]:
         environment = _runtime_environment()
         environment["CODEX_NON_INTERACTIVE"] = "1"
         environment["EDGECRAFT_LEDGER_PATH"] = str(Path(ledger_path).resolve())
@@ -277,7 +316,16 @@ class CodexRuntime:
             environment.pop("EDGECRAFT_PERMIT_TOKEN", None)
         else:
             environment["EDGECRAFT_PERMIT_TOKEN"] = permit_token
+        return environment
 
+    def _execute_phase(
+        self,
+        command: list[str],
+        environment: dict[str, str],
+        *,
+        run_id: str,
+        phase: str,
+    ) -> subprocess.CompletedProcess[str]:
         started_at = time.monotonic()
         stop_progress = threading.Event()
         progress_thread = threading.Thread(
@@ -327,9 +375,14 @@ class CodexRuntime:
                 outcome=outcome,
                 elapsed_seconds=max(0, int(time.monotonic() - started_at)),
             )
-        if completed.returncode != 0:
-            detail = _safe_process_detail(completed.stdout, completed.stderr)
-            raise CodexRuntimeError(f"Codex {phase} phase exited {completed.returncode}: {detail}")
+        return completed
+
+    @staticmethod
+    def _read_phase_result(
+        result_path: Path,
+        output_model: type[OutputModel],
+        phase: str,
+    ) -> OutputModel:
         if not result_path.exists():
             raise CodexRuntimeError(f"Codex {phase} phase produced no structured result")
         result_path.chmod(0o600)
