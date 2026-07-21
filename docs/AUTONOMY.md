@@ -142,7 +142,10 @@ the local checkout so it shares the durable ledger and kill switch.
 Do not reuse the shadow mandate ID for a materially different policy. A live
 placement receives one opaque permit per order, valid for at most five minutes.
 The project hook denies placement without it, on input mismatch, after expiry,
-after reuse, or while halted.
+after reuse, or while halted. The guard covers direct Robinhood MCP calls and
+the nested `exec` tool path used by current Codex runtimes; nested placement is
+accepted only as one flat literal call whose account, symbol, side, amount,
+order type, time in force, and market-hours scope match the permit exactly.
 
 ## Monitoring and incident response
 
@@ -156,6 +159,23 @@ edgecraft metrics --ledger state/edgecraft.db --format prometheus
 FastAPI also exposes `GET /api/autonomy/health` and `GET /metrics`. Telemetry
 contains run IDs, statuses, counts, symbols, and notional summaries but not
 account IDs, account numbers, tokens, or raw broker/model payloads.
+
+Every proposal is persisted before authority and includes the full structured
+decision reasoning: confidence, hypothesis, evidence, alternatives considered,
+risks, data sources, cited context IDs, and per-symbol allocation rationale.
+Placed and terminal order events retain that immutable reasoning snapshot next
+to the broker state, notional, fill amount, and average fill price. This makes a
+trade explainable even when later model output or external context changes. The
+ledger adds this canonical reasoning from the stored proposal for every trade
+event, including events entered through the generic `edgecraft record` command;
+callers cannot omit or replace it.
+
+If the execution agent reaches the broker but returns malformed or otherwise
+invalid structured output, Edgecraft performs one read-only recovery lookup for
+the exact account, symbol, side, amount, order type, and authority time window.
+It records an unambiguous broker result, never retries placement, and keeps the
+run failed with the kill switch active for owner review. Missing or ambiguous
+broker truth remains `unknown` and fail-closed.
 
 Emergency stop:
 

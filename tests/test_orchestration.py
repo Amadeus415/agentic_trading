@@ -239,11 +239,40 @@ def test_ledger_counts_placed_notional_idempotently(tmp_path):
     )
     assert key.startswith("evt_")
     assert ledger.daily_placed_notional(NOW.date()) == 50
+    placed = ledger.observability_feed()["order_events"][0]
+    assert placed["occurred_at"].startswith(NOW.date().isoformat())
+    assert placed["payload"]["reasoning"] == {
+        "proposal_rationale": "event test",
+        "order_rationale": "event test",
+        "decision_reasoning": None,
+    }
     with pytest.raises(DuplicateProposalError):
         ledger.record_event(
             proposal.proposal_id,
             "placed",
             {"order_key": proposal.orders[0].order_key, "notional": 50},
+            occurred_at=NOW,
+        )
+
+
+def test_ledger_rejects_trade_event_for_order_outside_proposal(tmp_path):
+    ledger = AuditLedger(tmp_path / "events.db")
+    proposal = create_trade_proposal(
+        snapshot(),
+        quotes(),
+        TargetAllocation(weights={"SPY": 0.1}, rationale="known order rationale"),
+        RiskPolicy(allowed_symbols=["SPY"]),
+        strategy="plain_dca",
+        mode="shadow",
+        ledger=ledger,
+        now=NOW,
+    )
+
+    with pytest.raises(ValueError, match="order_key is not part of the proposal"):
+        ledger.record_event(
+            proposal.proposal_id,
+            "placed",
+            {"order_key": "unknown-order", "notional": 50},
             occurred_at=NOW,
         )
 

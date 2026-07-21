@@ -147,6 +147,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     record.add_argument("--payload", required=True, type=Path)
     record.add_argument("--idempotency-key")
+    record.add_argument(
+        "--occurred-at",
+        help="Broker event time as an ISO-8601 timestamp; defaults to now.",
+    )
 
     ledger = commands.add_parser("ledger", help="Show audit-ledger status.")
     ledger.add_argument("--path", default="state/edgecraft.db")
@@ -420,6 +424,11 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
             args.event,
             payload,
             idempotency_key=args.idempotency_key,
+            occurred_at=(
+                datetime.fromisoformat(args.occurred_at.replace("Z", "+00:00"))
+                if args.occurred_at
+                else None
+            ),
         )
         return {"ok": True, "idempotency_key": key, "ledger": ledger.status()}
     raise ValueError(f"unsupported command: {args.command}")

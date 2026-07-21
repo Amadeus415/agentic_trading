@@ -133,6 +133,21 @@ class ResearchEvidence(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class DecisionReasoning(BaseModel):
+    """Immutable explanation captured before any live execution authority exists."""
+
+    schema_version: str = "edgecraft.decision-reasoning.v1"
+    action: Literal["invest", "hold"]
+    confidence: Decimal = Field(ge=Decimal("0"), le=Decimal("1"))
+    hypothesis: str = Field(min_length=10, max_length=2_000)
+    evidence: list[str] = Field(default_factory=list, max_length=30)
+    alternatives_considered: list[str] = Field(default_factory=list, max_length=20)
+    risks: list[str] = Field(default_factory=list, max_length=30)
+    data_sources: list[str] = Field(default_factory=list, max_length=30)
+    context_source_ids: list[str] = Field(default_factory=list, max_length=30)
+    allocation_rationales: dict[str, str] = Field(default_factory=dict)
+
+
 class RiskPolicy(BaseModel):
     policy_name: str = "bounded-500-v1"
     trading_enabled: bool = False
@@ -219,7 +234,7 @@ class ProposedOrder(BaseModel):
     order_type: Literal["market", "limit"] = "market"
     time_in_force: Literal["gfd", "gtc"] = "gfd"
     limit_price: float | None = Field(default=None, gt=0)
-    rationale: str
+    rationale: str = Field(min_length=1, max_length=1_000)
     quote_as_of: datetime
 
     @model_validator(mode="after")
@@ -250,7 +265,8 @@ class TradeProposal(BaseModel):
     mode: Literal["shadow", "live"]
     account_id: str
     strategy: str
-    rationale: str
+    rationale: str = Field(min_length=1, max_length=2_000)
+    decision_reasoning: DecisionReasoning | None = None
     policy_name: str
     policy_digest: str = ""
     snapshot_as_of: datetime

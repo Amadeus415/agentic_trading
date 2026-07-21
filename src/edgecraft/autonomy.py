@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from edgecraft.autonomy_models import Mandate, WeeklyDecision
 from edgecraft.execution_models import (
+    DecisionReasoning,
     MarketQuote,
     PortfolioSnapshot,
     ProposedOrder,
@@ -153,6 +154,19 @@ def create_weekly_proposal(
         account_id=snapshot.account_id,
         strategy=_strategy_name(mandate),
         rationale=decision.hypothesis,
+        decision_reasoning=DecisionReasoning(
+            action=decision.action,
+            confidence=decision.confidence,
+            hypothesis=decision.hypothesis,
+            evidence=decision.evidence,
+            alternatives_considered=decision.alternatives_considered,
+            risks=decision.risks,
+            data_sources=decision.data_sources,
+            context_source_ids=decision.context_source_ids,
+            allocation_rationales={
+                allocation.symbol: allocation.rationale for allocation in decision.allocations
+            },
+        ),
         policy_name=policy.policy_name,
         policy_digest=policy_digest(policy),
         snapshot_as_of=snapshot.as_of,

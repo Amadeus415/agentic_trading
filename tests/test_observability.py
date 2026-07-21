@@ -40,11 +40,16 @@ def test_operational_health_and_prometheus_metrics_are_sanitized(tmp_path):
 def test_health_degrades_on_failure_and_halts_on_kill_switch(tmp_path):
     ledger = AuditLedger(tmp_path / "state.db")
     mandate = _mandate()
-    run_id = ledger.start_run(mandate, cycle_key(mandate, NOW), now=NOW)
-    ledger.update_run(run_id, "failed", detail="test failure", now=NOW)
+    current_time = datetime.now(UTC)
+    run_id = ledger.start_run(
+        mandate,
+        cycle_key(mandate, current_time),
+        now=current_time,
+    )
+    ledger.update_run(run_id, "failed", detail="test failure", now=current_time)
     assert autonomy_health(ledger)["status"] == "degraded"
 
-    ledger.set_trading_halt(True, reason="test halt", now=NOW)
+    ledger.set_trading_halt(True, reason="test halt", now=current_time)
     assert autonomy_health(ledger)["status"] == "halted"
 
 

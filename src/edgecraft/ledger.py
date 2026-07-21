@@ -747,13 +747,25 @@ class AuditLedger:
             raise ValueError("event payload must contain order_key")
         if event_type == "placed" and float(payload.get("notional", 0)) <= 0:
             raise ValueError("placed event payload must contain positive notional")
-        key = idempotency_key or _event_key(proposal_id, event_type, payload)
+        event_payload = dict(payload)
         with self._connection() as connection:
-            exists = connection.execute(
-                "SELECT 1 FROM proposals WHERE proposal_id = ?", (proposal_id,)
+            proposal_row = connection.execute(
+                "SELECT payload FROM proposals WHERE proposal_id = ?", (proposal_id,)
             ).fetchone()
-            if exists is None:
+            if proposal_row is None:
                 raise ValueError(f"unknown proposal_id: {proposal_id}")
+            if event_type in {
+                "placed",
+                "filled",
+                "partially_filled",
+                "rejected",
+                "canceled",
+            }:
+                event_payload["reasoning"] = _order_reasoning(
+                    json.loads(proposal_row["payload"]),
+                    event_payload["order_key"],
+                )
+            key = idempotency_key or _event_key(proposal_id, event_type, event_payload)
             try:
                 connection.execute(
                     """
@@ -766,7 +778,7 @@ class AuditLedger:
                         event_type,
                         key,
                         timestamp.isoformat(),
-                        json.dumps(payload, sort_keys=True),
+                        json.dumps(event_payload, sort_keys=True),
                     ),
                 )
             except sqlite3.IntegrityError as exc:
@@ -885,6 +897,24 @@ class AuditLedger:
             elif row["event_type"] in {"filled", "rejected", "canceled"}:
                 unresolved.discard(key)
         return sorted(unresolved)
+
+
+def _order_reasoning(proposal: dict[str, Any], order_key: str) -> dict[str, Any]:
+    order = next(
+        (item for item in proposal.get("orders", []) if item.get("order_key") == order_key),
+        None,
+    )
+    if order is None:
+        raise ValueError("event order_key is not part of the proposal")
+    proposal_rationale = str(proposal.get("rationale") or "").strip()
+    order_rationale = str(order.get("rationale") or "").strip()
+    if not proposal_rationale or not order_rationale:
+        raise ValueError("trade events require proposal and order rationale")
+    return {
+        "proposal_rationale": proposal_rationale,
+        "order_rationale": order_rationale,
+        "decision_reasoning": proposal.get("decision_reasoning"),
+    }
 
 
 def _event_key(proposal_id: str, event_type: str, payload: dict[str, Any]) -> str:

@@ -8,6 +8,7 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import TypeVar
@@ -180,6 +181,32 @@ class CodexRuntime:
             ExecutionResult,
             run_id=proposal.run_id or placed_result.run_id,
             phase=f"reconcile-{order.order_key}",
+            model=mandate.decision_model,
+            reasoning_effort=mandate.decision_reasoning_effort,
+            ledger_path=ledger_path,
+        )
+
+    def recover_order(
+        self,
+        mandate: Mandate,
+        proposal: TradeProposal,
+        order: ProposedOrder,
+        *,
+        authority_issued_at: datetime,
+        failure_observed_at: datetime,
+        ledger_path: str | Path,
+    ) -> ExecutionResult:
+        return self._run(
+            recovery_prompt(
+                mandate,
+                proposal,
+                order,
+                authority_issued_at=authority_issued_at,
+                failure_observed_at=failure_observed_at,
+            ),
+            ExecutionResult,
+            run_id=proposal.run_id or "",
+            phase=f"recover-{order.order_key}",
             model=mandate.decision_model,
             reasoning_effort=mandate.decision_reasoning_effort,
             ledger_path=ledger_path,
@@ -432,6 +459,12 @@ Before placement:
 4. {broker_step}
 5. A single-use Edgecraft hook permit
    enforces this. Never place an option, margin, short, crypto, or second order.
+   When Robinhood tools are available only through `exec`, place using one
+   dedicated call containing only this flat literal form:
+   `const result = await tools.mcp__robinhood_trading__place_equity_order({{...}}); text(result);`
+   Do not alias the tool, inspect it through `ALL_TOOLS`, add another statement,
+   or combine placement with any other tool call. The permit guard rejects any
+   other nested mutation form.
 6. Query get_equity_orders to reconcile the resulting broker order. Report the
    observed state honestly; "unknown" is preferable to guessing.
 
@@ -526,6 +559,50 @@ Exact identity:
 
 Return only the supplied ExecutionResult schema. Copy all identity fields
 exactly and include no account number or token.
+""".strip()
+
+
+def recovery_prompt(
+    mandate: Mandate,
+    proposal: TradeProposal,
+    order: ProposedOrder,
+    *,
+    authority_issued_at: datetime,
+    failure_observed_at: datetime,
+) -> str:
+    identity = {
+        "mandate_id": mandate.mandate_id,
+        "run_id": proposal.run_id,
+        "proposal_id": proposal.proposal_id,
+        "order_key": order.order_key,
+        "symbol": order.symbol,
+        "side": order.side,
+        "requested_notional": order.notional,
+        "order_type": order.order_type,
+        "time_in_force": order.time_in_force,
+        "authority_issued_at": authority_issued_at.isoformat(),
+        "failure_observed_at": failure_observed_at.isoformat(),
+    }
+    return f"""
+This is a READ-ONLY recovery after an execution result failed. Never place,
+cancel, review, create, update, add, remove, follow, or unfollow anything.
+
+Call get_accounts and select only the eligible Agentic account matching the
+proposal. Query get_equity_orders for the exact symbol beginning at
+authority_issued_at. Match only an agentic order with the exact side, order
+type, time in force, and dollar notional, created between authority_issued_at
+and failure_observed_at plus two minutes. If exactly one order matches, report
+its actual broker state and identifier. If none or more than one match, return
+status=unknown with no broker_order_id. For a dollar-based fill, use the broker's
+requested dollar amount as filled_notional, rounded to cents. Never infer a
+placement from the proposal alone.
+
+Exact identity and recovery window:
+{json.dumps(identity, indent=2, sort_keys=True)}
+
+Return only the supplied ExecutionResult schema. Copy run_id, proposal_id,
+order_key, symbol, side, and requested_notional exactly. Include no account
+number or token.
 """.strip()
 
 

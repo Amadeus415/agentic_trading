@@ -164,6 +164,14 @@ def test_shadow_cycle_is_idempotent_and_audited(tmp_path):
     assert first["run"]["status"] == "shadow_complete"
     assert first["run"]["payload"]["gross_notional"] == 10
     assert ledger.status()["proposals"] == 1
+    proposal = ledger.observability_feed()["proposals"][0]["payload"]
+    assert proposal["decision_reasoning"]["hypothesis"] == (
+        "Follow the diversified strategic DCA allocation this week."
+    )
+    assert proposal["decision_reasoning"]["alternatives_considered"] == ["hold cash"]
+    assert proposal["decision_reasoning"]["allocation_rationales"]["VTI"] == (
+        "Maintain the diversified US core."
+    )
 
     replay = service.run_cycle(mandate, now=NOW)
     assert replay["idempotent_replay"]
@@ -478,6 +486,37 @@ class PlacedThenFilledRuntime(FilledLiveRuntime):
         )
 
 
+class MalformedAfterFillRuntime(FilledLiveRuntime):
+    def execute_order(self, mandate, proposal, order, *, permit_token, ledger_path):
+        del mandate, proposal, order, permit_token, ledger_path
+        raise RuntimeError("structured execution result was malformed")
+
+    def recover_order(
+        self,
+        mandate,
+        proposal,
+        order,
+        *,
+        authority_issued_at,
+        failure_observed_at,
+        ledger_path,
+    ):
+        del mandate, authority_issued_at, failure_observed_at, ledger_path
+        return ExecutionResult(
+            run_id=proposal.run_id,
+            proposal_id=proposal.proposal_id,
+            order_key=order.order_key,
+            status="filled",
+            broker_order_id="broker-recovered-order",
+            symbol=order.symbol,
+            side=order.side,
+            requested_notional=Decimal(str(order.notional)),
+            filled_notional=Decimal("1.999999"),
+            average_fill_price=Decimal("330.123456"),
+            observed_at=NOW,
+        )
+
+
 class ClosedMarketPreflightRuntime(FilledLiveRuntime):
     def preflight_order(self, mandate, proposal, order, *, ledger_path):
         result = super().preflight_order(
@@ -630,3 +669,41 @@ def test_placed_orders_receive_independent_terminal_reconciliation(tmp_path):
     assert result["run"]["status"] == "completed"
     assert runtime.reconciliations == 2
     assert not ledger.unresolved_order_keys()
+
+
+def test_execution_schema_failure_recovers_broker_fill_and_reasoning(tmp_path):
+    policy_path = tmp_path / "live-policy.json"
+    policy_path.write_text(
+        json.dumps(
+            {
+                "policy_name": "service-live-recovery",
+                "trading_enabled": True,
+                "allowed_symbols": ["VTI", "VXUS"],
+                "managed_capital_limit": 1000,
+                "max_order_notional": 10,
+                "max_daily_notional": 10,
+                "max_orders_per_day": 2,
+                "max_position_weight": 0.75,
+                "min_cash_reserve": 0,
+                "require_research_evidence": False,
+            }
+        )
+    )
+    mandate = _mandate(str(policy_path)).model_copy(update={"mode": "live"})
+    ledger = AuditLedger(tmp_path / "state.db")
+    runtime = MalformedAfterFillRuntime(_payload())
+
+    with pytest.raises(RuntimeError, match="broker recovery status=filled"):
+        AutonomousService(tmp_path, ledger, runtime).run_cycle(mandate, now=NOW)
+
+    assert ledger.list_runs()[0]["status"] == "failed"
+    assert ledger.trading_halted()
+    feed = ledger.observability_feed()
+    events = {item["event_type"]: item for item in feed["order_events"]}
+    assert set(events) == {"placed", "filled"}
+    assert events["filled"]["payload"]["filled_notional"] == 2.0
+    assert events["filled"]["payload"]["average_fill_price"] == 330.123456
+    reasoning = events["filled"]["payload"]["reasoning"]
+    assert reasoning["decision_reasoning"]["risks"] == ["market prices can fall"]
+    assert reasoning["order_rationale"] == "Maintain the diversified US core."
+    assert ledger.operational_snapshot()["permits_by_status"] == {"revoked": 1}

@@ -83,6 +83,17 @@ class AgentRuntime(Protocol):
         ledger_path: str | Path,
     ) -> ExecutionResult: ...
 
+    def recover_order(
+        self,
+        mandate: Mandate,
+        proposal: TradeProposal,
+        order: ProposedOrder,
+        *,
+        authority_issued_at: datetime,
+        failure_observed_at: datetime,
+        ledger_path: str | Path,
+    ) -> ExecutionResult: ...
+
 
 class AutonomousService:
     def __init__(
@@ -464,44 +475,109 @@ class AutonomousService:
             "dollar_notional": order.notional,
             "order_type": order.order_type,
             "time_in_force": order.time_in_force,
+            "market_hours": {
+                "regular": "regular_hours",
+                "pre_market": "extended_hours",
+                "after_hours": "extended_hours",
+            }.get(preflight.quote.market_session, "regular_hours"),
         }
+        authority_issued_at = datetime.now(UTC)
         token = self.ledger.issue_permit(
             proposal.run_id or "",
             proposal.proposal_id,
             order.order_key,
             constraints=constraints,
         )
-        result = self.runtime.execute_order(
-            mandate,
-            proposal,
-            order,
-            permit_token=token,
-            ledger_path=self.ledger.path,
-        )
-        placement_confirmed = result.status in {
-            "placed",
-            "filled",
-            "partially_filled",
-        }
-        if result.status == "placed":
-            result = self.runtime.reconcile_order(
+        try:
+            result = self.runtime.execute_order(
                 mandate,
                 proposal,
                 order,
-                result,
+                permit_token=token,
                 ledger_path=self.ledger.path,
             )
+            if result.status == "placed":
+                result = self.runtime.reconcile_order(
+                    mandate,
+                    proposal,
+                    order,
+                    result,
+                    ledger_path=self.ledger.path,
+                )
+                self.ledger.record_runtime_event(
+                    proposal.run_id or "",
+                    "broker_reconciliation_completed",
+                    {
+                        "proposal_id": proposal.proposal_id,
+                        "order_key": order.order_key,
+                        "status": result.status,
+                    },
+                )
+            self._validate_execution_identity(proposal, order, result)
+        except Exception as execution_error:
+            failure_observed_at = datetime.now(UTC)
             self.ledger.record_runtime_event(
                 proposal.run_id or "",
-                "broker_reconciliation_completed",
+                "execution_result_failed_after_authority",
                 {
                     "proposal_id": proposal.proposal_id,
                     "order_key": order.order_key,
-                    "status": result.status,
+                    "error_type": type(execution_error).__name__,
                 },
+                now=failure_observed_at,
             )
+            try:
+                recovered = self.runtime.recover_order(
+                    mandate,
+                    proposal,
+                    order,
+                    authority_issued_at=authority_issued_at,
+                    failure_observed_at=failure_observed_at,
+                    ledger_path=self.ledger.path,
+                )
+                self._validate_execution_identity(proposal, order, recovered)
+                self._record_execution_result(proposal, order, recovered)
+                self.ledger.record_runtime_event(
+                    proposal.run_id or "",
+                    "broker_recovery_completed",
+                    {
+                        "proposal_id": proposal.proposal_id,
+                        "order_key": order.order_key,
+                        "status": recovered.status,
+                        "broker_order_id_present": bool(recovered.broker_order_id),
+                    },
+                )
+                recovery_status = recovered.status
+            except Exception as recovery_error:
+                self.ledger.record_runtime_event(
+                    proposal.run_id or "",
+                    "broker_recovery_failed",
+                    {
+                        "proposal_id": proposal.proposal_id,
+                        "order_key": order.order_key,
+                        "error_type": type(recovery_error).__name__,
+                    },
+                )
+                recovery_status = "unavailable"
+            self.ledger.set_trading_halt(
+                True,
+                reason=f"automatic halt after live execution recovery in {proposal.run_id}",
+            )
+            raise RuntimeError(
+                "execution result failed after authority; "
+                f"read-only broker recovery status={recovery_status}"
+            ) from execution_error
         if result.status in {"aborted", "reviewed", "rejected", "canceled"}:
             self.ledger.revoke_permit(token)
+        self._record_execution_result(proposal, order, result)
+        return result
+
+    @staticmethod
+    def _validate_execution_identity(
+        proposal: TradeProposal,
+        order: ProposedOrder,
+        result: ExecutionResult,
+    ) -> None:
         if (
             result.run_id != proposal.run_id
             or result.proposal_id != proposal.proposal_id
@@ -510,10 +586,14 @@ class AutonomousService:
             or result.side != order.side
             or result.requested_notional != Decimal(str(order.notional))
         ):
-            self.ledger.set_trading_halt(
-                True, reason=f"execution result identity mismatch for {order.order_key}"
-            )
             raise RuntimeError("execution result does not match the permitted order")
+
+    def _record_execution_result(
+        self,
+        proposal: TradeProposal,
+        order: ProposedOrder,
+        result: ExecutionResult,
+    ) -> None:
         self.ledger.record_runtime_event(
             proposal.run_id or "",
             "broker_execution_observed",
@@ -526,11 +606,21 @@ class AutonomousService:
                 "filled_notional": str(result.filled_notional),
             },
         )
-        if placement_confirmed or result.status in {"filled", "partially_filled"}:
+        reasoning = {
+            "proposal_rationale": proposal.rationale,
+            "order_rationale": order.rationale,
+            "decision_reasoning": (
+                proposal.decision_reasoning.model_dump(mode="json")
+                if proposal.decision_reasoning
+                else None
+            ),
+        }
+        if result.status in {"placed", "filled", "partially_filled"}:
             placed_payload = {
                 "order_key": order.order_key,
                 "notional": float(result.requested_notional),
                 "broker_order_id": result.broker_order_id,
+                "reasoning": reasoning,
             }
             self._record_once(
                 proposal.proposal_id,
@@ -544,6 +634,10 @@ class AutonomousService:
                 "notional": float(result.requested_notional),
                 "filled_notional": float(result.filled_notional),
                 "broker_order_id": result.broker_order_id,
+                "average_fill_price": (
+                    float(result.average_fill_price) if result.average_fill_price else None
+                ),
+                "reasoning": reasoning,
             }
             self._record_once(
                 proposal.proposal_id,
@@ -551,7 +645,6 @@ class AutonomousService:
                 terminal_payload,
                 occurred_at=result.observed_at,
             )
-        return result
 
     @staticmethod
     def _validate_preflight(

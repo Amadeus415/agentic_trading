@@ -236,6 +236,11 @@ class ExecutionResult(BaseModel):
     review_warnings: list[str] = Field(default_factory=list)
     detail: str = ""
 
+    @field_validator("requested_notional", "filled_notional", mode="before")
+    @classmethod
+    def normalize_money_to_cents(cls, value):
+        return Decimal(str(value)).quantize(Decimal("0.01"))
+
     @field_validator("observed_at")
     @classmethod
     def result_timezone_aware(cls, value: datetime) -> datetime:
