@@ -62,6 +62,8 @@ def test_frontend_serves_control_plane():
     assert "Agent runs" in script.text
     assert "A model can suggest. It cannot authorize itself." in script.text
     assert "/api/control-plane" in script.text
+    assert "/api/trades/" in script.text
+    assert "Complete record" in script.text
 
 
 def test_control_plane_exposes_redacted_ledger_read_model(tmp_path, monkeypatch):
@@ -74,6 +76,9 @@ def test_control_plane_exposes_redacted_ledger_read_model(tmp_path, monkeypatch)
     assert payload["health"]["status"] == "ready"
     assert payload["runs"] == []
     assert payload["trades"] == []
+
+    missing_trade = client.get("/api/trades/not-a-real-order")
+    assert missing_trade.status_code == 404
 
 
 def test_learning_guide_traces_real_system_boundaries():

@@ -52,6 +52,16 @@ def control_plane() -> dict:
     return control_plane_snapshot(AuditLedger(os.getenv("EDGECRAFT_LEDGER", "state/edgecraft.db")))
 
 
+@app.get("/api/trades/{order_key}")
+def trade_detail(order_key: str) -> dict:
+    try:
+        return AuditLedger(os.getenv("EDGECRAFT_LEDGER", "state/edgecraft.db")).trade_audit(
+            order_key
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @app.get("/metrics", response_class=PlainTextResponse)
 def metrics() -> str:
     return prometheus_metrics(AuditLedger(os.getenv("EDGECRAFT_LEDGER", "state/edgecraft.db")))
