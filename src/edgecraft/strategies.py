@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
-import pandas as pd
-from sklearn.ensemble import HistGradientBoostingClassifier
 
-from edgecraft.indicators import feature_frame, realized_volatility, rsi
+from edgecraft.indicators import realized_volatility, rsi
 from edgecraft.models import OrderIntent, StrategyContext
 
 
@@ -255,99 +252,6 @@ class AdaptiveEnsemble(Strategy):
         )
 
 
-@dataclass
-class _MLPrediction:
-    probability: float
-    confident_positive: bool
-
-
-class ConformalML(Strategy):
-    """Rolling gradient boosting with split-conformal classification sets."""
-
-    name = "conformal_ml"
-
-    def __init__(
-        self,
-        training_window: int = 756,
-        min_training_rows: int = 252,
-        calibration_fraction: float = 0.2,
-        alpha: float = 0.15,
-        rebalance_sessions: int = 21,
-        random_seed: int = 7,
-        **params: Any,
-    ) -> None:
-        super().__init__(
-            training_window=training_window,
-            min_training_rows=min_training_rows,
-            calibration_fraction=calibration_fraction,
-            alpha=alpha,
-            rebalance_sessions=rebalance_sessions,
-            random_seed=random_seed,
-            **params,
-        )
-        self.training_window = training_window
-        self.min_training_rows = min_training_rows
-        self.calibration_fraction = calibration_fraction
-        self.alpha = alpha
-        self.rebalance_sessions = rebalance_sessions
-        self.random_seed = random_seed
-        self.last_weights: dict[str, float] = {}
-
-    def _predict(self, history: pd.DataFrame) -> _MLPrediction | None:
-        features = feature_frame(history)
-        future_return = history["close"].pct_change().shift(-1)
-        labeled = features.loc[future_return.notna()].dropna()
-        if len(labeled) < self.min_training_rows:
-            return None
-        labeled = labeled.iloc[-self.training_window :]
-        labels = (future_return.loc[labeled.index] > 0).astype(int)
-        split = max(50, int(len(labeled) * (1 - self.calibration_fraction)))
-        if split >= len(labeled) - 20 or labels.iloc[:split].nunique() < 2:
-            return None
-        model = HistGradientBoostingClassifier(
-            max_iter=100,
-            max_leaf_nodes=15,
-            learning_rate=0.05,
-            l2_regularization=1.0,
-            random_state=self.random_seed,
-        )
-        model.fit(labeled.iloc[:split], labels.iloc[:split])
-        cal_prob = model.predict_proba(labeled.iloc[split:])
-        cal_y = labels.iloc[split:].to_numpy()
-        nonconformity = 1 - cal_prob[np.arange(len(cal_y)), cal_y]
-        rank = min(
-            len(nonconformity) - 1, int(np.ceil((len(nonconformity) + 1) * (1 - self.alpha))) - 1
-        )
-        threshold = float(np.sort(nonconformity)[rank])
-        latest = features.iloc[[-1]].dropna()
-        if latest.empty:
-            return None
-        probability = float(model.predict_proba(latest)[0, 1])
-        include_positive = 1 - probability <= threshold
-        include_negative = probability <= threshold
-        return _MLPrediction(probability, include_positive and not include_negative)
-
-    def generate(self, context: StrategyContext) -> list[OrderIntent]:
-        if context.session_index % self.rebalance_sessions != 0:
-            if context.contribution_due and self.last_weights:
-                return self.rebalance(context, self.last_weights, "conformal_allocation_refresh")
-            return []
-        predictions = {
-            symbol: prediction
-            for symbol, history in context.history.items()
-            if (prediction := self._predict(history)) is not None
-        }
-        selected = {
-            symbol: prediction.probability - 0.5
-            for symbol, prediction in predictions.items()
-            if prediction.confident_positive
-        }
-        total = sum(selected.values())
-        weights = {symbol: score / total for symbol, score in selected.items()} if total > 0 else {}
-        self.last_weights = weights
-        return self.rebalance(context, self.last_weights, "rolling_conformal_ml")
-
-
 STRATEGIES: dict[str, type[Strategy]] = {
     strategy.name: strategy
     for strategy in [
@@ -356,7 +260,6 @@ STRATEGIES: dict[str, type[Strategy]] = {
         TrendVolTarget,
         MeanReversion,
         AdaptiveEnsemble,
-        ConformalML,
     ]
 }
 
@@ -488,37 +391,6 @@ STRATEGY_SCHEMAS: list[dict[str, Any]] = [
                 "label": "Rebalance sessions",
                 "value": 21,
                 "min": 1,
-                "max": 63,
-                "step": 1,
-            },
-        ],
-    },
-    {
-        "name": "conformal_ml",
-        "label": "Rolling conformal ML",
-        "description": "Walk-forward gradient boosting; trades only when the split-conformal set excludes the negative class.",
-        "params": [
-            {
-                "key": "training_window",
-                "label": "Training window",
-                "value": 756,
-                "min": 252,
-                "max": 1500,
-                "step": 21,
-            },
-            {
-                "key": "alpha",
-                "label": "Miscoverage alpha",
-                "value": 0.15,
-                "min": 0.05,
-                "max": 0.4,
-                "step": 0.05,
-            },
-            {
-                "key": "rebalance_sessions",
-                "label": "Refit/rebalance sessions",
-                "value": 21,
-                "min": 5,
                 "max": 63,
                 "step": 1,
             },

@@ -4,7 +4,6 @@ import hashlib
 import json
 from datetime import UTC, date, datetime, timedelta
 from math import sqrt
-from pathlib import Path
 from typing import Protocol
 
 import numpy as np
@@ -232,14 +231,6 @@ def build_market_intelligence(
         ),
         assets=assets,
     )
-
-
-def write_market_intelligence(snapshot: MarketIntelligenceSnapshot, path: str | Path) -> Path:
-    target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    target.write_text(snapshot.model_dump_json(indent=2) + "\n", encoding="utf-8")
-    target.chmod(0o600)
-    return target
 
 
 def _period_return(close: pd.Series, sessions: int) -> float | None:
