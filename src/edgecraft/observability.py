@@ -134,7 +134,10 @@ def control_plane_snapshot(ledger: AuditLedger) -> dict[str, Any]:
             "mode": item.mode,
             "enabled": item.enabled,
             "benchmark": item.benchmark,
-            "weekly_budget": float(item.weekly_budget),
+            "cycle_frequency": item.cycle_frequency,
+            "cycle_budget": float(item.cycle_budget),
+            "weekly_budget": float(item.weekly_budget) if item.weekly_budget is not None else None,
+            "daily_budget": float(item.daily_budget) if item.daily_budget is not None else None,
             "universe": item.universe,
             "risk_level": item.risk_level,
         }

@@ -125,6 +125,8 @@ class RiskPolicy(BaseModel):
     max_daily_notional: float = Field(100.0, gt=0)
     max_orders_per_day: int = Field(2, ge=1, le=100)
     max_position_weight: float = Field(0.40, gt=0, le=1)
+    symbol_groups: dict[str, list[str]] = Field(default_factory=dict)
+    max_group_weight: float = Field(1.0, gt=0, le=1)
     min_cash_reserve: float = Field(25.0, ge=0)
     min_order_notional: float = Field(1.0, gt=0)
     max_quote_age_seconds: int = Field(300, ge=1, le=86_400)
@@ -134,6 +136,7 @@ class RiskPolicy(BaseModel):
     allow_sells: bool = False
     require_research_evidence: bool = True
     require_review: bool = True
+    standing_execution_authorization: bool = False
 
     @field_validator("allowed_symbols")
     @classmethod
@@ -143,14 +146,40 @@ class RiskPolicy(BaseModel):
             raise ValueError("allowed_symbols must be unique")
         return clean
 
+    @field_validator("symbol_groups")
+    @classmethod
+    def normalize_symbol_groups(cls, value: dict[str, list[str]]) -> dict[str, list[str]]:
+        normalized: dict[str, list[str]] = {}
+        for name, symbols in value.items():
+            clean_name = name.strip()
+            clean_symbols = [symbol.strip().upper() for symbol in symbols if symbol.strip()]
+            if not clean_name or not clean_symbols:
+                raise ValueError("symbol_groups require non-empty names and symbols")
+            if len(clean_symbols) != len(set(clean_symbols)):
+                raise ValueError(f"symbol group {clean_name} contains duplicates")
+            normalized[clean_name] = clean_symbols
+        return normalized
+
     @model_validator(mode="after")
     def coherent_limits(self) -> RiskPolicy:
         if self.max_order_notional > self.max_daily_notional:
             raise ValueError("max_order_notional cannot exceed max_daily_notional")
         if self.min_cash_reserve >= self.managed_capital_limit:
             raise ValueError("min_cash_reserve must be below managed_capital_limit")
-        if not self.require_review:
-            raise ValueError("Robinhood order review cannot be disabled")
+        allowed = set(self.allowed_symbols)
+        grouped: set[str] = set()
+        for name, symbols in self.symbol_groups.items():
+            unknown = sorted(set(symbols) - allowed)
+            if unknown:
+                raise ValueError(f"symbol group {name} contains disallowed symbols: {unknown}")
+            overlap = sorted(set(symbols) & grouped)
+            if overlap:
+                raise ValueError(f"symbols may belong to only one group: {overlap}")
+            grouped.update(symbols)
+        if not self.require_review and not self.standing_execution_authorization:
+            raise ValueError(
+                "disabling Robinhood review requires standing_execution_authorization=true"
+            )
         return self
 
 

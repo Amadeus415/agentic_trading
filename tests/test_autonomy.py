@@ -123,6 +123,24 @@ def test_cycle_due_and_key_use_mandate_timezone():
     assert cycle_key(mandate(), after) == "index_dca:2026-W30"
 
 
+def test_market_day_cycle_is_daily_weekday_only():
+    item = mandate(
+        cycle_frequency="market_day",
+        weekly_budget=None,
+        daily_budget="2.00",
+        max_rollover_weeks=0,
+        schedule_time=time(7, 15),
+        timezone="America/Los_Angeles",
+    )
+    before = datetime(2026, 7, 20, 14, 14, tzinfo=UTC)
+    due = datetime(2026, 7, 20, 14, 15, tzinfo=UTC)
+    weekend = datetime(2026, 7, 25, 16, 0, tzinfo=UTC)
+    assert not cycle_due(item, before)
+    assert cycle_due(item, due)
+    assert not cycle_due(item, weekend)
+    assert cycle_key(item, due) == "index_dca:2026-07-20"
+
+
 def test_weekly_proposal_respects_budget_and_tactical_tilt(tmp_path):
     ledger = AuditLedger(tmp_path / "state.db")
     proposal = create_weekly_proposal(

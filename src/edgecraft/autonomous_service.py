@@ -94,8 +94,42 @@ class AutonomousService:
         now: datetime | None = None,
         force: bool = False,
     ) -> dict:
+        use_wall_clock = now is None
         current_time = now or datetime.now(UTC)
         key = cycle_key(mandate, current_time)
+        with self.ledger.cycle_lock(mandate.mandate_id, key) as acquired:
+            if not acquired:
+                existing = self.ledger.get_run_for_cycle(mandate.mandate_id, key)
+                log_event(
+                    "cycle_already_running",
+                    mandate_id=mandate.mandate_id,
+                    run_id=existing["run_id"] if existing else None,
+                    cycle_key=key,
+                )
+                return {
+                    "ok": True,
+                    "status": "in_progress",
+                    "cycle_key": key,
+                    "run": existing,
+                    "trading_halted": self.ledger.trading_halted(),
+                }
+            return self._run_cycle_locked(
+                mandate,
+                current_time=current_time,
+                key=key,
+                use_wall_clock=use_wall_clock,
+                force=force,
+            )
+
+    def _run_cycle_locked(
+        self,
+        mandate: Mandate,
+        *,
+        current_time: datetime,
+        key: str,
+        use_wall_clock: bool,
+        force: bool,
+    ) -> dict:
         existing = self.ledger.get_run_for_cycle(mandate.mandate_id, key)
         if existing is not None:
             if (
@@ -111,7 +145,12 @@ class AutonomousService:
                     attempt=self.ledger.run_attempt_count(existing["run_id"]),
                 )
                 try:
-                    return self._run_started_cycle(mandate, existing["run_id"], current_time)
+                    return self._run_started_cycle(
+                        mandate,
+                        existing["run_id"],
+                        current_time,
+                        use_wall_clock=use_wall_clock,
+                    )
                 except Exception as exc:
                     self.ledger.update_run(
                         existing["run_id"],
@@ -159,7 +198,12 @@ class AutonomousService:
             cycle_key=key,
         )
         try:
-            return self._run_started_cycle(mandate, run_id, current_time)
+            return self._run_started_cycle(
+                mandate,
+                run_id,
+                current_time,
+                use_wall_clock=use_wall_clock,
+            )
         except Exception as exc:
             self.ledger.update_run(
                 run_id,
@@ -185,6 +229,8 @@ class AutonomousService:
         mandate: Mandate,
         run_id: str,
         now: datetime,
+        *,
+        use_wall_clock: bool,
     ) -> dict:
         budget = available_cycle_budget(mandate, self.ledger, now=now)
         if budget <= 0:
@@ -239,7 +285,11 @@ class AutonomousService:
             cycle_budget=budget,
             ledger=self.ledger,
             research=research,
-            now=now,
+            # A real observation can take minutes. Evaluate freshness against
+            # completion time, not the cycle-start timestamp captured before
+            # broker and market reads began. Explicit `now` remains stable for
+            # deterministic tests and replay tooling.
+            now=datetime.now(UTC) if use_wall_clock else now,
         )
         proposal_summary = {
             "proposal_id": proposal.proposal_id,
@@ -390,7 +440,12 @@ class AutonomousService:
                 "notional": float(result.requested_notional),
                 "broker_order_id": result.broker_order_id,
             }
-            self._record_once(proposal.proposal_id, "placed", placed_payload)
+            self._record_once(
+                proposal.proposal_id,
+                "placed",
+                placed_payload,
+                occurred_at=result.observed_at,
+            )
         if result.status in {"filled", "partially_filled", "rejected", "canceled"}:
             terminal_payload = {
                 "order_key": order.order_key,
@@ -398,7 +453,12 @@ class AutonomousService:
                 "filled_notional": float(result.filled_notional),
                 "broker_order_id": result.broker_order_id,
             }
-            self._record_once(proposal.proposal_id, result.status, terminal_payload)
+            self._record_once(
+                proposal.proposal_id,
+                result.status,
+                terminal_payload,
+                occurred_at=result.observed_at,
+            )
         return result
 
     def _record_once(
@@ -406,9 +466,16 @@ class AutonomousService:
         proposal_id: str,
         event_type: str,
         payload: dict,
+        *,
+        occurred_at: datetime,
     ) -> None:
         with suppress(DuplicateProposalError):
-            self.ledger.record_event(proposal_id, event_type, payload)
+            self.ledger.record_event(
+                proposal_id,
+                event_type,
+                payload,
+                occurred_at=occurred_at,
+            )
 
     def _load_model(self, configured_path: str | None, model_type):
         if not configured_path:

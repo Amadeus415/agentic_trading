@@ -1,12 +1,13 @@
 import hashlib
 import json
 import sqlite3
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 
 import pytest
 
 from edgecraft.autonomous_service import AutonomousService, StaticObservationRuntime
+from edgecraft.autonomy import cycle_key
 from edgecraft.autonomy_models import AgentCyclePayload, ExecutionResult, Mandate
 from edgecraft.context import ContextSnapshot, ContextSource, WebContextPolicy
 from edgecraft.execution_models import TradeProposal
@@ -154,6 +155,38 @@ def test_shadow_cycle_is_idempotent_and_audited(tmp_path):
     assert ledger.status()["proposals"] == 1
 
 
+def test_real_cycle_evaluates_freshness_after_observation(monkeypatch, tmp_path):
+    policy = _write_policy(tmp_path)
+    mandate = _mandate(str(policy))
+    observed_at = NOW + timedelta(minutes=2)
+    payload = _payload().model_copy(
+        update={
+            "observed_at": observed_at,
+            "account": _payload().account.model_copy(update={"as_of": observed_at}),
+            "quotes": [
+                quote.model_copy(update={"as_of": observed_at}) for quote in _payload().quotes
+            ],
+            "decision": _payload().decision.model_copy(update={"as_of": observed_at}),
+        }
+    )
+    ledger = AuditLedger(tmp_path / "state.db")
+    service = AutonomousService(tmp_path, ledger, StaticObservationRuntime(payload))
+    wall_times = iter([NOW, observed_at])
+    monkeypatch.setattr(
+        "edgecraft.autonomous_service.datetime",
+        type(
+            "ControlledDateTime",
+            (),
+            {"now": staticmethod(lambda timezone: next(wall_times))},
+        ),
+    )
+
+    result = service.run_cycle(mandate)
+
+    assert result["run"]["status"] == "shadow_complete"
+    assert not any("timestamp is in the future" for item in result["run"]["payload"]["violations"])
+
+
 def test_external_context_is_audited_and_investment_requires_known_citations(tmp_path):
     policy_path = _write_policy(tmp_path)
     mandate = _mandate(str(policy_path)).model_copy(
@@ -279,6 +312,24 @@ def test_side_effect_free_failure_retries_same_cycle_safely(tmp_path):
     assert retry["ok"]
     assert retry["run"]["status"] == "shadow_complete"
     assert ledger.run_attempt_count(retry["run"]["run_id"]) == 2
+
+
+def test_concurrent_cycle_returns_in_progress_without_invoking_runtime(tmp_path):
+    policy = _write_policy(tmp_path)
+    mandate = _mandate(str(policy))
+    ledger = AuditLedger(tmp_path / "state.db")
+    runtime = FailsOnceRuntime(_payload())
+    service = AutonomousService(tmp_path, ledger, runtime)
+    key = cycle_key(mandate, NOW)
+
+    with ledger.cycle_lock(mandate.mandate_id, key) as acquired:
+        assert acquired
+        result = service.run_cycle(mandate, now=NOW)
+
+    assert result["ok"]
+    assert result["status"] == "in_progress"
+    assert result["run"] is None
+    assert runtime.calls == 0
 
 
 def test_permit_makes_failed_run_non_retryable(tmp_path):

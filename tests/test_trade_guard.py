@@ -14,6 +14,72 @@ from edgecraft.ledger import AuditLedger
 
 NOW = datetime.now(UTC)
 SCRIPT = Path(__file__).parents[1] / "scripts" / "guard_robinhood_tool.py"
+LIVE_POLICY = (
+    Path(__file__).parents[1] / "state" / "mandates" / "aggressive-market-day-live.policy.json"
+)
+
+
+def test_tiny_live_policy_allows_one_two_dollar_position(tmp_path):
+    mandate = Mandate(
+        mandate_id="tiny_live_policy_test",
+        goal="Invest one bounded daily amount in an approved symbol.",
+        mode="live",
+        cycle_frequency="market_day",
+        daily_budget="2.00",
+        max_rollover_weeks=0,
+        universe=["NVDA"],
+        strategic_weights={"NVDA": "1"},
+        policy_path=str(LIVE_POLICY),
+        external_context_path="test-context.json",
+    )
+    ledger = AuditLedger(tmp_path / "state.db")
+    run_id = ledger.start_run(mandate, cycle_key(mandate, NOW), now=NOW)
+    decision = WeeklyDecision(
+        mandate_id=mandate.mandate_id,
+        run_id=run_id,
+        as_of=NOW,
+        action="invest",
+        confidence="0.8",
+        hypothesis="Place one tiny order while keeping the hard daily ceiling.",
+        allocations=[
+            {
+                "symbol": "NVDA",
+                "notional": "2.00",
+                "conviction": "0.8",
+                "rationale": "Exercise the owner-approved tiny-account policy.",
+            }
+        ],
+    )
+    snapshot = PortfolioSnapshot(
+        account_id="agentic-test",
+        agentic_allowed=True,
+        buying_power=5,
+        portfolio_value=5,
+        as_of=NOW,
+    )
+    quote = MarketQuote(symbol="NVDA", last=200, as_of=NOW)
+    policy = RiskPolicy.model_validate_json(LIVE_POLICY.read_text(encoding="utf-8"))
+
+    proposal = create_weekly_proposal(
+        mandate,
+        decision,
+        snapshot,
+        [quote],
+        policy,
+        run_id=run_id,
+        cycle_budget=Decimal("2.00"),
+        ledger=ledger,
+        now=NOW,
+    )
+
+    assert proposal.risk.approved_for_review
+    assert proposal.risk.projected_weights["NVDA"] == 0.4
+    assert policy.max_position_weight == 0.5
+    assert policy.max_group_weight == 0.5
+    assert policy.max_order_notional == 2
+    assert policy.max_daily_notional == 2
+    assert policy.max_orders_per_day == 1
+    assert not policy.allow_sells
 
 
 def _setup_live_permit(tmp_path):
