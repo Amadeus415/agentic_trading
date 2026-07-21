@@ -1,10 +1,7 @@
-.PHONY: install dev api ui test lint security build demo health readme-dashboard validate
+.PHONY: install dev test lint security demo health validate
 
 install:
 	uv sync --extra dev
-
-api:
-	uv run uvicorn edgecraft.api:app --reload --host 127.0.0.1 --port 8000
 
 dev:
 	uv run uvicorn edgecraft.api:app --reload --host 127.0.0.1 --port 8000
@@ -22,17 +19,11 @@ security:
 	# B608 misclassifies the JSON-formatted execution prompt as a SQL query.
 	uvx --python 3.13 --from bandit==1.9.4 bandit -q -r src scripts -ll --skip B608
 
-build:
-	@echo "Frontend is dependency-free and served directly by FastAPI"
-
 demo:
-	uv run python scripts/demo.py
+	uv run edgecraft backtest --config examples/research.json --data-source synthetic
 
 health:
 	uv run edgecraft health
-
-readme-dashboard:
-	uv run python -m edgecraft.readme_dashboard
 
 validate: test lint
 	uv run edgecraft mandate-validate --config examples/mandate.index-dca.json
