@@ -22,8 +22,10 @@
   "schedule_time": "10:00:00",
   "timezone": "America/New_York",
   "benchmark": "SPY",
+  "evaluation_cost_bps": "10",
   "decision_model": null,
   "policy_path": "examples/policy.autonomous-shadow.json",
   "research_evidence_path": null,
+  "external_context_path": "examples/context.browserbase.json",
   "owner_notes": "Start in shadow mode. Review multiple cycles before creating a separately versioned live mandate."
 }

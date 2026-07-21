@@ -12,9 +12,12 @@ from typing import Any
 from edgecraft import __version__
 from edgecraft.analytics import market_diagnostics, portfolio_market_risk
 from edgecraft.autonomous_service import AutonomousService, StaticObservationRuntime
+from edgecraft.autonomy import policy_digest
 from edgecraft.autonomy_models import AgentCyclePayload, Mandate
-from edgecraft.codex_runtime import CodexRuntime, CodexRuntimeConfig
+from edgecraft.codex_runtime import PROMPT_VERSION, CodexRuntime, CodexRuntimeConfig
+from edgecraft.context import browserbase_api_key, load_context_service
 from edgecraft.data import MarketDataProvider, synthetic_market_data
+from edgecraft.evaluation import evaluation_report
 from edgecraft.execution_models import (
     MarketQuote,
     PortfolioSnapshot,
@@ -22,6 +25,7 @@ from edgecraft.execution_models import (
     RiskPolicy,
     TargetAllocation,
 )
+from edgecraft.intelligence import YahooMarketIntelligenceCollector
 from edgecraft.ledger import AuditLedger
 from edgecraft.models import BacktestRequest, CostModel
 from edgecraft.observability import autonomy_health, prometheus_metrics
@@ -55,6 +59,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     commands.add_parser("strategies", help="Print the machine-readable strategy catalog.")
     commands.add_parser("protocol", help="Print the Robinhood orchestration contract.")
+
+    context = commands.add_parser(
+        "context", help="Collect an auditable Browserbase, SEC, and Bluesky context packet."
+    )
+    context.add_argument("--config", required=True, type=Path)
+    context.add_argument("--symbols", required=True, help="Comma-separated equity symbols.")
+    context.add_argument("--output", type=Path)
+
+    intelligence = commands.add_parser(
+        "intelligence",
+        help="Build a point-in-time cross-sectional market and regime snapshot.",
+    )
+    intelligence.add_argument("--mandate", required=True, type=Path)
+    intelligence.add_argument("--output", type=Path)
 
     market = commands.add_parser(
         "market",
@@ -138,6 +156,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     record.add_argument("--payload", required=True, type=Path)
     record.add_argument("--idempotency-key")
+    record.add_argument(
+        "--occurred-at",
+        help="Broker event time as an ISO-8601 timestamp; defaults to now.",
+    )
 
     ledger = commands.add_parser("ledger", help="Show audit-ledger status.")
     ledger.add_argument("--path", default="state/edgecraft.db")
@@ -176,6 +198,34 @@ def build_parser() -> argparse.ArgumentParser:
     runs.add_argument("--ledger", default="state/edgecraft.db")
     runs.add_argument("--limit", type=int, default=20)
 
+    decision = commands.add_parser(
+        "decision", help="Show immutable decision packets for one autonomous run."
+    )
+    decision.add_argument("--ledger", default="state/edgecraft.db")
+    decision.add_argument("--run-id", required=True)
+
+    performance = commands.add_parser(
+        "performance",
+        help="Report the cash-flow-matched agent, benchmark, and strategic shadow books.",
+    )
+    performance.add_argument("--ledger", default="state/edgecraft.db")
+    performance.add_argument("--mandate-id", required=True)
+
+    execution_quality = commands.add_parser(
+        "execution-quality",
+        help="Report decision-to-fill slippage, fill notional, and broker fees.",
+    )
+    execution_quality.add_argument("--ledger", default="state/edgecraft.db")
+    execution_quality.add_argument("--mandate-id", required=True)
+
+    incident_reconcile = commands.add_parser(
+        "incident-reconcile",
+        help="Close a failed run after independently verified terminal broker events.",
+    )
+    incident_reconcile.add_argument("--ledger", default="state/edgecraft.db")
+    incident_reconcile.add_argument("--run-id", required=True)
+    incident_reconcile.add_argument("--reason", required=True)
+
     halt = commands.add_parser("halt", help="Activate the global trading kill switch.")
     halt.add_argument("--ledger", default="state/edgecraft.db")
     halt.add_argument("--reason", required=True)
@@ -194,6 +244,18 @@ def build_parser() -> argparse.ArgumentParser:
         "autonomy-health", help="Report autonomous control-plane readiness."
     )
     autonomous_health.add_argument("--ledger", default="state/edgecraft.db")
+
+    readiness = commands.add_parser(
+        "readiness",
+        help="Fail-closed operational readiness review for one scheduled mandate.",
+    )
+    readiness.add_argument("--mandate", required=True, type=Path)
+    readiness.add_argument("--ledger", default="state/edgecraft.db")
+    readiness.add_argument(
+        "--require-ready",
+        action="store_true",
+        help="Exit nonzero when any deterministic readiness check fails.",
+    )
 
     schedule_install = commands.add_parser(
         "schedule-install", help="Install an unattended macOS launchd cycle runner."
@@ -239,6 +301,20 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
         return STRATEGY_SCHEMAS
     if args.command == "protocol":
         return robinhood_protocol()
+    if args.command == "context":
+        service = load_context_service(Path.cwd(), args.config)
+        symbols = [item.strip().upper() for item in args.symbols.split(",") if item.strip()]
+        return service.collect(symbols).model_dump(mode="json")
+    if args.command == "intelligence":
+        mandate = Mandate.model_validate(_read_json(args.mandate))
+        return (
+            YahooMarketIntelligenceCollector()
+            .collect(
+                mandate.universe,
+                benchmark=mandate.benchmark,
+            )
+            .model_dump(mode="json")
+        )
     if args.command == "market":
         symbols = _symbols(args.symbols, args.benchmark)
         data = MarketDataProvider().load(symbols, args.start, args.end)
@@ -263,6 +339,21 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
         ]
     if args.command == "runs":
         return AuditLedger(args.ledger).list_runs(limit=args.limit)
+    if args.command == "decision":
+        packets = AuditLedger(args.ledger).decision_packets_for_run(args.run_id)
+        if not packets:
+            raise ValueError(f"no decision packet found for run_id: {args.run_id}")
+        return packets
+    if args.command == "performance":
+        ledger = AuditLedger(args.ledger)
+        return evaluation_report(
+            ledger.evaluation_state(args.mandate_id),
+            ledger.evaluation_observations(args.mandate_id),
+        )
+    if args.command == "execution-quality":
+        return AuditLedger(args.ledger).execution_quality(args.mandate_id)
+    if args.command == "incident-reconcile":
+        return AuditLedger(args.ledger).reconcile_failed_run(args.run_id, reason=args.reason)
     if args.command == "metrics":
         ledger = AuditLedger(args.ledger)
         return (
@@ -270,6 +361,11 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
         )
     if args.command == "autonomy-health":
         return autonomy_health(AuditLedger(args.ledger))
+    if args.command == "readiness":
+        result = operational_readiness(Path.cwd(), args.mandate, args.ledger)
+        if args.require_ready and not result["ok"]:
+            raise RuntimeError("; ".join(result["reasons"]))
+        return result
     if args.command == "schedule-install":
         mandate = Mandate.model_validate(_read_json(args.mandate))
         ledger = AuditLedger(args.ledger)
@@ -302,9 +398,23 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
                 raise ValueError("captured observations are restricted to shadow mandates")
             payload = AgentCyclePayload.model_validate(_read_json(args.observation))
             runtime = StaticObservationRuntime(payload)
+            market_intelligence_collector = None
         else:
             runtime = CodexRuntime(CodexRuntimeConfig(repository=Path.cwd()))
-        return AutonomousService(Path.cwd(), ledger, runtime).run_cycle(mandate, force=args.force)
+            market_intelligence_collector = YahooMarketIntelligenceCollector()
+        context_service = (
+            load_context_service(Path.cwd(), mandate.external_context_path)
+            if mandate.external_context_path
+            else None
+        )
+        return AutonomousService(
+            Path.cwd(),
+            ledger,
+            runtime,
+            context_collector=context_service,
+            context_policy=context_service.policy if context_service else None,
+            market_intelligence_collector=market_intelligence_collector,
+        ).run_cycle(mandate, force=args.force)
     if args.command == "backtest":
         request = BacktestRequest.model_validate(_read_json(args.config))
         multiplier = float(getattr(args, "cost_multiplier", 1.0))
@@ -379,6 +489,11 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any] | list[dict[str, Any]]:
             args.event,
             payload,
             idempotency_key=args.idempotency_key,
+            occurred_at=(
+                datetime.fromisoformat(args.occurred_at.replace("Z", "+00:00"))
+                if args.occurred_at
+                else None
+            ),
         )
         return {"ok": True, "idempotency_key": key, "ledger": ledger.status()}
     raise ValueError(f"unsupported command: {args.command}")
@@ -438,7 +553,82 @@ def health_check(ledger_path: str, real_data_symbol: str | None = None) -> dict[
         "robinhood_mcp": mcp,
         "market_data": market_data,
         "ledger": ledger,
+        "web_context": {
+            "provider": "browserbase",
+            "configured": bool(browserbase_api_key()),
+            "search_endpoint": "https://api.browserbase.com/v1/search",
+            "fetch_endpoint": "https://api.browserbase.com/v1/fetch",
+        },
         "note": "Health verifies configuration, not current account eligibility; refresh get_accounts.",
+    }
+
+
+def operational_readiness(
+    repository: Path,
+    mandate_path: Path,
+    ledger_path: str | Path,
+) -> dict[str, Any]:
+    mandate_file = mandate_path if mandate_path.is_absolute() else repository / mandate_path
+    mandate = Mandate.model_validate(_read_json(mandate_file))
+    policy_file = Path(mandate.policy_path)
+    policy_file = policy_file if policy_file.is_absolute() else repository / policy_file
+    raw_policy = _read_json(policy_file)
+    policy = RiskPolicy.model_validate(raw_policy)
+    ledger = AuditLedger(ledger_path)
+    reasons: list[str] = []
+    if not mandate.enabled:
+        reasons.append("mandate is disabled")
+    if mandate.mode == "live" and not policy.trading_enabled:
+        reasons.append("live mandate policy has trading_enabled=false")
+    if not set(mandate.universe).issubset(set(policy.allowed_symbols)):
+        reasons.append("mandate universe is not a subset of the policy whitelist")
+    if ledger.trading_halted():
+        reasons.append("trading kill switch is active")
+    if ledger.unresolved_order_keys():
+        reasons.append("audit ledger contains unresolved broker orders")
+    if shutil.which("codex") is None:
+        reasons.append("codex executable is unavailable")
+    hook_path = repository / ".codex" / "hooks.json"
+    if mandate.mode == "live" and not hook_path.is_file():
+        reasons.append("live mandate requires the repository trade-permit hook")
+    if mandate.external_context_path:
+        context_path = Path(mandate.external_context_path)
+        context_path = context_path if context_path.is_absolute() else repository / context_path
+        if not context_path.is_file():
+            reasons.append("external context configuration is missing")
+    if mandate.mode == "live":
+        required_policy_fields = {
+            "allowed_market_sessions",
+            "max_drawdown_fraction",
+            "max_order_adv_fraction",
+            "max_rolling_7d_turnover",
+            "max_spread_bps",
+            "min_shadow_cycles_before_live",
+        }
+        missing = sorted(required_policy_fields - set(raw_policy))
+        if missing:
+            reasons.append(
+                "live policy must explicitly set production controls: " + ", ".join(missing)
+            )
+        history_id = mandate.promotion_source_mandate_id or mandate.mandate_id
+        shadow_cycles = ledger.successful_shadow_cycle_count(history_id)
+        if shadow_cycles < policy.min_shadow_cycles_before_live:
+            reasons.append(
+                f"shadow history has {shadow_cycles} successful cycle(s), "
+                f"below required {policy.min_shadow_cycles_before_live}"
+            )
+    else:
+        shadow_cycles = ledger.successful_shadow_cycle_count(mandate.mandate_id)
+    return {
+        "ok": not reasons,
+        "checked_at": datetime.now(UTC).isoformat(),
+        "mandate_id": mandate.mandate_id,
+        "mode": mandate.mode,
+        "policy_name": policy.policy_name,
+        "policy_digest": policy_digest(policy),
+        "prompt_version": PROMPT_VERSION,
+        "successful_shadow_cycles": shadow_cycles,
+        "reasons": reasons,
     }
 
 

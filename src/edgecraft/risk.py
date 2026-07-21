@@ -62,6 +62,10 @@ def evaluate_orders(
     strategy: str,
     mode: str,
     daily_placed_notional: float = 0.0,
+    daily_placed_order_count: int = 0,
+    rolling_7d_placed_notional: float = 0.0,
+    portfolio_high_watermark: float | None = None,
+    successful_shadow_cycles: int = 0,
     unresolved_order_keys: list[str] | None = None,
     research: ResearchEvidence | None = None,
     now: datetime | None = None,
@@ -97,9 +101,10 @@ def evaluate_orders(
         violations.append("live trading is disabled by policy")
     if not policy.allowed_symbols:
         violations.append("policy has no allowed_symbols whitelist")
-    if len(orders) > policy.max_orders_per_day:
+    if daily_placed_order_count + len(orders) > policy.max_orders_per_day:
         violations.append(
-            f"{len(orders)} orders exceeds max_orders_per_day={policy.max_orders_per_day}"
+            f"orders plus today's {daily_placed_order_count} placed order(s) exceed "
+            f"max_orders_per_day={policy.max_orders_per_day}"
         )
     gross_notional = sum(order.notional for order in orders)
     if daily_placed_notional + gross_notional > policy.max_daily_notional + 1e-9:
@@ -110,10 +115,31 @@ def evaluate_orders(
     if not orders:
         violations.append("proposal contains no economically material orders")
 
+    turnover = (rolling_7d_placed_notional + gross_notional) / max(snapshot.portfolio_value, 1.0)
+    if turnover > policy.max_rolling_7d_turnover + 1e-9:
+        violations.append(
+            f"projected rolling 7d turnover {turnover:.1%} exceeds "
+            f"max_rolling_7d_turnover={policy.max_rolling_7d_turnover:.1%}"
+        )
+    drawdown = None
+    if portfolio_high_watermark is not None and portfolio_high_watermark > 0:
+        drawdown = max(0.0, 1 - snapshot.portfolio_value / portfolio_high_watermark)
+        if drawdown > policy.max_drawdown_fraction + 1e-9:
+            violations.append(
+                f"portfolio drawdown {drawdown:.1%} exceeds "
+                f"max_drawdown_fraction={policy.max_drawdown_fraction:.1%}"
+            )
+    if mode == "live" and successful_shadow_cycles < policy.min_shadow_cycles_before_live:
+        violations.append(
+            f"only {successful_shadow_cycles} successful shadow cycle(s); policy requires "
+            f"{policy.min_shadow_cycles_before_live} before live trading"
+        )
+
     current_values = {position.symbol: position.market_value for position in snapshot.positions}
     projected_values = dict(current_values)
     projected_cash = snapshot.buying_power
     allowed = set(policy.allowed_symbols)
+    spreads: dict[str, float] = {}
     for order in orders:
         quote = quote_map.get(order.symbol)
         if order.symbol not in allowed:
@@ -132,6 +158,32 @@ def evaluate_orders(
             continue
         if not quote.tradable:
             violations.append(f"{order.symbol} is not currently tradable")
+        live_or_warning = violations if mode == "live" else warnings
+        if quote.market_session not in policy.allowed_market_sessions:
+            live_or_warning.append(
+                f"{order.symbol} market session {quote.market_session} is not allowed"
+            )
+        if quote.bid is None or quote.ask is None:
+            live_or_warning.append(f"{order.symbol} quote is missing bid/ask liquidity data")
+        else:
+            midpoint = (quote.bid + quote.ask) / 2
+            spread_bps = (quote.ask - quote.bid) / midpoint * 10_000
+            spreads[order.symbol] = spread_bps
+            if spread_bps > policy.max_spread_bps + 1e-9:
+                live_or_warning.append(
+                    f"{order.symbol} spread {spread_bps:.1f} bps exceeds "
+                    f"max_spread_bps={policy.max_spread_bps:.1f}"
+                )
+        if quote.average_daily_dollar_volume is None:
+            live_or_warning.append(f"{order.symbol} quote is missing average daily dollar volume")
+        elif (
+            order.notional
+            > float(quote.average_daily_dollar_volume) * policy.max_order_adv_fraction
+        ):
+            live_or_warning.append(
+                f"{order.symbol} order exceeds max_order_adv_fraction="
+                f"{policy.max_order_adv_fraction:.4f}"
+            )
         age = (current_time - _aware(quote.as_of)).total_seconds()
         if age < -60:
             violations.append(f"{order.symbol} quote timestamp is in the future")
@@ -179,6 +231,13 @@ def evaluate_orders(
                 f"{symbol} projected weight {weight:.1%} exceeds max_position_weight="
                 f"{policy.max_position_weight:.1%}"
             )
+    for group_name, symbols in policy.symbol_groups.items():
+        group_weight = sum(projected_weights.get(symbol, 0.0) for symbol in symbols)
+        if group_weight > policy.max_group_weight + 1e-9:
+            violations.append(
+                f"{group_name} projected weight {group_weight:.1%} exceeds "
+                f"max_group_weight={policy.max_group_weight:.1%}"
+            )
 
     if policy.require_research_evidence:
         if research is None:
@@ -214,6 +273,9 @@ def evaluate_orders(
         projected_cash=round(projected_cash, 2),
         projected_weights=projected_weights,
         gross_notional=round(gross_notional, 2),
+        spread_bps={symbol: round(value, 4) for symbol, value in sorted(spreads.items())},
+        rolling_7d_turnover=round(turnover, 8),
+        drawdown_fraction=round(drawdown, 8) if drawdown is not None else None,
     )
 
 

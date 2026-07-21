@@ -7,25 +7,28 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from edgecraft.execution_models import MarketQuote, PortfolioSnapshot
+from edgecraft.execution_models import DecisionEvidenceItem, MarketQuote, PortfolioSnapshot
 
 RunMode = Literal["shadow", "live"]
 RiskLevel = Literal["conservative", "balanced", "aggressive"]
+CycleFrequency = Literal["weekly", "market_day"]
 DecisionAction = Literal["invest", "hold"]
 
 
 class Mandate(BaseModel):
     """Versioned owner intent and the hard boundary for an autonomous portfolio."""
 
-    schema_version: str = "edgecraft.mandate.v1"
+    schema_version: str = "edgecraft.mandate.v2"
     mandate_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{2,63}$")
     goal: str = Field(min_length=10, max_length=2_000)
     enabled: bool = True
     mode: RunMode = "shadow"
-    weekly_budget: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    cycle_frequency: CycleFrequency = "weekly"
+    weekly_budget: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=2)
+    daily_budget: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=2)
     max_rollover_weeks: int = Field(1, ge=0, le=12)
     risk_level: RiskLevel = "balanced"
-    universe: list[str] = Field(min_length=1, max_length=20)
+    universe: list[str] = Field(min_length=1, max_length=60)
     strategic_weights: dict[str, Decimal]
     max_tactical_tilt: Decimal | None = Field(default=None, ge=Decimal("0"), le=Decimal("0.50"))
     minimum_confidence: Decimal = Field(Decimal("0.55"), ge=Decimal("0"), le=Decimal("1"))
@@ -34,9 +37,18 @@ class Mandate(BaseModel):
     schedule_time: time = time(10, 0)
     timezone: str = "America/New_York"
     benchmark: str = "SPY"
+    evaluation_cost_bps: Decimal = Field(Decimal("10"), ge=Decimal("0"), le=Decimal("1000"))
     decision_model: str | None = None
+    decision_reasoning_effort: Literal["low", "medium", "high", "xhigh", "max", "ultra"] | None = (
+        None
+    )
     policy_path: str
+    promotion_source_mandate_id: str | None = Field(
+        default=None,
+        pattern=r"^[a-z][a-z0-9_-]{2,63}$",
+    )
     research_evidence_path: str | None = None
+    external_context_path: str | None = None
     owner_notes: str = Field(default="", max_length=2_000)
 
     @field_validator("universe")
@@ -89,7 +101,24 @@ class Mandate(BaseModel):
             raise ValueError(f"strategic_weights symbols are outside universe: {missing}")
         if self.allow_sells and self.mode == "live" and self.risk_level == "conservative":
             raise ValueError("conservative live mandates cannot enable autonomous sells")
+        if self.mode == "live" and not self.external_context_path:
+            raise ValueError("live mandates require external_context_path")
+        if self.cycle_frequency == "weekly":
+            if self.weekly_budget is None or self.daily_budget is not None:
+                raise ValueError("weekly mandates require weekly_budget and no daily_budget")
+        else:
+            if self.daily_budget is None or self.weekly_budget is not None:
+                raise ValueError("market_day mandates require daily_budget and no weekly_budget")
+            if self.max_rollover_weeks:
+                raise ValueError("market_day mandates cannot roll unused budget forward")
         return self
+
+    @property
+    def cycle_budget(self) -> Decimal:
+        budget = self.daily_budget if self.cycle_frequency == "market_day" else self.weekly_budget
+        if budget is None:
+            raise ValueError("mandate cycle budget is missing")
+        return budget
 
     @property
     def tactical_tilt_limit(self) -> Decimal:
@@ -107,6 +136,7 @@ class DecisionAllocation(BaseModel):
     notional: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
     conviction: Decimal = Field(ge=Decimal("0"), le=Decimal("1"))
     rationale: str = Field(min_length=5, max_length=1_000)
+    evidence_ids: list[str] = Field(default_factory=list, max_length=30)
 
     @field_validator("symbol")
     @classmethod
@@ -116,11 +146,18 @@ class DecisionAllocation(BaseModel):
             raise ValueError("symbol cannot be empty")
         return clean
 
+    @field_validator("evidence_ids")
+    @classmethod
+    def unique_evidence_ids(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)):
+            raise ValueError("allocation evidence_ids must be unique")
+        return value
+
 
 class WeeklyDecision(BaseModel):
-    """Structured output from the reasoning agent; never an execution authority."""
+    """Structured cycle output from the reasoning agent; never execution authority."""
 
-    schema_version: str = "edgecraft.weekly-decision.v1"
+    schema_version: str = "edgecraft.weekly-decision.v2"
     mandate_id: str
     run_id: str
     as_of: datetime
@@ -132,6 +169,8 @@ class WeeklyDecision(BaseModel):
     risks: list[str] = Field(default_factory=list, max_length=30)
     allocations: list[DecisionAllocation] = Field(default_factory=list, max_length=20)
     data_sources: list[str] = Field(default_factory=list, max_length=30)
+    context_source_ids: list[str] = Field(default_factory=list, max_length=30)
+    evidence_items: list[DecisionEvidenceItem] = Field(default_factory=list, max_length=100)
 
     @field_validator("as_of")
     @classmethod
@@ -149,6 +188,21 @@ class WeeklyDecision(BaseModel):
         symbols = [allocation.symbol for allocation in self.allocations]
         if len(symbols) != len(set(symbols)):
             raise ValueError("decision allocations must contain unique symbols")
+        if len(self.context_source_ids) != len(set(self.context_source_ids)):
+            raise ValueError("context_source_ids must be unique")
+        evidence_ids = [item.evidence_id for item in self.evidence_items]
+        if len(evidence_ids) != len(set(evidence_ids)):
+            raise ValueError("decision evidence IDs must be unique")
+        unknown = sorted(
+            {
+                evidence_id
+                for allocation in self.allocations
+                for evidence_id in allocation.evidence_ids
+                if evidence_id not in set(evidence_ids)
+            }
+        )
+        if unknown:
+            raise ValueError(f"allocations cite unknown evidence IDs: {unknown}")
         return self
 
 
@@ -158,7 +212,7 @@ class AgentCyclePayload(BaseModel):
     schema_version: str = "edgecraft.agent-cycle-payload.v1"
     observed_at: datetime
     account: PortfolioSnapshot
-    quotes: list[MarketQuote] = Field(min_length=1, max_length=20)
+    quotes: list[MarketQuote] = Field(min_length=1, max_length=60)
     recent_order_summary: list[str] = Field(default_factory=list, max_length=50)
     realized_pnl_summary: str = Field(default="", max_length=2_000)
     decision: WeeklyDecision
@@ -201,9 +255,20 @@ class ExecutionResult(BaseModel):
     requested_notional: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
     filled_notional: Decimal = Field(Decimal("0"), ge=0, max_digits=12, decimal_places=2)
     average_fill_price: Decimal | None = Field(default=None, gt=0)
+    fees: Decimal = Field(Decimal("0"), ge=0, max_digits=12, decimal_places=6)
     observed_at: datetime
     review_warnings: list[str] = Field(default_factory=list)
     detail: str = ""
+
+    @field_validator("requested_notional", "filled_notional", mode="before")
+    @classmethod
+    def normalize_money_to_cents(cls, value):
+        return Decimal(str(value)).quantize(Decimal("0.01"))
+
+    @field_validator("fees", mode="before")
+    @classmethod
+    def normalize_fees(cls, value):
+        return Decimal(str(value)).quantize(Decimal("0.000001"))
 
     @field_validator("observed_at")
     @classmethod

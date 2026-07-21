@@ -1,16 +1,22 @@
 from __future__ import annotations
 
+import errno
+import fcntl
 import hashlib
 import json
+import os
 import secrets
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from edgecraft.audit_models import DecisionAuditPacket
 from edgecraft.autonomy_models import Mandate
+from edgecraft.evaluation import EvaluationObservation, EvaluationState
 from edgecraft.execution_models import TradeProposal
 
 
@@ -54,6 +60,37 @@ class AuditLedger:
         ):
             if candidate.exists():
                 candidate.chmod(0o600)
+
+    @contextmanager
+    def cycle_lock(self, mandate_id: str, cycle_key: str) -> Iterator[bool]:
+        """Hold a process-wide lease for one mandate cycle.
+
+        SQLite protects individual writes, but a live cycle spans slow external
+        reads and model work between writes. A filesystem lease prevents a
+        second process from retrying the same cycle while the first process is
+        still active.
+        """
+        lock_directory = self.path.parent / f".{self.path.name}.locks"
+        lock_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        lock_directory.chmod(0o700)
+        identity = f"{self.path.resolve()}\0{mandate_id}\0{cycle_key}"
+        digest = hashlib.sha256(identity.encode()).hexdigest()[:32]
+        lock_path = lock_directory / f"{digest}.lock"
+        descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        os.chmod(lock_path, 0o600)
+        acquired = False
+        try:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+            except OSError as exc:
+                if exc.errno not in {errno.EACCES, errno.EAGAIN}:
+                    raise
+            yield acquired
+        finally:
+            if acquired:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
 
     def _initialize(self) -> None:
         with self._connection() as connection:
@@ -107,6 +144,32 @@ class AuditLedger:
                     payload TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS runtime_events_run_id ON runtime_events(run_id, id);
+                CREATE TABLE IF NOT EXISTS decision_packets (
+                    packet_id TEXT PRIMARY KEY,
+                    run_id TEXT NOT NULL REFERENCES runs(run_id),
+                    attempt INTEGER NOT NULL,
+                    recorded_at TEXT NOT NULL,
+                    schema_version TEXT NOT NULL,
+                    payload_sha256 TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    UNIQUE(run_id, attempt)
+                );
+                CREATE INDEX IF NOT EXISTS decision_packets_run_id
+                    ON decision_packets(run_id, attempt);
+                CREATE TABLE IF NOT EXISTS evaluation_states (
+                    mandate_id TEXT PRIMARY KEY REFERENCES mandates(mandate_id),
+                    updated_at TEXT NOT NULL,
+                    payload TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS evaluation_observations (
+                    run_id TEXT PRIMARY KEY REFERENCES runs(run_id),
+                    mandate_id TEXT NOT NULL REFERENCES mandates(mandate_id),
+                    observed_at TEXT NOT NULL,
+                    payload_sha256 TEXT NOT NULL,
+                    payload TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS evaluation_observations_mandate
+                    ON evaluation_observations(mandate_id, observed_at);
                 CREATE TABLE IF NOT EXISTS permits (
                     token_hash TEXT PRIMARY KEY,
                     run_id TEXT NOT NULL REFERENCES runs(run_id),
@@ -373,6 +436,112 @@ class AuditLedger:
             now=timestamp,
         )
 
+    def reconcile_failed_run(
+        self,
+        run_id: str,
+        *,
+        reason: str,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Close a failed live run only when its recorded orders are terminal and coherent."""
+        clean_reason = reason.strip()
+        if len(clean_reason) < 10:
+            raise ValueError("incident reconciliation requires a specific reason")
+        timestamp = now or datetime.now(UTC)
+        with self._connection() as connection:
+            run = connection.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+            if run is None:
+                raise ValueError(f"unknown run_id: {run_id}")
+            if run["status"] != "failed":
+                raise ValueError("only failed runs can be incident-reconciled")
+            proposals = connection.execute(
+                "SELECT proposal_id, payload FROM proposals WHERE run_id = ?", (run_id,)
+            ).fetchall()
+            if not proposals:
+                raise ValueError("failed run has no persisted proposal")
+
+            reconciled: list[dict[str, Any]] = []
+            for proposal_row in proposals:
+                proposal = json.loads(proposal_row["payload"])
+                for order in proposal.get("orders", []):
+                    order_key = order.get("order_key")
+                    rows = connection.execute(
+                        """
+                        SELECT event_type, payload FROM events
+                        WHERE proposal_id = ? ORDER BY occurred_at, id
+                        """,
+                        (proposal_row["proposal_id"],),
+                    ).fetchall()
+                    relevant = [
+                        (row["event_type"], json.loads(row["payload"]))
+                        for row in rows
+                        if json.loads(row["payload"]).get("order_key") == order_key
+                    ]
+                    partials = [item for item in relevant if item[0] == "partially_filled"]
+                    terminals = [
+                        item for item in relevant if item[0] in {"filled", "rejected", "canceled"}
+                    ]
+                    if partials:
+                        raise ValueError(f"order {order_key} has a partial-fill incident")
+                    if len(terminals) != 1:
+                        raise ValueError(
+                            f"order {order_key} requires exactly one terminal broker event"
+                        )
+                    event_type, event_payload = terminals[0]
+                    if event_type == "filled":
+                        expected = Decimal(str(order.get("notional")))
+                        observed = Decimal(str(event_payload.get("filled_notional", "0")))
+                        if abs(expected - observed) > Decimal("0.01"):
+                            raise ValueError(
+                                f"order {order_key} filled notional does not match proposal"
+                            )
+                        placed_ids = {
+                            payload.get("broker_order_id")
+                            for kind, payload in relevant
+                            if kind == "placed" and payload.get("broker_order_id")
+                        }
+                        terminal_id = event_payload.get("broker_order_id")
+                        if len(placed_ids) != 1 or terminal_id not in placed_ids:
+                            raise ValueError(
+                                f"order {order_key} broker identity is not coherently recorded"
+                            )
+                    reconciled.append(
+                        {
+                            "proposal_id": proposal_row["proposal_id"],
+                            "order_key": order_key,
+                            "terminal_status": event_type,
+                        }
+                    )
+            if not reconciled:
+                raise ValueError("failed run has no orders to reconcile")
+            payload = json.loads(run["payload"])
+            payload.update(
+                {
+                    "incident_reconciled": True,
+                    "incident_reconciliation_reason": clean_reason,
+                    "reconciled_orders": reconciled,
+                }
+            )
+            connection.execute(
+                """
+                UPDATE runs SET status = 'completed', detail = ?, payload = ?, updated_at = ?
+                WHERE run_id = ? AND status = 'failed'
+                """,
+                (
+                    "terminal broker state independently reconciled after execution incident",
+                    json.dumps(payload, sort_keys=True),
+                    timestamp.isoformat(),
+                    run_id,
+                ),
+            )
+        self.record_runtime_event(
+            run_id,
+            "run_incident_reconciled",
+            {"reason": clean_reason, "orders": reconciled},
+            now=timestamp,
+        )
+        return self.get_run(run_id)
+
     def list_runs(self, *, limit: int = 50) -> list[dict[str, Any]]:
         with self._connection() as connection:
             rows = connection.execute(
@@ -385,7 +554,12 @@ class AuditLedger:
             result.append(item)
         return result
 
-    def observability_feed(self, *, limit: int = 100) -> dict[str, list[dict[str, Any]]]:
+    def observability_feed(
+        self,
+        *,
+        limit: int = 100,
+        include_decision_packets: bool = True,
+    ) -> dict[str, list[dict[str, Any]]]:
         """Return a redacted, read-only event feed for operator interfaces."""
         with self._connection() as connection:
             runtime_rows = connection.execute(
@@ -412,6 +586,18 @@ class AuditLedger:
                 """,
                 (limit,),
             ).fetchall()
+            decision_rows = (
+                connection.execute(
+                    """
+                    SELECT packet_id, run_id, attempt, recorded_at, schema_version,
+                           payload_sha256, payload
+                    FROM decision_packets ORDER BY recorded_at DESC LIMIT ?
+                    """,
+                    (limit,),
+                ).fetchall()
+                if include_decision_packets
+                else []
+            )
 
         def decoded(rows: list[sqlite3.Row]) -> list[dict[str, Any]]:
             items = []
@@ -425,6 +611,431 @@ class AuditLedger:
             "runtime_events": decoded(runtime_rows),
             "order_events": decoded(order_rows),
             "proposals": decoded(proposal_rows),
+            "decision_packets": decoded(decision_rows),
+        }
+
+    def portfolio_snapshot_feed(self, *, limit: int = 500) -> list[dict[str, Any]]:
+        """Return only the canonical account slice from recent decision packets."""
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT packet_id, run_id, recorded_at,
+                       json_extract(payload, '$.observation.account') AS account
+                FROM decision_packets
+                WHERE json_extract(payload, '$.observation.account') IS NOT NULL
+                ORDER BY recorded_at DESC LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "packet_id": row["packet_id"],
+                "run_id": row["run_id"],
+                "recorded_at": row["recorded_at"],
+                "payload": {"observation": {"account": json.loads(row["account"])}},
+            }
+            for row in rows
+        ]
+
+    def trade_audit(self, order_key: str) -> dict[str, Any]:
+        """Return the complete privacy-safe lineage for one proposed broker order."""
+        clean_order_key = order_key.strip()
+        if not clean_order_key:
+            raise ValueError("order_key cannot be empty")
+        with self._connection() as connection:
+            proposal_rows = connection.execute(
+                """
+                SELECT proposal_id, mandate_id, run_id, created_at, mode,
+                       approved_for_review, payload
+                FROM proposals ORDER BY created_at DESC
+                """
+            ).fetchall()
+            selected: tuple[sqlite3.Row, dict[str, Any], dict[str, Any]] | None = None
+            for row in proposal_rows:
+                proposal_payload = json.loads(row["payload"])
+                order = next(
+                    (
+                        item
+                        for item in proposal_payload.get("orders", [])
+                        if item.get("order_key") == clean_order_key
+                    ),
+                    None,
+                )
+                if order is not None:
+                    selected = (row, proposal_payload, order)
+                    break
+            if selected is None:
+                raise ValueError(f"unknown order_key: {clean_order_key}")
+
+            proposal_row, proposal_payload, order = selected
+            run_id = proposal_row["run_id"]
+            run_row = connection.execute(
+                "SELECT * FROM runs WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            event_rows = connection.execute(
+                """
+                SELECT id, event_type, occurred_at, payload
+                FROM events WHERE proposal_id = ? ORDER BY occurred_at, id
+                """,
+                (proposal_row["proposal_id"],),
+            ).fetchall()
+            runtime_rows = connection.execute(
+                """
+                SELECT id, event_type, occurred_at, payload
+                FROM runtime_events WHERE run_id = ? ORDER BY occurred_at, id
+                """,
+                (run_id,),
+            ).fetchall()
+            packet_rows = connection.execute(
+                """
+                SELECT packet_id, run_id, attempt, recorded_at, schema_version,
+                       payload_sha256, payload
+                FROM decision_packets WHERE run_id = ? ORDER BY attempt
+                """,
+                (run_id,),
+            ).fetchall()
+            permit_rows = connection.execute(
+                """
+                SELECT order_key, allowed_tool, constraints, status, issued_at,
+                       expires_at, claimed_at
+                FROM permits WHERE run_id = ? AND order_key = ? ORDER BY issued_at
+                """,
+                (run_id, clean_order_key),
+            ).fetchall()
+            evaluation_row = connection.execute(
+                """
+                SELECT observed_at, payload_sha256, payload
+                FROM evaluation_observations WHERE run_id = ?
+                """,
+                (run_id,),
+            ).fetchone()
+
+        def decode(row: sqlite3.Row) -> dict[str, Any]:
+            item = dict(row)
+            if "payload" in item:
+                item["payload"] = json.loads(item["payload"])
+            if "constraints" in item:
+                item["constraints"] = json.loads(item["constraints"])
+            return item
+
+        order_events = [
+            decode(row)
+            for row in event_rows
+            if json.loads(row["payload"]).get("order_key") == clean_order_key
+        ]
+        packets = [decode(row) for row in packet_rows]
+        packet = next(
+            (
+                item
+                for item in reversed(packets)
+                if item["recorded_at"] <= proposal_row["created_at"]
+            ),
+            packets[-1] if packets else None,
+        )
+        packet_integrity = None
+        if packet is not None:
+            canonical = json.dumps(packet["payload"], sort_keys=True, separators=(",", ":"))
+            actual_digest = hashlib.sha256(canonical.encode()).hexdigest()
+            packet_integrity = {
+                "verified": secrets.compare_digest(actual_digest, packet["payload_sha256"]),
+                "recorded_sha256": packet["payload_sha256"],
+                "recomputed_sha256": actual_digest,
+            }
+
+        run = decode(run_row) if run_row is not None else None
+        if run is not None:
+            run["payload"] = json.loads(run_row["payload"])
+        evaluation = decode(evaluation_row) if evaluation_row is not None else None
+        terminal = next(
+            (
+                item
+                for item in reversed(order_events)
+                if item["event_type"] in {"filled", "rejected", "canceled"}
+            ),
+            None,
+        )
+        placed = next(
+            (item for item in order_events if item["event_type"] == "placed"),
+            None,
+        )
+        status = (
+            terminal["event_type"]
+            if terminal
+            else (order_events[-1]["event_type"] if order_events else "proposed")
+        )
+        timeline = [{**decode(row), "stream": "runtime"} for row in runtime_rows] + [
+            {**item, "stream": "broker"} for item in order_events
+        ]
+        timeline.sort(key=lambda item: (item["occurred_at"], item["id"], item["stream"]))
+        recovered_reasoning = next(
+            (
+                item["payload"].get("reasoning", {}).get("decision_reasoning")
+                for item in reversed(order_events)
+                if item["payload"].get("reasoning", {}).get("decision_reasoning")
+            ),
+            proposal_payload.get("decision_reasoning"),
+        )
+        audit_gaps = []
+        if packet is None:
+            audit_gaps.append(
+                "No immutable decision packet was recorded for this historical run; "
+                "only the recovered proposal reasoning and runtime summaries are available."
+            )
+        if evaluation is None:
+            audit_gaps.append("No cash-flow-matched performance observation was recorded.")
+        if recovered_reasoning and recovered_reasoning.get("recovery_note"):
+            audit_gaps.append(str(recovered_reasoning["recovery_note"]))
+        proposal_record = dict(proposal_row)
+        proposal_record.pop("payload")
+        return {
+            "schema_version": "edgecraft.trade-audit.v1",
+            "generated_at": datetime.now(UTC).isoformat(),
+            "order": {**order, "status": status},
+            "proposal": {
+                **proposal_record,
+                "payload": proposal_payload,
+            },
+            "run": run,
+            "decision_packet": packet,
+            "recovered_decision_reasoning": recovered_reasoning,
+            "decision_attempts": [
+                {
+                    key: item[key]
+                    for key in (
+                        "packet_id",
+                        "attempt",
+                        "recorded_at",
+                        "schema_version",
+                        "payload_sha256",
+                    )
+                }
+                for item in packets
+            ],
+            "packet_integrity": packet_integrity,
+            "permits": [decode(row) for row in permit_rows],
+            "order_events": order_events,
+            "runtime_events": [decode(row) for row in runtime_rows],
+            "timeline": timeline,
+            "evaluation": evaluation,
+            "audit_gaps": audit_gaps,
+            "reconciliation": {
+                "broker_placement_recorded": placed is not None,
+                "terminal_state_recorded": terminal is not None,
+                "terminal_status": terminal["event_type"] if terminal else None,
+                "run_status": run["status"] if run else None,
+                "confirmed_execution": bool(
+                    placed is not None
+                    and terminal is not None
+                    and terminal["event_type"] == "filled"
+                    and run is not None
+                    and run["status"] == "completed"
+                ),
+            },
+        }
+
+    def add_decision_packet(self, packet: DecisionAuditPacket) -> str:
+        """Append one privacy-redacted, content-addressed decision record."""
+        account_reference = _account_reference(packet.observation.account.account_id)
+        safe_payload = _redact_account_fields(
+            packet.model_dump(mode="json"),
+            account_reference,
+        )
+        payload = json.dumps(safe_payload, sort_keys=True, separators=(",", ":"))
+        payload_sha256 = hashlib.sha256(payload.encode()).hexdigest()
+        packet_id = "decision_" + payload_sha256[:24]
+        try:
+            with self._connection() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO decision_packets (
+                        packet_id, run_id, attempt, recorded_at, schema_version,
+                        payload_sha256, payload
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        packet_id,
+                        packet.run_id,
+                        packet.attempt,
+                        packet.recorded_at.isoformat(),
+                        packet.schema_version,
+                        payload_sha256,
+                        payload,
+                    ),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise DuplicateProposalError(
+                f"run {packet.run_id} attempt {packet.attempt} already has a decision packet"
+            ) from exc
+        return packet_id
+
+    def decision_packets_for_run(self, run_id: str) -> list[dict[str, Any]]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT packet_id, run_id, attempt, recorded_at, schema_version,
+                       payload_sha256, payload
+                FROM decision_packets WHERE run_id = ? ORDER BY attempt
+                """,
+                (run_id,),
+            ).fetchall()
+        packets = []
+        for row in rows:
+            item = dict(row)
+            item["payload"] = json.loads(item["payload"])
+            packets.append(item)
+        return packets
+
+    def record_evaluation(
+        self,
+        observation: EvaluationObservation,
+        state: EvaluationState,
+    ) -> str:
+        if observation.mandate_id != state.mandate_id:
+            raise ValueError("evaluation observation and state mandate do not match")
+        observation_payload = json.dumps(
+            observation.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
+        )
+        state_payload = json.dumps(
+            state.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
+        )
+        digest = hashlib.sha256(observation_payload.encode()).hexdigest()
+        with self._connection() as connection:
+            existing = connection.execute(
+                "SELECT payload_sha256 FROM evaluation_observations WHERE run_id = ?",
+                (observation.run_id,),
+            ).fetchone()
+            if existing is not None:
+                if existing["payload_sha256"] != digest:
+                    raise DuplicateProposalError(
+                        f"run {observation.run_id} already has different evaluation data"
+                    )
+                return digest
+            connection.execute(
+                """
+                INSERT INTO evaluation_observations (
+                    run_id, mandate_id, observed_at, payload_sha256, payload
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    observation.run_id,
+                    observation.mandate_id,
+                    observation.observed_at.isoformat(),
+                    digest,
+                    observation_payload,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO evaluation_states (mandate_id, updated_at, payload)
+                VALUES (?, ?, ?)
+                ON CONFLICT(mandate_id) DO UPDATE SET
+                    updated_at = excluded.updated_at,
+                    payload = excluded.payload
+                """,
+                (state.mandate_id, state.updated_at.isoformat(), state_payload),
+            )
+        return digest
+
+    def evaluation_state(self, mandate_id: str) -> EvaluationState | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT payload FROM evaluation_states WHERE mandate_id = ?", (mandate_id,)
+            ).fetchone()
+        return EvaluationState.model_validate_json(row["payload"]) if row else None
+
+    def evaluation_observations(
+        self,
+        mandate_id: str,
+        *,
+        limit: int = 10_000,
+    ) -> list[EvaluationObservation]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload FROM evaluation_observations
+                WHERE mandate_id = ? ORDER BY observed_at LIMIT ?
+                """,
+                (mandate_id, limit),
+            ).fetchall()
+        return [EvaluationObservation.model_validate_json(row["payload"]) for row in rows]
+
+    def execution_quality(self, mandate_id: str) -> dict[str, Any]:
+        """Calculate decision-to-fill slippage from immutable proposal and broker events."""
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT e.id, e.occurred_at, e.event_type, e.payload AS event_payload,
+                       p.payload AS proposal_payload
+                FROM events e JOIN proposals p ON p.proposal_id = e.proposal_id
+                WHERE p.mandate_id = ?
+                  AND e.event_type IN ('filled', 'partially_filled')
+                ORDER BY e.id
+                """,
+                (mandate_id,),
+            ).fetchall()
+        latest_by_order: dict[str, tuple[sqlite3.Row, dict[str, Any], dict[str, Any]]] = {}
+        for row in rows:
+            event = json.loads(row["event_payload"])
+            proposal = json.loads(row["proposal_payload"])
+            latest_by_order[str(event.get("order_key"))] = (row, event, proposal)
+        fills: list[dict[str, Any]] = []
+        for row, event, proposal in latest_by_order.values():
+            order = next(
+                (
+                    item
+                    for item in proposal.get("orders", [])
+                    if item.get("order_key") == event.get("order_key")
+                ),
+                None,
+            )
+            if order is None:
+                continue
+            expected = event_price = None
+            try:
+                expected = float(order["expected_price"])
+                event_price = float(event["average_fill_price"])
+            except (KeyError, TypeError, ValueError):
+                pass
+            side = str(order.get("side"))
+            slippage_bps = None
+            if expected and event_price:
+                direction = 1 if side == "buy" else -1
+                slippage_bps = direction * (event_price / expected - 1) * 10_000
+            fills.append(
+                {
+                    "order_key": event.get("order_key"),
+                    "symbol": order.get("symbol"),
+                    "side": side,
+                    "status": row["event_type"],
+                    "occurred_at": row["occurred_at"],
+                    "expected_price": expected,
+                    "average_fill_price": event_price,
+                    "filled_notional": float(event.get("filled_notional", 0)),
+                    "fees": float(event.get("fees", 0)),
+                    "slippage_bps": slippage_bps,
+                }
+            )
+        measured = [item for item in fills if item["slippage_bps"] is not None]
+        measured_notional = sum(item["filled_notional"] for item in measured)
+        weighted_slippage = (
+            sum(item["slippage_bps"] * item["filled_notional"] for item in measured)
+            / measured_notional
+            if measured_notional > 0
+            else None
+        )
+        return {
+            "schema_version": "edgecraft.execution-quality.v1",
+            "mandate_id": mandate_id,
+            "status": "measuring" if len(measured) < 20 else "active",
+            "fill_count": len(fills),
+            "measured_fill_count": len(measured),
+            "filled_notional": sum(item["filled_notional"] for item in fills),
+            "fees": sum(item["fees"] for item in fills),
+            "notional_weighted_slippage_bps": weighted_slippage,
+            "worst_adverse_slippage_bps": (
+                max(item["slippage_bps"] for item in measured) if measured else None
+            ),
+            "fills": fills,
         }
 
     def record_runtime_event(
@@ -713,13 +1324,25 @@ class AuditLedger:
             raise ValueError("event payload must contain order_key")
         if event_type == "placed" and float(payload.get("notional", 0)) <= 0:
             raise ValueError("placed event payload must contain positive notional")
-        key = idempotency_key or _event_key(proposal_id, event_type, payload)
+        event_payload = dict(payload)
         with self._connection() as connection:
-            exists = connection.execute(
-                "SELECT 1 FROM proposals WHERE proposal_id = ?", (proposal_id,)
+            proposal_row = connection.execute(
+                "SELECT payload FROM proposals WHERE proposal_id = ?", (proposal_id,)
             ).fetchone()
-            if exists is None:
+            if proposal_row is None:
                 raise ValueError(f"unknown proposal_id: {proposal_id}")
+            if event_type in {
+                "placed",
+                "filled",
+                "partially_filled",
+                "rejected",
+                "canceled",
+            }:
+                event_payload["reasoning"] = _order_reasoning(
+                    json.loads(proposal_row["payload"]),
+                    event_payload["order_key"],
+                )
+            key = idempotency_key or _event_key(proposal_id, event_type, event_payload)
             try:
                 connection.execute(
                     """
@@ -732,7 +1355,7 @@ class AuditLedger:
                         event_type,
                         key,
                         timestamp.isoformat(),
-                        json.dumps(payload, sort_keys=True),
+                        json.dumps(event_payload, sort_keys=True),
                     ),
                 )
             except sqlite3.IntegrityError as exc:
@@ -755,12 +1378,80 @@ class AuditLedger:
             total += float(payload.get("notional", 0.0))
         return total
 
+    def daily_placed_order_count(self, day: date | None = None) -> int:
+        target = day or datetime.now(UTC).date()
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS count FROM events
+                WHERE event_type = 'placed' AND substr(occurred_at, 1, 10) = ?
+                """,
+                (target.isoformat(),),
+            ).fetchone()
+        return int(row["count"])
+
+    def rolling_placed_notional(
+        self,
+        *,
+        since: datetime,
+        before: datetime | None = None,
+    ) -> float:
+        start = _aware(since).isoformat()
+        end = _aware(before or datetime.now(UTC)).isoformat()
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload FROM events
+                WHERE event_type = 'placed'
+                  AND occurred_at >= ?
+                  AND occurred_at < ?
+                """,
+                (start, end),
+            ).fetchall()
+        return sum(float(json.loads(row["payload"]).get("notional", 0.0)) for row in rows)
+
+    def portfolio_high_watermark(self, mandate_id: str) -> float | None:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT e.payload
+                FROM runtime_events AS e
+                JOIN runs AS r ON r.run_id = e.run_id
+                WHERE r.mandate_id = ? AND e.event_type = 'observation_completed'
+                """,
+                (mandate_id,),
+            ).fetchall()
+        values = [
+            float(payload["portfolio_value"])
+            for row in rows
+            if (payload := json.loads(row["payload"])).get("portfolio_value") is not None
+        ]
+        return max(values) if values else None
+
+    def successful_shadow_cycle_count(self, mandate_id: str) -> int:
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS count FROM runs
+                WHERE mandate_id = ? AND mode = 'shadow'
+                  AND status IN ('held', 'shadow_complete')
+                """,
+                (mandate_id,),
+            ).fetchone()
+        return int(row["count"])
+
     def status(self) -> dict[str, Any]:
         with self._connection() as connection:
             proposals = connection.execute("SELECT COUNT(*) AS count FROM proposals").fetchone()
             events = connection.execute("SELECT COUNT(*) AS count FROM events").fetchone()
             mandates = connection.execute("SELECT COUNT(*) AS count FROM mandates").fetchone()
             runs = connection.execute("SELECT COUNT(*) AS count FROM runs").fetchone()
+            decision_packets = connection.execute(
+                "SELECT COUNT(*) AS count FROM decision_packets"
+            ).fetchone()
+            evaluation_observations = connection.execute(
+                "SELECT COUNT(*) AS count FROM evaluation_observations"
+            ).fetchone()
             last_event = connection.execute(
                 "SELECT event_type, occurred_at FROM events ORDER BY id DESC LIMIT 1"
             ).fetchone()
@@ -770,6 +1461,8 @@ class AuditLedger:
             "events": events["count"],
             "mandates": mandates["count"],
             "runs": runs["count"],
+            "decision_packets": decision_packets["count"],
+            "evaluation_observations": evaluation_observations["count"],
             "trading_halted": self.trading_halted(),
             "last_event": dict(last_event) if last_event else None,
             "unresolved_order_keys": self.unresolved_order_keys(),
@@ -791,6 +1484,24 @@ class AuditLedger:
         return sorted(unresolved)
 
 
+def _order_reasoning(proposal: dict[str, Any], order_key: str) -> dict[str, Any]:
+    order = next(
+        (item for item in proposal.get("orders", []) if item.get("order_key") == order_key),
+        None,
+    )
+    if order is None:
+        raise ValueError("event order_key is not part of the proposal")
+    proposal_rationale = str(proposal.get("rationale") or "").strip()
+    order_rationale = str(order.get("rationale") or "").strip()
+    if not proposal_rationale or not order_rationale:
+        raise ValueError("trade events require proposal and order rationale")
+    return {
+        "proposal_rationale": proposal_rationale,
+        "order_rationale": order_rationale,
+        "decision_reasoning": proposal.get("decision_reasoning"),
+    }
+
+
 def _event_key(proposal_id: str, event_type: str, payload: dict[str, Any]) -> str:
     raw = json.dumps(
         {"proposal_id": proposal_id, "event_type": event_type, "payload": payload},
@@ -798,6 +1509,10 @@ def _event_key(proposal_id: str, event_type: str, payload: dict[str, Any]) -> st
         separators=(",", ":"),
     )
     return "evt_" + hashlib.sha256(raw.encode()).hexdigest()[:24]
+
+
+def _aware(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 def _account_reference(account_id: str) -> str:

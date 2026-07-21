@@ -62,6 +62,8 @@ def build_launchd_payload(
     }
     if os.getenv("CODEX_HOME"):
         environment["CODEX_HOME"] = os.environ["CODEX_HOME"]
+    if os.getenv("BROWSERBASE_API_KEY_FILE"):
+        environment["BROWSERBASE_API_KEY_FILE"] = os.environ["BROWSERBASE_API_KEY_FILE"]
     return {
         "Label": label,
         "ProgramArguments": [

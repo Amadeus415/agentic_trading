@@ -7,7 +7,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 from edgecraft import __version__
+from edgecraft.evaluation import evaluation_report
+from edgecraft.execution_models import PortfolioSnapshot
 from edgecraft.ledger import AuditLedger
+from edgecraft.portfolio import analyze_portfolio
 
 LOGGER_NAME = "edgecraft.autonomy"
 
@@ -126,7 +129,8 @@ def prometheus_metrics(ledger: AuditLedger) -> str:
 def control_plane_snapshot(ledger: AuditLedger) -> dict[str, Any]:
     """Build the privacy-safe operator view from the append-only ledger."""
     health = autonomy_health(ledger)
-    feed = ledger.observability_feed(limit=200)
+    feed = ledger.observability_feed(limit=200, include_decision_packets=False)
+    feed["decision_packets"] = ledger.portfolio_snapshot_feed(limit=500)
     runs = ledger.list_runs(limit=100)
     mandates = [
         {
@@ -134,30 +138,17 @@ def control_plane_snapshot(ledger: AuditLedger) -> dict[str, Any]:
             "mode": item.mode,
             "enabled": item.enabled,
             "benchmark": item.benchmark,
-            "weekly_budget": float(item.weekly_budget),
+            "cycle_frequency": item.cycle_frequency,
+            "cycle_budget": float(item.cycle_budget),
+            "weekly_budget": float(item.weekly_budget) if item.weekly_budget is not None else None,
+            "daily_budget": float(item.daily_budget) if item.daily_budget is not None else None,
             "universe": item.universe,
             "risk_level": item.risk_level,
         }
         for item in ledger.list_mandates()
     ]
-    trades = []
-    for event in feed["order_events"]:
-        payload = event["payload"]
-        trades.append(
-            {
-                "id": event["id"],
-                "proposal_id": event["proposal_id"],
-                "run_id": event["run_id"],
-                "mandate_id": event["mandate_id"],
-                "status": event["event_type"],
-                "occurred_at": event["occurred_at"],
-                "symbol": payload.get("symbol"),
-                "side": payload.get("side"),
-                "notional": payload.get("notional", payload.get("filled_notional")),
-                "filled_notional": payload.get("filled_notional"),
-                "broker_order_id_present": bool(payload.get("broker_order_id")),
-            }
-        )
+    runs_by_id = {item["run_id"]: item for item in runs}
+    trades = _trade_summaries(feed, runs_by_id)
     proposals = [
         {
             "proposal_id": item["proposal_id"],
@@ -179,11 +170,228 @@ def control_plane_snapshot(ledger: AuditLedger) -> dict[str, Any]:
         "has_history": bool(runs or trades),
         "health": health,
         "mandates": mandates,
+        "portfolio": _portfolio_view(feed, trades),
+        "performance": _performance_views(ledger, mandates),
         "runs": runs,
         "trades": trades,
         "events": feed["runtime_events"],
         "proposals": proposals,
     }
+
+
+def _trade_summaries(
+    feed: dict[str, list[dict[str, Any]]],
+    runs_by_id: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    events_by_order: dict[str, list[dict[str, Any]]] = {}
+    for event in feed["order_events"]:
+        order_key = event["payload"].get("order_key")
+        if order_key:
+            events_by_order.setdefault(str(order_key), []).append(event)
+    summaries = []
+    for proposal in feed["proposals"]:
+        run = runs_by_id.get(proposal["run_id"], {})
+        for order in proposal["payload"].get("orders", []):
+            order_key = str(order.get("order_key", ""))
+            events = sorted(
+                events_by_order.get(order_key, []),
+                key=lambda item: (item["occurred_at"], item["id"]),
+            )
+            last = events[-1] if events else None
+            filled = next(
+                (
+                    item
+                    for item in reversed(events)
+                    if item["event_type"] in {"filled", "partially_filled"}
+                ),
+                None,
+            )
+            placed = next(
+                (item for item in events if item["event_type"] == "placed"),
+                None,
+            )
+            status = (
+                last["event_type"]
+                if last
+                else ("shadow" if proposal["mode"] == "shadow" else "proposed")
+            )
+            fill_payload = filled["payload"] if filled else {}
+            run_status = run.get("status")
+            summaries.append(
+                {
+                    "order_key": order_key,
+                    "proposal_id": proposal["proposal_id"],
+                    "run_id": proposal["run_id"],
+                    "mandate_id": proposal["mandate_id"],
+                    "mode": proposal["mode"],
+                    "status": status,
+                    "run_status": run_status,
+                    "created_at": proposal["created_at"],
+                    "occurred_at": last["occurred_at"] if last else proposal["created_at"],
+                    "symbol": order.get("symbol"),
+                    "side": order.get("side"),
+                    "notional": order.get("notional"),
+                    "filled_notional": fill_payload.get("filled_notional"),
+                    "average_fill_price": fill_payload.get("average_fill_price"),
+                    "fees": fill_payload.get("fees"),
+                    "expected_price": order.get("expected_price"),
+                    "approved_for_review": bool(proposal["approved_for_review"]),
+                    "broker_event_count": len(events),
+                    "broker_order_id_present": any(
+                        bool(item["payload"].get("broker_order_id")) for item in events
+                    ),
+                    "confirmed_execution": bool(
+                        placed
+                        and filled
+                        and filled["event_type"] == "filled"
+                        and run_status == "completed"
+                    ),
+                }
+            )
+    return sorted(summaries, key=lambda item: item["occurred_at"], reverse=True)
+
+
+def _portfolio_view(
+    feed: dict[str, list[dict[str, Any]]],
+    trades: list[dict[str, Any]],
+) -> dict[str, Any]:
+    packets = feed["decision_packets"]
+    if not packets:
+        observations = [
+            item for item in feed["runtime_events"] if item["event_type"] == "observation_completed"
+        ]
+        if not observations:
+            return {"status": "unavailable", "history": [], "positions": []}
+        latest_event = max(observations, key=lambda item: item["occurred_at"])
+        payload = latest_event["payload"]
+        as_of = payload.get("observed_at", latest_event["occurred_at"])
+        last_broker_trade = next(
+            (item for item in trades if item["broker_event_count"] > 0),
+            None,
+        )
+        stale_after_trade = bool(
+            last_broker_trade
+            and datetime.fromisoformat(last_broker_trade["occurred_at"])
+            > datetime.fromisoformat(as_of)
+        )
+        history = [
+            {
+                "as_of": item["payload"].get("observed_at", item["occurred_at"]),
+                "portfolio_value": item["payload"].get("portfolio_value"),
+                "buying_power": item["payload"].get("buying_power"),
+                "invested_value": None,
+                "run_id": item["run_id"],
+            }
+            for item in sorted(observations, key=lambda item: item["occurred_at"])
+        ]
+        return {
+            "status": "stale_after_trade" if stale_after_trade else "summary_only",
+            "as_of": as_of,
+            "portfolio_value": payload.get("portfolio_value"),
+            "buying_power": payload.get("buying_power"),
+            "invested_value": None,
+            "position_count": len(payload.get("position_symbols", [])),
+            "positions": [
+                {"symbol": symbol, "detail_available": False}
+                for symbol in payload.get("position_symbols", [])
+            ],
+            "snapshot_age_seconds": max(
+                0, int((datetime.now(UTC) - datetime.fromisoformat(as_of)).total_seconds())
+            ),
+            "stale_after_trade": stale_after_trade,
+            "last_broker_trade_at": last_broker_trade["occurred_at"] if last_broker_trade else None,
+            "history": history,
+            "audit_note": (
+                "This historical run retained only a redacted observation summary. "
+                "Exact quantities, costs, and post-trade holdings were not persisted."
+            ),
+        }
+    latest = max(packets, key=lambda item: item["recorded_at"])
+    account_payload = latest["payload"].get("observation", {}).get("account")
+    if not account_payload:
+        return {"status": "unavailable", "history": [], "positions": []}
+    snapshot = PortfolioSnapshot.model_validate(account_payload)
+    analysis = analyze_portfolio(snapshot)
+    analysis.pop("account_id", None)
+    analysis.pop("nickname", None)
+    history_by_time: dict[str, dict[str, Any]] = {}
+    for packet in sorted(packets, key=lambda item: item["recorded_at"]):
+        account = packet["payload"].get("observation", {}).get("account") or {}
+        as_of = account.get("as_of")
+        if as_of and account.get("portfolio_value") is not None:
+            positions = account.get("positions", [])
+            history_by_time[as_of] = {
+                "as_of": as_of,
+                "portfolio_value": account["portfolio_value"],
+                "buying_power": account.get("buying_power"),
+                "invested_value": sum(
+                    float(item.get("quantity", 0)) * float(item.get("market_price", 0))
+                    for item in positions
+                ),
+                "run_id": packet["run_id"],
+            }
+    last_broker_trade = next(
+        (item for item in trades if item["broker_event_count"] > 0),
+        None,
+    )
+    stale_after_trade = bool(
+        last_broker_trade
+        and datetime.fromisoformat(last_broker_trade["occurred_at"])
+        > datetime.fromisoformat(snapshot.as_of.isoformat())
+    )
+    cost_basis = sum(
+        item["quantity"] * item["average_cost"]
+        for item in analysis["positions"]
+        if item["average_cost"] is not None
+    )
+    unrealized_pnl = sum(
+        item["unrealized_pnl"]
+        for item in analysis["positions"]
+        if item["unrealized_pnl"] is not None
+    )
+    return {
+        "status": "stale_after_trade" if stale_after_trade else "observed",
+        "decision_packet_id": latest["packet_id"],
+        "snapshot_age_seconds": max(0, int((datetime.now(UTC) - snapshot.as_of).total_seconds())),
+        "stale_after_trade": stale_after_trade,
+        "last_broker_trade_at": last_broker_trade["occurred_at"] if last_broker_trade else None,
+        "unrealized_pnl": unrealized_pnl,
+        "unrealized_return_on_cost": unrealized_pnl / cost_basis if cost_basis else None,
+        "history": list(history_by_time.values()),
+        **analysis,
+    }
+
+
+def _performance_views(
+    ledger: AuditLedger,
+    mandates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    views = []
+    for mandate in mandates:
+        mandate_id = mandate["mandate_id"]
+        observations = ledger.evaluation_observations(mandate_id)
+        state = ledger.evaluation_state(mandate_id)
+        report = evaluation_report(state, observations)
+        views.append(
+            {
+                "mandate_id": mandate_id,
+                "benchmark": mandate["benchmark"],
+                "report": report,
+                "series": [
+                    {
+                        "observed_at": item.observed_at.isoformat(),
+                        "agent": float(item.post_trade_values["agent"]),
+                        "benchmark": float(item.post_trade_values["benchmark"]),
+                        "strategic": float(item.post_trade_values["strategic"]),
+                        "contribution": float(item.contribution),
+                        "action": item.agent_action,
+                    }
+                    for item in observations
+                ],
+                "execution_quality": ledger.execution_quality(mandate_id),
+            }
+        )
+    return views
 
 
 def _label(value: str) -> str:

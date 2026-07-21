@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
+from edgecraft.autonomy import policy_digest
 from edgecraft.execution_models import (
     MarketQuote,
     PortfolioSnapshot,
@@ -31,6 +32,15 @@ def create_trade_proposal(
     created_at = now or datetime.now(UTC)
     orders = build_rebalance_orders(snapshot, quotes, targets, policy)
     daily_notional = ledger.daily_placed_notional(created_at.date()) if ledger else 0.0
+    daily_order_count = ledger.daily_placed_order_count(created_at.date()) if ledger else 0
+    rolling_notional = (
+        ledger.rolling_placed_notional(
+            since=created_at - timedelta(days=7),
+            before=created_at,
+        )
+        if ledger
+        else 0.0
+    )
     unresolved = ledger.unresolved_order_keys() if ledger else []
     decision = evaluate_orders(
         snapshot,
@@ -40,6 +50,8 @@ def create_trade_proposal(
         strategy=strategy,
         mode=mode,
         daily_placed_notional=daily_notional,
+        daily_placed_order_count=daily_order_count,
+        rolling_7d_placed_notional=rolling_notional,
         unresolved_order_keys=unresolved,
         research=research,
         now=created_at,
@@ -53,6 +65,7 @@ def create_trade_proposal(
         strategy=strategy,
         rationale=targets.rationale,
         policy_name=policy.policy_name,
+        policy_digest=policy_digest(policy),
         snapshot_as_of=snapshot.as_of,
         orders=orders,
         risk=decision,
