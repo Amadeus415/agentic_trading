@@ -14,9 +14,7 @@ from edgecraft.ledger import AuditLedger
 
 NOW = datetime.now(UTC)
 SCRIPT = Path(__file__).parents[1] / "scripts" / "guard_robinhood_tool.py"
-LIVE_POLICY = (
-    Path(__file__).parents[1] / "state" / "mandates" / "aggressive-market-day-live.policy.json"
-)
+LIVE_POLICY = Path(__file__).parent / "fixtures" / "tiny-live-policy.json"
 
 
 def test_tiny_live_policy_allows_one_two_dollar_position(tmp_path):
