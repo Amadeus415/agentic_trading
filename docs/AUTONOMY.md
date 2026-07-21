@@ -25,6 +25,8 @@ authority. A model cannot make the weekly budget larger, add a symbol, weaken a
 limit, disable review, mint a permit, reuse a permit, or clear the kill switch.
 See [the external-context guide](EXTERNAL_CONTEXT.md) for provider setup,
 freshness requirements, and the untrusted-content boundary.
+See [the decision data model](DECISION_DATA_MODEL.md) for the exact immutable
+record written for every valid decision attempt.
 
 ## Start with the supplied $10 shadow mandate
 
@@ -170,12 +172,21 @@ ledger adds this canonical reasoning from the stored proposal for every trade
 event, including events entered through the generic `edgecraft record` command;
 callers cannot omit or replace it.
 
+Before proposal creation, Edgecraft also writes a content-hashed decision packet
+containing the complete normalized mandate, risk policy, research evidence,
+Browserbase/SEC/social context, completed-session market intelligence, broker
+portfolio snapshot, quotes, material
+evidence inventory, and structured model judgment. Every decision needs recorded
+evidence, and invest decisions fail closed unless each allocation cites it. Inspect a packet with
+`edgecraft decision --ledger state/edgecraft.db --run-id RUN_ID`.
+
 If the execution agent reaches the broker but returns malformed or otherwise
 invalid structured output, Edgecraft performs one read-only recovery lookup for
 the exact account, symbol, side, amount, order type, and authority time window.
-It records an unambiguous broker result, never retries placement, and keeps the
-run failed with the kill switch active for owner review. Missing or ambiguous
-broker truth remains `unknown` and fail-closed.
+It records an unambiguous terminal broker result and never retries placement. An
+exact filled, rejected, or canceled result can finish automatically. Missing,
+partial, non-terminal, or ambiguous broker truth remains fail-closed and turns
+on the kill switch.
 
 Emergency stop:
 
@@ -191,10 +202,23 @@ exception after live authority was issued. Before resuming, reconcile
 Robinhood orders, positions, buying power, and the Edgecraft ledger:
 
 ```bash
+edgecraft incident-reconcile \
+  --ledger state/edgecraft.db \
+  --run-id RUN_ID \
+  --reason "exact broker order, position, and cash independently verified"
 edgecraft resume \
   --ledger state/edgecraft.db \
   --reason "broker state reconciled and incident resolved"
 ```
+
+`incident-reconcile` only accepts a failed run whose every proposed order has
+one coherent terminal event. It does not clear the kill switch; resumption is a
+separate, explicit control action.
+
+The agent, SPY benchmark, and fixed strategic shadow books advance on every due
+cycle with identical contributions and cost assumptions. Inspect them with
+`edgecraft performance --ledger state/edgecraft.db --mandate-id MANDATE_ID`.
+See [the performance guide](PERFORMANCE_EVALUATION.md) for interpretation.
 
 ## Validation boundary
 

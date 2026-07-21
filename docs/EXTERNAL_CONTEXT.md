@@ -15,9 +15,16 @@ small number of diverse pages. The current
 Fetch calls, and one browser hour per month. Edgecraft does not need a full
 browser session for its normal weekly path.
 
-Each collection normally costs two Search calls, up to three Fetch calls, and
-one no-key Bluesky request per mandate symbol. Results are cached for 30 minutes
-so safe retries do not repeat paid or rate-limited work.
+Small universes normally cost three Search calls: current news, SEC discovery,
+and public social-page discovery. Larger universes are split into
+symbol batches so every approved name can enter discovery without overflowing a
+provider query; `max_search_queries` is the hard budget. Social search rotates
+through individual symbols each day and never makes or retains more than
+`social_results` direct-AppView requests/results in total. Set it to zero when
+the public AppView is unavailable; Browserbase social-page discovery continues
+independently.
+Results are cached for 30 minutes so safe retries do not repeat paid or
+rate-limited work.
 
 ## Source choices
 
@@ -25,7 +32,7 @@ so safe retries do not repeat paid or rate-limited work.
 | --- | --- | --- | --- |
 | Browserbase Search + Fetch | Integrated, required by supplied mandates | Current reporting, primary-source discovery, page excerpts | Free project API key |
 | [SEC EDGAR submissions](https://www.sec.gov/search-filings/edgar-application-programming-interfaces) | Integrated when `sec_ciks` are configured | Official 8-K, 10-Q, 10-K, 6-K, 20-F, 40-F, and N-CSR filings | None |
-| [Bluesky public AppView](https://docs.bsky.app/docs/advanced-guides/api-directory) | Integrated | Public discussion and sentiment as a weak, untrusted signal | None |
+| [Bluesky public AppView](https://docs.bsky.app/docs/advanced-guides/api-directory) | Integrated through the cached public AppView host | Public discussion and sentiment as a weak, untrusted signal | None |
 | [FRED](https://fred.stlouisfed.org/docs/api/fred/overview.html) | Evaluated, not required | Macro series and vintage-aware economic context | User-issued API key |
 | X and Reddit APIs | Not required | Additional social volume | Platform auth/cost and materially more abuse/noise handling |
 

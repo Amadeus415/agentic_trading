@@ -24,16 +24,22 @@ Use this prompt for the explicitly armed mandate:
 > --mandate state/mandates/aggressive-market-day-live.json --ledger
 > state/edgecraft.db`. Then run `uv run edgecraft autonomy-health --ledger
 > state/edgecraft.db` and `uv run edgecraft runs --ledger state/edgecraft.db
-> --limit 1`. Report
+> --limit 1`. Finally run `uv run edgecraft performance --ledger
+> state/edgecraft.db --mandate-id aggressive_market_day_live` and `uv run
+> edgecraft execution-quality --ledger state/edgecraft.db --mandate-id
+> aggressive_market_day_live`. Report
 > the run ID, terminal status, decision, violations or warnings, whether any
-> permit was issued, broker reconciliation status, and kill-switch state. Never
+> permit was issued, broker reconciliation status, kill-switch state, and the
+> current agent-versus-SPY evaluation and execution-quality status. Never
 > bypass a failed check, retry a run that issued a permit, change capital limits,
 > or place any order outside the exact enabled mandate.
 
-Run it once each weekday shortly after the mandate's configured decision time.
-Edgecraft's cycle key and ledger lock make repeated wakeups idempotent, while a
-weekday cadence lets a missed wake-up recover on a later weekday. Review the
-first several scheduled runs in the Codex Scheduled inbox.
+Run it daily shortly after the mandate's configured decision time. Weekend
+wakeups return `not_due` without model or broker work; they still verify health
+and report the evaluation state. Edgecraft's cycle key and ledger lock make
+repeated wakeups idempotent, while the daily cadence makes missed or degraded
+runs visible. Review the first several scheduled runs in the Codex Scheduled
+inbox.
 
 The checked-in examples/mandate.index-dca.json remains the safe shadow
 alternative. Substitute it in the prompt when validating scheduling without

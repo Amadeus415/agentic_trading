@@ -23,11 +23,25 @@ data can be incomplete, and none of this promises a return.
 - A kill switch, expiring single-use trade permits, and broker reconciliation
 - A second, read-only execution preflight before any permit exists
 - Market-session, spread, liquidity, rolling-turnover, and drawdown gates
+- A completed-session market-intelligence snapshot for the full approved universe
+- Cash-flow-matched agent, SPY, and deterministic strategic evaluation books
 
-The safest mental model is:
+The safest mental model is that the model proposes, but ordinary code controls
+whether anything can reach the broker:
 
-```text
-model proposes → policy checks → broker reviews → exact order executes → ledger records
+```mermaid
+flowchart LR
+    A["Owner mandate"] --> B["Current web context"]
+    B --> C["GPT-5.6 Sol research agent"]
+    D["Robinhood account and market data"] --> C
+    E["Historical prices and research tools"] --> C
+    C --> F["Structured invest or hold proposal"]
+    F --> G["Deterministic Edgecraft risk engine"]
+    G -->|Rejected| H["Hold or record rejection"]
+    G -->|Approved| I["Fresh execution preflight"]
+    I --> J["Single-use trade permit"]
+    J --> K["Robinhood order"]
+    K --> L["Independent reconciliation and audit"]
 ```
 
 ## Try it locally
@@ -56,6 +70,9 @@ enough shadow cycles to understand the failure modes.
 
 See [the external-context guide](docs/EXTERNAL_CONTEXT.md) to configure and test
 current web, filing, and social inputs without placing an order.
+
+See [the performance guide](docs/PERFORMANCE_EVALUATION.md) for the daily SPY
+benchmark, strategic baseline, and point-in-time market snapshot.
 
 See [the production-readiness review](docs/PRODUCTION_READINESS.md) for the
 architecture benchmark and [the Codex scheduled-task guide](docs/CODEX_SCHEDULED_TASK.md)

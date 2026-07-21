@@ -42,7 +42,8 @@ continuous evaluation, incident response, safe failure, and recovery.
 ## Live execution state machine
 
     due + idempotency lock
-      -> fresh external context
+      -> completed-session full-universe market intelligence
+      -> fresh web, regulatory, and social context
       -> read-only broker observation
       -> typed recommendation
       -> deterministic portfolio risk gate
@@ -52,7 +53,7 @@ continuous evaluation, incident response, safe failure, and recovery.
       -> one expiring single-use permit
       -> exact broker placement
       -> terminal reconciliation
-      -> append-only audit and metrics
+      -> append-only audit, SPY comparison, and metrics
 
 The preflight occurs before authority exists. It refreshes account eligibility,
 positions, open orders, quote, tradability, market session, bid/ask spread, and
