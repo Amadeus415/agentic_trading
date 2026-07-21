@@ -3,7 +3,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": ".*(place|cancel)_(equity|option)_order$",
+        "matcher": "(^exec$|.*(place|cancel)_(equity|option)_order$)",
         "hooks": [
           {
             "type": "command",

@@ -1,0 +1,21 @@
+{
+  "provider": "browserbase",
+  "lookback_hours": 168,
+  "cache_ttl_minutes": 30,
+  "search_results_per_query": 8,
+  "symbols_per_query": 10,
+  "max_search_queries": 12,
+  "include_social_search": true,
+  "fetch_pages": 3,
+  "social_results": 9,
+  "max_total_sources": 100,
+  "max_excerpt_chars": 1200,
+  "min_sources": 4,
+  "min_web_sources": 2,
+  "min_fresh_sources": 2,
+  "min_decision_citations": 2,
+  "require_social": true,
+  "require_for_live": true,
+  "sec_ciks": {},
+  "sec_user_agent": null
+}

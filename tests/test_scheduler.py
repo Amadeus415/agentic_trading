@@ -14,6 +14,8 @@ def test_launchd_payload_uses_one_safe_cli_path(tmp_path, monkeypatch):
         "edgecraft.scheduler.shutil.which",
         lambda name: str(uv if name == "uv" else codex),
     )
+    monkeypatch.setenv("BROWSERBASE_API_KEY", "must-not-enter-plist")
+    monkeypatch.setenv("BROWSERBASE_API_KEY_FILE", "/private/context/browserbase-key")
     repository = tmp_path / "repo"
     repository.mkdir()
     payload = build_launchd_payload(
@@ -32,6 +34,10 @@ def test_launchd_payload_uses_one_safe_cli_path(tmp_path, monkeypatch):
     assert payload["RunAtLoad"] is True
     assert payload["StartInterval"] == 1_800
     assert payload["Umask"] == 0o077
+    assert payload["EnvironmentVariables"]["BROWSERBASE_API_KEY_FILE"] == (
+        "/private/context/browserbase-key"
+    )
+    assert "BROWSERBASE_API_KEY" not in payload["EnvironmentVariables"]
     assert Path(payload["StandardOutPath"]).parent == repository / "state" / "scheduler"
     assert (repository / "state" / "scheduler").stat().st_mode & 0o777 == 0o700
 

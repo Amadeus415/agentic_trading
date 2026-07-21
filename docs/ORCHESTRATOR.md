@@ -24,10 +24,18 @@ If any input changes after review, discard the review and start again.
 
 ```bash
 edgecraft health --real-data-symbol SPY
+edgecraft context \
+  --config examples/context.browserbase.json \
+  --symbols VTI,VXUS,BND \
+  --output artifacts/current-context.json
 edgecraft protocol
 ```
 
-`health` proves that the official MCP endpoint is enabled and that real OHLCV can be downloaded. It does not prove that a particular account can trade. Always call `get_accounts`; select only the dedicated account returned with `agentic_allowed=true`.
+`health` proves that the official MCP endpoint is enabled, real OHLCV can be
+downloaded, and the Browserbase credential is configured. `context` performs a
+real, read-only current-web collection. Neither proves that a particular account
+can trade. Always call `get_accounts`; select only the dedicated account returned
+with `agentic_allowed=true`.
 
 ### 2. Research a fixed hypothesis
 
@@ -149,6 +157,7 @@ Do not review or place when any of these is true:
 
 - The account is not freshly returned as `agentic_allowed=true`.
 - A quote, portfolio field, or order state is missing or stale.
+- Required external context is missing, stale, incomplete, or cited ambiguously.
 - An unknown open order or unreconciled prior proposal exists.
 - The proposal has any violation or a duplicate id.
 - Robinhood's review differs from the proposal.

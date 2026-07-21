@@ -7,7 +7,9 @@
       "ask": 600.1,
       "as_of": "2026-07-20T04:40:30Z",
       "tradable": true,
-      "fractionally_tradable": true
+      "fractionally_tradable": true,
+      "market_session": "regular",
+      "average_daily_dollar_volume": "25000000000"
     },
     {
       "symbol": "QQQ",
@@ -16,7 +18,9 @@
       "ask": 550.1,
       "as_of": "2026-07-20T04:40:30Z",
       "tradable": true,
-      "fractionally_tradable": true
+      "fractionally_tradable": true,
+      "market_session": "regular",
+      "average_daily_dollar_volume": "15000000000"
     }
   ]
 }
