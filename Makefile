@@ -1,4 +1,4 @@
-.PHONY: install dev api ui test lint security build demo health validate
+.PHONY: install dev api ui test lint security build demo health readme-dashboard validate
 
 install:
 	uv sync --extra dev
@@ -30,6 +30,9 @@ demo:
 
 health:
 	uv run edgecraft health
+
+readme-dashboard:
+	uv run python -m edgecraft.readme_dashboard
 
 validate: test lint
 	uv run edgecraft mandate-validate --config examples/mandate.index-dca.json
