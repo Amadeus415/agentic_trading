@@ -1,15 +1,18 @@
-# Edgecraft Agent Instructions
+# Edgecraft Agent Instructions -
 
 ## Mission
-
-Build an understandable, production-quality agentic portfolio manager for the
-stock market. The system accepts a portfolio mandate such as “invest $10 every
+### Build a FULLY Agentic Hedge Fund
+Build an understandable, production-quality agentic Hedge Fund on top of Robinhood MCP. The system accepts a portfolio mandate such as “invest $10 every
 week into index funds at attractive prices,” observes the account and its trade
 history, researches current market conditions, forms and tests a weekly
 hypothesis, and can autonomously place and monitor trades through Robinhood.
 
 This is a backend-first project. Prefer durable domain modules, a strong CLI,
 machine-callable tools, and explicit data contracts over frontend work.
+
+# Goals From the Human
+
+I want this to be a very high performing agentic hedge fund. Built on codex, with scheduled tasks and robinhood mcp running daily. This should be fully autonoumous with no human in the loop. For code Please make it understandable, readable and avoid unneeded complexity.
 
 ## Product principles
 
@@ -19,7 +22,7 @@ machine-callable tools, and explicit data contracts over frontend work.
 - Autonomy does not mean unbounded authority. Every action must pass
   deterministic, code-enforced mandate, cash, concentration, liquidity,
   drawdown, turnover, market-hours, and data-freshness checks that the reasoning
-  agent cannot bypass.
+  agent cannot bypass. Keep these pretty light and don't overdo them
 - Default new mandates and development workflows to paper or dry-run execution.
   Enabling live trading must be explicit, scoped to one account and mandate,
   recorded in the audit log, and reversible with a kill switch.
@@ -29,8 +32,11 @@ machine-callable tools, and explicit data contracts over frontend work.
   propose; typed policy and risk engines authorize.
 - Optimize for repeatable decision quality, costs, taxes, diversification, and
   risk-adjusted long-horizon outcomes—not activity or short-term prediction.
-- Never promise returns. Make uncertainty, stale or missing data, estimated
-  costs, rejected decisions, and degraded operation visible.
+
+## Data principles
+- Let's consume all needed data to have a cutting edge agentic hedge fund
+- The orchestrator agent should have the full amount of tools to fully reason through any and all financial data, internet data, and anything else to find the best position to open.
+- Every single piece of data in the workflow should be saved and auditable
 
 ## Engineering standards
 
