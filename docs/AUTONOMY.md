@@ -11,8 +11,10 @@ launchd wakeup
   → Edgecraft policy + freshness + cash + concentration + tilt gate
   → shadow complete
      or, only for an explicitly live mandate:
+  → Codex read-only execution preflight + Robinhood review
+  → Edgecraft market-session + spread + liquidity + drawdown + turnover gate
+  → policy fingerprint re-check
   → one expiring permit per order
-  → Codex refresh + Robinhood review
   → PreToolUse permit claim
   → Robinhood placement
   → order/position reconciliation + audit
@@ -94,7 +96,8 @@ automatically.
 
 Hard policy remains independent. “Aggressive” cannot enable a new symbol,
 exceed the budget, spend unavailable cash, violate concentration, accept stale
-data, sell when disabled, or use options/margin. Override `max_tactical_tilt`
+data, trade an unapproved session or illiquid quote, exceed turnover/drawdown,
+sell when disabled, or use options/margin. Override `max_tactical_tilt`
 explicitly when a mandate needs a tighter limit.
 
 ## Shadow-to-live promotion
@@ -131,6 +134,10 @@ edgecraft cycle \
 ```
 
 6. Confirm the broker order and ledger reconcile. Then install its schedule.
+
+For Codex Scheduled rather than launchd, use
+[the scheduled-task operating guide](CODEX_SCHEDULED_TASK.md). Keep the task in
+the local checkout so it shares the durable ledger and kill switch.
 
 Do not reuse the shadow mandate ID for a materially different policy. A live
 placement receives one opaque permit per order, valid for at most five minutes.

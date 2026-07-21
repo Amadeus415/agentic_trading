@@ -21,6 +21,8 @@ data can be incomplete, and none of this promises a return.
 - Audited Browserbase web search plus SEC and public Bluesky context
 - Shadow trading and an explicitly armed, tightly limited Robinhood path
 - A kill switch, expiring single-use trade permits, and broker reconciliation
+- A second, read-only execution preflight before any permit exists
+- Market-session, spread, liquidity, rolling-turnover, and drawdown gates
 
 The safest mental model is:
 
@@ -54,6 +56,10 @@ enough shadow cycles to understand the failure modes.
 
 See [the external-context guide](docs/EXTERNAL_CONTEXT.md) to configure and test
 current web, filing, and social inputs without placing an order.
+
+See [the production-readiness review](docs/PRODUCTION_READINESS.md) for the
+architecture benchmark and [the Codex scheduled-task guide](docs/CODEX_SCHEDULED_TASK.md)
+for unattended operation.
 
 ## Privacy and security
 

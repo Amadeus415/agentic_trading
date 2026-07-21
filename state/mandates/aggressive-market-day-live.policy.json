@@ -119,6 +119,14 @@
   "max_snapshot_age_seconds": 300,
   "max_research_age_days": 7,
   "max_price_deviation_bps": 100,
+  "max_spread_bps": 25,
+  "max_order_adv_fraction": 0.0001,
+  "allowed_market_sessions": [
+    "regular"
+  ],
+  "max_rolling_7d_turnover": 1.0,
+  "max_drawdown_fraction": 0.1,
+  "min_shadow_cycles_before_live": 0,
   "allow_sells": false,
   "require_research_evidence": false,
   "require_review": false,
