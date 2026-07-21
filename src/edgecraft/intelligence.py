@@ -171,10 +171,13 @@ def build_market_intelligence(
     )
     scores = _zscore(momentum_63) + 0.5 * _zscore(momentum_20) - 0.5 * _zscore(volatility)
     score_map = {symbol: float(score) for symbol, score in zip(score_symbols, scores, strict=True)}
-    if benchmark not in score_map:
-        score_map[benchmark] = 0.0
-    ranked = sorted(score_map, key=lambda symbol: (-score_map[symbol], symbol))
+    ranked = sorted(score_symbols, key=lambda symbol: (-score_map[symbol], symbol))
     rank_map = {symbol: index + 1 for index, symbol in enumerate(ranked)}
+    if benchmark not in score_map:
+        # The benchmark supplies regime and factor context; it must never
+        # displace an eligible mandate asset in the cross-sectional ranking.
+        score_map[benchmark] = 0.0
+        rank_map[benchmark] = len(score_symbols) + 1
     assets = {
         symbol: AssetIntelligence(
             symbol=symbol,
