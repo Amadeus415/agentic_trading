@@ -7,6 +7,7 @@ from decimal import Decimal
 import pytest
 
 from edgecraft.autonomous_service import AutonomousService, StaticObservationRuntime
+from edgecraft.autonomy import cycle_key
 from edgecraft.autonomy_models import AgentCyclePayload, ExecutionResult, Mandate
 from edgecraft.context import ContextSnapshot, ContextSource, WebContextPolicy
 from edgecraft.execution_models import TradeProposal
@@ -311,6 +312,24 @@ def test_side_effect_free_failure_retries_same_cycle_safely(tmp_path):
     assert retry["ok"]
     assert retry["run"]["status"] == "shadow_complete"
     assert ledger.run_attempt_count(retry["run"]["run_id"]) == 2
+
+
+def test_concurrent_cycle_returns_in_progress_without_invoking_runtime(tmp_path):
+    policy = _write_policy(tmp_path)
+    mandate = _mandate(str(policy))
+    ledger = AuditLedger(tmp_path / "state.db")
+    runtime = FailsOnceRuntime(_payload())
+    service = AutonomousService(tmp_path, ledger, runtime)
+    key = cycle_key(mandate, NOW)
+
+    with ledger.cycle_lock(mandate.mandate_id, key) as acquired:
+        assert acquired
+        result = service.run_cycle(mandate, now=NOW)
+
+    assert result["ok"]
+    assert result["status"] == "in_progress"
+    assert result["run"] is None
+    assert runtime.calls == 0
 
 
 def test_permit_makes_failed_run_non_retryable(tmp_path):

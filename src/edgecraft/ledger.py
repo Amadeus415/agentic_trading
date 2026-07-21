@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import errno
+import fcntl
 import hashlib
 import json
+import os
 import secrets
 import sqlite3
 from collections.abc import Iterator
@@ -54,6 +57,37 @@ class AuditLedger:
         ):
             if candidate.exists():
                 candidate.chmod(0o600)
+
+    @contextmanager
+    def cycle_lock(self, mandate_id: str, cycle_key: str) -> Iterator[bool]:
+        """Hold a process-wide lease for one mandate cycle.
+
+        SQLite protects individual writes, but a live cycle spans slow external
+        reads and model work between writes. A filesystem lease prevents a
+        second process from retrying the same cycle while the first process is
+        still active.
+        """
+        lock_directory = self.path.parent / f".{self.path.name}.locks"
+        lock_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        lock_directory.chmod(0o700)
+        identity = f"{self.path.resolve()}\0{mandate_id}\0{cycle_key}"
+        digest = hashlib.sha256(identity.encode()).hexdigest()[:32]
+        lock_path = lock_directory / f"{digest}.lock"
+        descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        os.chmod(lock_path, 0o600)
+        acquired = False
+        try:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+            except OSError as exc:
+                if exc.errno not in {errno.EACCES, errno.EAGAIN}:
+                    raise
+            yield acquired
+        finally:
+            if acquired:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
 
     def _initialize(self) -> None:
         with self._connection() as connection:

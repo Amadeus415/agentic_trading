@@ -5,6 +5,8 @@ import json
 import os
 import shutil
 import subprocess
+import threading
+import time
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -15,6 +17,7 @@ from pydantic import BaseModel
 from edgecraft.autonomy_models import AgentCyclePayload, ExecutionResult, Mandate
 from edgecraft.context import ContextSnapshot
 from edgecraft.execution_models import ProposedOrder, TradeProposal
+from edgecraft.observability import log_event
 
 OutputModel = TypeVar("OutputModel", bound=BaseModel)
 
@@ -42,6 +45,7 @@ class CodexRuntimeConfig:
     state_directory: Path = Path("state/runtime")
     executable: str = "codex"
     timeout_seconds: int = 1_200
+    progress_interval_seconds: float = 30.0
     sandbox: str = "read-only"
 
 
@@ -215,6 +219,29 @@ class CodexRuntime:
         else:
             environment["EDGECRAFT_PERMIT_TOKEN"] = permit_token
 
+        started_at = time.monotonic()
+        stop_progress = threading.Event()
+        progress_thread = threading.Thread(
+            target=_log_phase_progress,
+            kwargs={
+                "stop": stop_progress,
+                "interval_seconds": self.config.progress_interval_seconds,
+                "run_id": run_id,
+                "phase": phase,
+                "timeout_seconds": self.config.timeout_seconds,
+                "started_at": started_at,
+            },
+            name=f"edgecraft-{phase}-progress",
+            daemon=True,
+        )
+        log_event(
+            "codex_phase_started",
+            run_id=run_id,
+            phase=phase,
+            timeout_seconds=self.config.timeout_seconds,
+        )
+        progress_thread.start()
+        outcome = "interrupted"
         try:
             completed = subprocess.run(
                 command,
@@ -225,10 +252,22 @@ class CodexRuntime:
                 text=True,
                 timeout=self.config.timeout_seconds,
             )
+            outcome = "succeeded" if completed.returncode == 0 else "failed"
         except subprocess.TimeoutExpired as exc:
+            outcome = "timed_out"
             raise CodexRuntimeError(
                 f"Codex {phase} phase timed out after {self.config.timeout_seconds}s"
             ) from exc
+        finally:
+            stop_progress.set()
+            progress_thread.join(timeout=1)
+            log_event(
+                "codex_phase_finished",
+                run_id=run_id,
+                phase=phase,
+                outcome=outcome,
+                elapsed_seconds=max(0, int(time.monotonic() - started_at)),
+            )
         if completed.returncode != 0:
             detail = _safe_process_detail(completed.stdout, completed.stderr)
             raise CodexRuntimeError(f"Codex {phase} phase exited {completed.returncode}: {detail}")
@@ -246,6 +285,26 @@ class CodexRuntime:
             raise CodexRuntimeError(
                 f"Codex {phase} result failed schema validation (sha256={digest})"
             ) from exc
+
+
+def _log_phase_progress(
+    *,
+    stop: threading.Event,
+    interval_seconds: float,
+    run_id: str,
+    phase: str,
+    timeout_seconds: int,
+    started_at: float,
+) -> None:
+    interval = max(0.01, interval_seconds)
+    while not stop.wait(interval):
+        log_event(
+            "codex_phase_active",
+            run_id=run_id,
+            phase=phase,
+            elapsed_seconds=max(0, int(time.monotonic() - started_at)),
+            timeout_seconds=timeout_seconds,
+        )
 
 
 def observation_prompt(
