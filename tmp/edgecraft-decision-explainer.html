@@ -1,0 +1,1443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src 'unsafe-inline' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Edgecraft Decision Explainer</title>
+<style>:root{color-scheme:light dark;background:light-dark(rgb(255 255 255), rgb(24 24 24))}html,body{margin:0}body{box-sizing:border-box;padding:1rem;background:inherit}iframe{display:block;width:100%;max-width:736px;height:calc(100vh - 2rem);margin:0 auto;border:0}</style>
+</head>
+<body>
+<iframe sandbox="allow-scripts" referrerpolicy="no-referrer" title="Edgecraft Decision Explainer" srcdoc="&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot;&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;&gt;
+&lt;meta name=&quot;referrer&quot; content=&quot;no-referrer&quot;&gt;
+&lt;meta http-equiv=&quot;Content-Security-Policy&quot; content=&quot;default-src &#x27;none&#x27;; script-src &#x27;unsafe-inline&#x27; &#x27;unsafe-eval&#x27; &#x27;wasm-unsafe-eval&#x27; blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src &#x27;unsafe-inline&#x27; blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src &#x27;none&#x27;; object-src &#x27;none&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;&quot;&gt;
+&lt;title&gt;Edgecraft Decision Explainer&lt;/title&gt;
+&lt;style&gt;:root {
+  color-scheme: light dark;
+  background-color: var(--background) !important;
+
+  /* Agent-facing contract; keep in sync with SKILL.md. */
+  --background: light-dark(rgb(255 255 255), rgb(24 24 24));
+  --foreground: light-dark(rgb(26 28 31), rgb(255 255 255));
+  --card: color-mix(in oklab, var(--foreground) 5%, transparent);
+  --card-foreground: var(--foreground);
+  --popover: light-dark(rgb(255 255 255), rgb(45 45 45));
+  --popover-foreground: var(--foreground);
+  --primary: light-dark(rgb(51 156 255), rgb(131 195 255));
+  --primary-foreground: light-dark(rgb(255 255 255), rgb(13 13 13));
+  --secondary: light-dark(rgb(255 255 255 / 96%), rgb(54 54 54 / 96%));
+  --secondary-foreground: var(--foreground);
+  --muted: color-mix(in srgb, var(--foreground) 10%, transparent);
+  --muted-foreground: light-dark(
+    rgb(26 28 31 / 49.4%),
+    rgb(255 255 255 / 49.8%)
+  );
+  --accent: light-dark(rgb(229 242 255), rgb(13 39 63));
+  --accent-foreground: var(--primary);
+  --destructive: light-dark(rgb(226 85 7), rgb(255 133 73));
+  --border: light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8.2%));
+  --input: light-dark(
+    rgb(26 28 31 / 11.8%),
+    color-mix(in oklab, rgb(0 0 0) 10%, transparent)
+  );
+  --ring: light-dark(rgb(51 156 255), rgb(131 195 255 / 76%));
+  --font-size-base: 14px;
+  --viz-series-1: var(--primary);
+  --viz-series-2: light-dark(rgb(243 136 59), rgb(245 154 86));
+  --viz-series-3: light-dark(rgb(93 201 119), rgb(116 213 139));
+  --viz-series-4: light-dark(rgb(235 119 177), rgb(240 143 192));
+  --viz-series-5: light-dark(rgb(155 121 236), rgb(170 145 239));
+  --viz-series-6: light-dark(rgb(58 185 177), rgb(90 203 194));
+
+  /* Internal implementation variables; not part of the agent contract. */
+  --font-sans: -apple-system, system-ui, &quot;Segoe UI&quot;, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, &quot;SF Mono&quot;, Menlo, Consolas, &quot;Liberation Mono&quot;,
+    monospace;
+  --font-size-normal: max(11px, var(--font-size-base));
+  --font-size-tooltip: calc(var(--font-size-base) - 1px);
+  --font-size-small: max(11px, calc(var(--font-size-base) - 2px));
+  --font-size-h1: calc(var(--font-size-normal) * 1.7142857143);
+  --font-size-h2: calc(var(--font-size-normal) * 1.4285714286);
+  --font-size-h3: calc(var(--font-size-normal) * 1.2857142857);
+  --font-weight-normal: 430;
+  --font-weight-medium: 500;
+  --line-height-normal: calc(var(--font-size-normal) * 1.5);
+  --line-height-tooltip: calc(var(--font-size-tooltip) * 1.4285714286);
+  --line-height-small: calc(var(--font-size-small) + 4px);
+  --radius: 12.5px;
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-2xl: calc(var(--radius) * 1.6);
+  --radius-full: 9999px;
+  --shadow-sm: 0 1px 2px -1px rgb(0 0 0 / 8%);
+  --checkmark-image: url(&quot;data:image/svg+xml,%3Csvg xmlns=&#x27;http://www.w3.org/2000/svg&#x27; viewBox=&#x27;0 0 17 17&#x27;%3E%3Cpath d=&#x27;M12.8961 3.64101C13.1297 3.41418 13.4984 3.37523 13.7779 3.56581C14.0571 3.75635 14.1554 4.11331 14.0299 4.41347L13.9615 4.53847L7.71151 13.7045C7.59411 13.8767 7.4063 13.9877 7.19881 14.0072C6.99136 14.0267 6.78564 13.9533 6.63826 13.806L2.88826 10.056L2.79842 9.9457C2.6192 9.67407 2.64927 9.30496 2.88826 9.06581C3.12738 8.82669 3.49647 8.79676 3.76815 8.97597L3.8785 9.06581L7.03084 12.2182L12.8053 3.74941L12.8961 3.64101Z&#x27;/%3E%3C/svg%3E&quot;);
+
+  /* Legacy aliases; not part of the current agent contract. */
+  --viz-bg: transparent;
+  --viz-panel: var(--card);
+  --viz-border: var(--border);
+  --viz-text: var(--foreground);
+  --viz-muted: var(--muted-foreground);
+  --viz-accent: var(--primary);
+  --viz-accent-text: var(--primary-foreground);
+  --viz-accent-bg: var(--accent);
+  --viz-font-size: var(--font-size-base);
+  --viz-warning: var(--destructive);
+  --color-background-primary: var(--background);
+  --color-text-primary: var(--foreground);
+  --color-border-secondary: var(--border);
+}
+
+:root[data-theme=&quot;light&quot;] {
+  color-scheme: light;
+}
+
+:root[data-theme=&quot;dark&quot;] {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html &gt; body {
+  margin: 0;
+  padding: 5px;
+  color: var(--foreground);
+  background: transparent !important;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-normal);
+  font-weight: var(--font-weight-normal);
+  line-height: var(--line-height-normal);
+}
+
+a {
+  color: color-mix(in srgb, var(--viz-accent) 80%, var(--viz-text) 20%);
+  cursor: pointer;
+  font-weight: var(--viz-font-weight-medium);
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+
+a:is(:hover, :focus-visible) {
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-thickness: 0.5px;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+  margin-block: 0;
+}
+
+h1 {
+  font-size: var(--font-size-h1);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+h2 {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+h3,
+h4,
+h5,
+h6 {
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.3;
+}
+
+b,
+strong,
+th {
+  font-weight: var(--font-weight-medium);
+}
+
+code:not(pre code) {
+  display: inline;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  corner-shape: superellipse(1.5);
+  background: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  word-break: break-word;
+}
+
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--foreground);
+  font: inherit;
+  text-align: start;
+}
+
+.table :is(th, td) {
+  padding-block: 10px;
+  padding-inline: 0 24px;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid var(--border);
+  text-align: start;
+  vertical-align: top;
+}
+
+.table-responsive &gt; .table :is(th, td) {
+  overflow-wrap: break-word;
+}
+
+.table :is(th, td):last-child {
+  padding-inline-end: 0;
+}
+
+.table :is(caption, thead th) {
+  font-weight: 600;
+}
+
+.table thead th {
+  padding-block: 8px;
+  border-bottom-color: color-mix(in srgb, var(--foreground) 16%, transparent);
+}
+
+.table tbody tr:last-child :is(th, td) {
+  border-bottom: 0;
+}
+
+.table.table-sm :is(th, td) {
+  padding-block: 6px;
+}
+
+.table.table-sm :is(th, td):not(:last-child) {
+  padding-inline-end: 16px;
+}
+
+.table :is(.text-end, [align=&quot;right&quot;]) {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.table :is(.text-center, [align=&quot;center&quot;]) {
+  text-align: center;
+}
+
+.table .text-nowrap {
+  white-space: nowrap;
+}
+
+#widget {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  background: transparent !important;
+}
+
+.card {
+  min-width: 0;
+  padding: 12px;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  border-radius: var(--radius-2xl);
+  corner-shape: superellipse(1.5);
+  color: var(--card-foreground);
+  background: var(--card);
+}
+
+#widget &gt; :not(.card) {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 50;
+  top: 0;
+  left: 0;
+  width: max-content;
+  max-width: min(
+    20rem,
+    var(--tooltip-available-width, calc(100vw - 10px)),
+    calc(100vw - 10px)
+  );
+  max-height: min(
+    var(--tooltip-available-height, calc(100vh - 10px)),
+    calc(100vh - 10px)
+  );
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--popover-foreground);
+  background: var(--popover);
+  box-shadow: none;
+  font-size: var(--font-size-tooltip);
+  line-height: var(--line-height-tooltip);
+  overflow-wrap: break-word;
+  white-space: normal;
+  pointer-events: none;
+  user-select: none;
+}
+
+.viz-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(max(180px, 24%), 1fr));
+  gap: 10px;
+}
+
+.viz-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.viz-stat-value {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+.viz-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.viz-badge {
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  color: var(--accent-foreground);
+  background: var(--accent);
+  font-weight: var(--font-weight-medium);
+}
+
+small,
+.text-small,
+.viz-badge {
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+}
+
+.text-muted {
+  color: var(--muted-foreground);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.viz-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.viz-controls &gt; .form-label {
+  display: grid;
+  min-width: min(100%, 260px);
+  flex: 1 1 280px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2px 12px;
+  margin-bottom: 0;
+}
+
+.viz-controls &gt; .form-label &gt; :is(.form-control, .form-range, .form-select) {
+  grid-column: 1 / -1;
+}
+
+.btn,
+.form-check-input,
+.form-control,
+.form-range,
+.form-select {
+  font: inherit;
+}
+
+.btn {
+  appearance: button;
+  display: inline-flex;
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0 8px;
+  -webkit-app-region: no-drag;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  cursor: var(--cursor-interaction, pointer);
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.btn:is(.btn-block, .viz-tile) {
+  inline-size: 100%;
+}
+
+.btn.viz-tile {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+a.btn {
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.btn:not(:disabled):hover {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.btn-primary {
+  border-color: transparent;
+  color: var(--primary-foreground);
+  background: var(--foreground);
+  background-clip: padding-box;
+}
+
+.btn-primary .text-muted {
+  color: color-mix(in srgb, var(--primary-foreground) 50%, transparent);
+}
+
+.btn-primary:not(:disabled):hover {
+  background: color-mix(in srgb, var(--foreground) 80%, transparent);
+  background-clip: padding-box;
+}
+
+.btn-ghost {
+  border-color: transparent;
+  color: var(--muted-foreground);
+  background: transparent;
+}
+
+.btn-ghost:not(:disabled):hover {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+[data-lucide] {
+  stroke-width: 1.6;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--foreground);
+}
+
+.form-control {
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  padding: 0 8px;
+  outline: none;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--foreground);
+  background: var(--secondary);
+}
+
+.form-control::placeholder {
+  color: var(--muted-foreground);
+}
+
+.form-control[type=&quot;file&quot;] {
+  padding: 0;
+  overflow: hidden;
+  cursor: var(--cursor-interaction, pointer);
+}
+
+.form-control[type=&quot;file&quot;]::file-selector-button {
+  min-height: 26px;
+  margin-right: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-right: 1px solid var(--input);
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  cursor: inherit;
+  font: inherit;
+}
+
+.form-control[type=&quot;file&quot;]:not(:disabled):hover::file-selector-button {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.form-control-color[type=&quot;color&quot;] {
+  width: 40px;
+  height: 28px;
+  padding: 3px;
+  cursor: var(--cursor-interaction, pointer);
+}
+
+.form-control-color[type=&quot;color&quot;]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.form-control-color[type=&quot;color&quot;]::-webkit-color-swatch {
+  border: 0;
+  border-radius: calc(var(--radius-lg) - 4px);
+  corner-shape: superellipse(1.5);
+}
+
+textarea.form-control {
+  height: auto;
+  min-height: 72px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.form-control:focus-visible {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-control:disabled,
+.form-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.form-select {
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  margin: 0;
+  padding: 0 32px 0 8px;
+  outline: none;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--foreground);
+  background-color: var(--secondary);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted-foreground) 50%),
+    linear-gradient(135deg, var(--muted-foreground) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 10px) 50%;
+  background-repeat: no-repeat;
+  background-size: 4px 4px;
+  cursor: var(--cursor-interaction, default);
+}
+
+.form-select:not(:disabled):hover {
+  background-color: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.form-select:focus-visible {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-check {
+  display: flex;
+  min-height: 20px;
+  align-items: center;
+  gap: 6px;
+}
+
+.form-check-input {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin: 0;
+  border: 1px solid var(--input);
+  color: var(--primary-foreground);
+  background-color: transparent;
+  cursor: var(--cursor-interaction, default);
+  transition:
+    background-color 150ms,
+    border-color 150ms,
+    box-shadow 150ms;
+}
+
+.form-check:not(.form-switch) .form-check-input[type=&quot;checkbox&quot;] {
+  border-color: var(--input);
+  border-radius: var(--radius-sm);
+  corner-shape: superellipse(1.5);
+  background-color: var(--secondary);
+  box-shadow: var(--shadow-sm);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input:not(:disabled):not(:checked):hover {
+  background-color: var(--card);
+}
+
+.form-check:not(.form-switch) .form-check-input[type=&quot;checkbox&quot;]:checked {
+  border-color: var(--primary);
+  background-color: var(--primary);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input[type=&quot;checkbox&quot;]:checked::before {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--primary-foreground);
+  content: &quot;&quot;;
+  mask: var(--checkmark-image) center / 12px 12px no-repeat;
+}
+
+.form-check-input[type=&quot;radio&quot;] {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+}
+
+.form-check-input[type=&quot;radio&quot;]:checked {
+  border: 2px solid var(--primary);
+  background:
+    radial-gradient(circle, var(--primary-foreground) 0 2.5px, transparent 3px),
+    var(--primary);
+}
+
+.form-check:not(.form-switch) .form-check-input:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.form-check:not(.form-switch) .form-check-input:disabled {
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.form-check:not(.form-switch) .form-check-input:disabled + .form-check-label {
+  cursor: not-allowed;
+}
+
+.form-switch .form-check-input:disabled,
+.form-switch .form-check-input:disabled + .form-check-label {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.form-check-label {
+  color: var(--foreground);
+  cursor: var(--cursor-interaction, default);
+}
+
+.form-switch .form-check-input {
+  position: relative;
+  width: 32px;
+  height: 20px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--muted);
+  box-shadow: none;
+  transition: background-color 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.form-switch .form-check-input::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 1px solid light-dark(var(--primary-foreground), var(--foreground));
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+  box-shadow: var(--shadow-sm);
+  content: &quot;&quot;;
+  transform: translate(2px, -50%);
+  transition: transform 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.form-switch .form-check-input:checked {
+  background: var(--primary);
+}
+
+.form-switch .form-check-input:checked::before {
+  transform: translate(14px, -50%);
+}
+
+.form-switch .form-check-input:focus-visible {
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+.form-range {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 28px;
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  outline: none;
+  border: 0;
+  accent-color: var(--primary);
+  background: linear-gradient(
+      color-mix(in srgb, var(--foreground) 7%, transparent),
+      color-mix(in srgb, var(--foreground) 7%, transparent)
+    )
+    center / 100% 2px no-repeat;
+}
+
+.form-range::-webkit-slider-runnable-track {
+  height: 28px;
+  background: transparent;
+}
+
+.form-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+}
+
+.form-range:focus-visible::-webkit-slider-thumb {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-range::-moz-range-track {
+  height: 28px;
+  background: transparent;
+}
+
+.form-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+}
+
+.form-range:focus-visible::-moz-range-thumb {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-range:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.btn:not(.btn-primary, .viz-tile):is(
+    [aria-pressed=&quot;true&quot;],
+    [aria-selected=&quot;true&quot;],
+    .is-selected
+  ) {
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+
+.btn.viz-tile:is([aria-pressed=&quot;true&quot;], [aria-selected=&quot;true&quot;], .is-selected) {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+#widget &gt; svg {
+  width: 100%;
+}
+
+.text-warning,
+.text-destructive {
+  color: var(--destructive);
+}
+
+html&gt;body{padding:0}&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div id=&quot;edgecraft-decision-lab&quot;&gt;
+  &lt;style&gt;
+    #edgecraft-decision-lab { color: var(--foreground); font-family: ui-sans-serif, system-ui, sans-serif; }
+    #edgecraft-decision-lab * { box-sizing: border-box; }
+    #edgecraft-decision-lab .hero { padding: 20px 0 12px; }
+    #edgecraft-decision-lab .kicker { color: var(--muted-foreground); letter-spacing: .08em; text-transform: uppercase; font-size: 12px; }
+    #edgecraft-decision-lab h1 { margin: 6px 0 8px; font-size: clamp(28px, 5vw, 54px); line-height: 1.02; font-weight: 500; max-width: 900px; }
+    #edgecraft-decision-lab .lede { color: var(--muted-foreground); max-width: 760px; margin: 0; }
+    #edgecraft-decision-lab .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0; }
+    #edgecraft-decision-lab button { font: inherit; }
+    #edgecraft-decision-lab .tab, #edgecraft-decision-lab .stage, #edgecraft-decision-lab .scenario { border: 1px solid var(--border); background: var(--card); color: var(--card-foreground); border-radius: 999px; padding: 8px 13px; cursor: pointer; }
+    #edgecraft-decision-lab .tab[aria-selected=&quot;true&quot;], #edgecraft-decision-lab .stage[aria-pressed=&quot;true&quot;], #edgecraft-decision-lab .scenario[aria-pressed=&quot;true&quot;] { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+    #edgecraft-decision-lab .panel { display: none; }
+    #edgecraft-decision-lab .panel.active { display: block; }
+    #edgecraft-decision-lab .flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; align-items: stretch; }
+    #edgecraft-decision-lab .stage { border-radius: 14px; min-height: 92px; text-align: left; position: relative; padding: 13px; }
+    #edgecraft-decision-lab .stage small { display: block; color: var(--muted-foreground); margin-bottom: 6px; }
+    #edgecraft-decision-lab .stage[aria-pressed=&quot;true&quot;] small { color: var(--primary-foreground); opacity: .75; }
+    #edgecraft-decision-lab .detail, #edgecraft-decision-lab .simulator, #edgecraft-decision-lab .boundary { margin-top: 14px; padding: 18px; border: 1px solid var(--border); border-radius: 16px; background: var(--card); color: var(--card-foreground); }
+    #edgecraft-decision-lab .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    #edgecraft-decision-lab .example { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+    #edgecraft-decision-lab .example-label { color: var(--muted-foreground); letter-spacing: .06em; text-transform: uppercase; font-size: 12px; }
+    #edgecraft-decision-lab .mental-model { margin: 14px 0; padding: 14px; background: var(--muted); color: var(--muted-foreground); border-radius: 12px; }
+    #edgecraft-decision-lab .stage-sections { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 28px; margin-top: 18px; }
+    #edgecraft-decision-lab .stage-section { border-top: 1px solid var(--border); padding-top: 12px; }
+    #edgecraft-decision-lab .stage-section.full { grid-column: 1 / -1; }
+    #edgecraft-decision-lab .stage-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; }
+    #edgecraft-decision-lab .stage-nav button { border: 1px solid var(--border); background: var(--card); color: var(--card-foreground); border-radius: 999px; padding: 8px 13px; cursor: pointer; }
+    #edgecraft-decision-lab .stage-counter { color: var(--muted-foreground); }
+    #edgecraft-decision-lab h2 { font-size: 22px; font-weight: 500; margin: 0 0 12px; }
+    #edgecraft-decision-lab h3 { font-size: 16px; font-weight: 500; margin: 0 0 8px; }
+    #edgecraft-decision-lab ul, #edgecraft-decision-lab ol { margin: 0; padding-left: 20px; }
+    #edgecraft-decision-lab li + li { margin-top: 6px; }
+    #edgecraft-decision-lab .muted { color: var(--muted-foreground); }
+    #edgecraft-decision-lab .sources { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
+    #edgecraft-decision-lab .source { padding: 15px 0; border-top: 2px solid var(--viz-series-1); }
+    #edgecraft-decision-lab .source:nth-child(2) { border-color: var(--viz-series-2); }
+    #edgecraft-decision-lab .source:nth-child(3) { border-color: var(--viz-series-3); }
+    #edgecraft-decision-lab .source:nth-child(4) { border-color: var(--viz-series-4); }
+    #edgecraft-decision-lab .source:nth-child(5) { border-color: var(--viz-series-5); }
+    #edgecraft-decision-lab .source:nth-child(6) { border-color: var(--viz-series-6); }
+    #edgecraft-decision-lab .reasoning { display: grid; grid-template-columns: 42px 1fr; gap: 8px 12px; align-items: start; }
+    #edgecraft-decision-lab .num { height: 30px; width: 30px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--viz-series-1) 18%, transparent); }
+    #edgecraft-decision-lab .reason-step { padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+    #edgecraft-decision-lab .reason-step strong { font-weight: 500; }
+    #edgecraft-decision-lab .choicebar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+    #edgecraft-decision-lab .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 24px; }
+    #edgecraft-decision-lab label { display: grid; gap: 6px; }
+    #edgecraft-decision-lab input[type=&quot;range&quot;] { width: 100%; accent-color: var(--primary); }
+    #edgecraft-decision-lab .check { display: flex; align-items: center; gap: 8px; }
+    #edgecraft-decision-lab .result { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+    #edgecraft-decision-lab .status { display: inline-block; padding: 5px 9px; border-radius: 999px; background: var(--muted); color: var(--muted-foreground); }
+    #edgecraft-decision-lab .status.pass { background: color-mix(in srgb, var(--viz-series-2) 22%, var(--card)); color: var(--foreground); }
+    #edgecraft-decision-lab .status.fail { background: color-mix(in srgb, var(--destructive) 18%, var(--card)); color: var(--foreground); }
+    #edgecraft-decision-lab .violations { margin-top: 10px; }
+    #edgecraft-decision-lab .lanes { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+    #edgecraft-decision-lab .lane { border-top: 3px solid var(--viz-series-1); padding-top: 12px; }
+    #edgecraft-decision-lab .lane:nth-child(2) { border-color: var(--viz-series-2); }
+    #edgecraft-decision-lab .lane:nth-child(3) { border-color: var(--viz-series-3); }
+    #edgecraft-decision-lab .footer-note { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); color: var(--muted-foreground); }
+    #edgecraft-decision-lab .timeline { display: grid; grid-template-columns: 118px 18px 1fr; gap: 0 12px; }
+    #edgecraft-decision-lab .time { color: var(--muted-foreground); padding: 4px 0 22px; }
+    #edgecraft-decision-lab .dotline { position: relative; border-left: 2px solid var(--border); }
+    #edgecraft-decision-lab .dotline::before { content: &#x27;&#x27;; position: absolute; width: 10px; height: 10px; border-radius: 50%; background: var(--viz-series-1); left: -6px; top: 7px; }
+    #edgecraft-decision-lab .event { padding: 0 0 22px; }
+    #edgecraft-decision-lab .event strong { font-weight: 500; }
+    #edgecraft-decision-lab .event code { color: var(--foreground); }
+    #edgecraft-decision-lab .run-switch { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+    #edgecraft-decision-lab .quote { border-left: 3px solid var(--viz-series-2); padding-left: 14px; margin-top: 8px; }
+    @media (max-width: 720px) {
+      #edgecraft-decision-lab .flow { grid-template-columns: 1fr 1fr; }
+      #edgecraft-decision-lab .detail-grid, #edgecraft-decision-lab .controls { grid-template-columns: 1fr; }
+      #edgecraft-decision-lab .stage-sections { grid-template-columns: 1fr; }
+      #edgecraft-decision-lab .stage-section.full { grid-column: auto; }
+      #edgecraft-decision-lab .sources, #edgecraft-decision-lab .lanes { grid-template-columns: 1fr; }
+      #edgecraft-decision-lab .timeline { grid-template-columns: 84px 14px 1fr; gap: 0 8px; }
+    }
+    @media (max-width: 430px) { #edgecraft-decision-lab .flow { grid-template-columns: 1fr; } }
+  &lt;/style&gt;
+
+  &lt;header class=&quot;hero&quot;&gt;
+    &lt;div class=&quot;kicker&quot;&gt;Edgecraft decision system&lt;/div&gt;
+    &lt;h1&gt;Models propose. Typed policy authorizes. The broker executes.&lt;/h1&gt;
+    &lt;p class=&quot;lede&quot;&gt;Explore how fresh evidence becomes an auditable recommendation, why a recommendation is not permission, and what must be true before a live order can exist.&lt;/p&gt;
+  &lt;/header&gt;
+
+  &lt;nav class=&quot;tabs&quot; aria-label=&quot;Explainer sections&quot;&gt;
+    &lt;button class=&quot;tab&quot; data-tab=&quot;journey&quot; aria-selected=&quot;true&quot;&gt;Decision journey&lt;/button&gt;
+    &lt;button class=&quot;tab&quot; data-tab=&quot;data&quot; aria-selected=&quot;false&quot;&gt;Tools &amp;amp; data&lt;/button&gt;
+    &lt;button class=&quot;tab&quot; data-tab=&quot;reason&quot; aria-selected=&quot;false&quot;&gt;How it reasons&lt;/button&gt;
+    &lt;button class=&quot;tab&quot; data-tab=&quot;lab&quot; aria-selected=&quot;false&quot;&gt;Risk-gate lab&lt;/button&gt;
+    &lt;button class=&quot;tab&quot; data-tab=&quot;runs&quot; aria-selected=&quot;false&quot;&gt;Real run examples&lt;/button&gt;
+    &lt;button class=&quot;tab&quot; data-tab=&quot;authority&quot; aria-selected=&quot;false&quot;&gt;Who has authority?&lt;/button&gt;
+  &lt;/nav&gt;
+
+  &lt;section class=&quot;panel active&quot; data-panel=&quot;journey&quot;&gt;
+    &lt;div class=&quot;flow&quot; aria-label=&quot;Select a stage to inspect it&quot;&gt;
+      &lt;button class=&quot;stage&quot; data-stage=&quot;mandate&quot; aria-pressed=&quot;true&quot;&gt;&lt;small&gt;01 · OWNER&lt;/small&gt;Mandate &amp;amp; hard ceiling&lt;/button&gt;
+      &lt;button class=&quot;stage&quot; data-stage=&quot;context&quot; aria-pressed=&quot;false&quot;&gt;&lt;small&gt;02 · PYTHON&lt;/small&gt;Current context packet&lt;/button&gt;
+      &lt;button class=&quot;stage&quot; data-stage=&quot;observe&quot; aria-pressed=&quot;false&quot;&gt;&lt;small&gt;03 · MODEL&lt;/small&gt;Read-only observation&lt;/button&gt;
+      &lt;button class=&quot;stage&quot; data-stage=&quot;proposal&quot; aria-pressed=&quot;false&quot;&gt;&lt;small&gt;04 · MODEL&lt;/small&gt;Invest or hold proposal&lt;/button&gt;
+      &lt;button class=&quot;stage&quot; data-stage=&quot;risk&quot; aria-pressed=&quot;false&quot;&gt;&lt;small&gt;05 · PYTHON&lt;/small&gt;Deterministic risk gate&lt;/button&gt;
+      &lt;button class=&quot;stage&quot; data-stage=&quot;preflight&quot; aria-pressed=&quot;false&quot;&gt;&lt;small&gt;06 · BROKER + PYTHON&lt;/small&gt;Fresh execution preflight&lt;/button&gt;
+      &lt;button class=&quot;stage&quot; data-stage=&quot;permit&quot; aria-pressed=&quot;false&quot;&gt;&lt;small&gt;07 · EDGECRAFT&lt;/small&gt;Single-use permit&lt;/button&gt;
+      &lt;button class=&quot;stage&quot; data-stage=&quot;reconcile&quot; aria-pressed=&quot;false&quot;&gt;&lt;small&gt;08 · BROKER&lt;/small&gt;Place &amp;amp; reconcile&lt;/button&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;detail&quot; aria-live=&quot;polite&quot;&gt;
+      &lt;div class=&quot;detail-grid&quot;&gt;
+        &lt;div&gt;&lt;h2 id=&quot;stage-title&quot;&gt;&lt;/h2&gt;&lt;p id=&quot;stage-summary&quot;&gt;&lt;/p&gt;&lt;/div&gt;
+        &lt;div&gt;&lt;h3&gt;What must be true&lt;/h3&gt;&lt;ul id=&quot;stage-rules&quot;&gt;&lt;/ul&gt;&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;mental-model&quot;&gt;&lt;strong&gt;Mental model:&lt;/strong&gt; &lt;span id=&quot;stage-analogy&quot;&gt;&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;stage-sections&quot;&gt;
+        &lt;div class=&quot;stage-section&quot;&gt;&lt;h3&gt;Inputs coming in&lt;/h3&gt;&lt;ul id=&quot;stage-inputs&quot;&gt;&lt;/ul&gt;&lt;/div&gt;
+        &lt;div class=&quot;stage-section&quot;&gt;&lt;h3&gt;What happens inside&lt;/h3&gt;&lt;ol id=&quot;stage-process&quot;&gt;&lt;/ol&gt;&lt;/div&gt;
+        &lt;div class=&quot;stage-section&quot;&gt;&lt;h3&gt;Output passed forward&lt;/h3&gt;&lt;ul id=&quot;stage-outputs&quot;&gt;&lt;/ul&gt;&lt;/div&gt;
+        &lt;div class=&quot;stage-section&quot;&gt;&lt;h3&gt;How this step fails safely&lt;/h3&gt;&lt;ul id=&quot;stage-failures&quot;&gt;&lt;/ul&gt;&lt;/div&gt;
+        &lt;div class=&quot;stage-section full&quot;&gt;&lt;div class=&quot;example-label&quot;&gt;Recorded example · July 21, 2026&lt;/div&gt;&lt;p id=&quot;stage-example&quot;&gt;&lt;/p&gt;&lt;p class=&quot;muted&quot; id=&quot;stage-why&quot;&gt;&lt;/p&gt;&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;stage-nav&quot;&gt;&lt;button id=&quot;previous-stage&quot;&gt;← Previous&lt;/button&gt;&lt;span id=&quot;stage-counter&quot; class=&quot;stage-counter&quot;&gt;&lt;/span&gt;&lt;button id=&quot;next-stage&quot;&gt;Next →&lt;/button&gt;&lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/section&gt;
+
+  &lt;section class=&quot;panel&quot; data-panel=&quot;data&quot;&gt;
+    &lt;div class=&quot;sources&quot;&gt;
+      &lt;article class=&quot;source&quot;&gt;&lt;h3&gt;Robinhood Trading MCP&lt;/h3&gt;&lt;p class=&quot;muted&quot;&gt;Broker truth: eligible account, buying power, positions, orders, P&amp;amp;L, quotes and tradability.&lt;/p&gt;&lt;p&gt;&lt;strong&gt;Recorded example:&lt;/strong&gt; the July 21 observation found an eligible, unrestricted account with $5 buying power, no positions and no open orders; it refreshed quotes for all 44 symbols.&lt;/p&gt;&lt;/article&gt;
+      &lt;article class=&quot;source&quot;&gt;&lt;h3&gt;Browserbase Search + Fetch&lt;/h3&gt;&lt;p class=&quot;muted&quot;&gt;Recent reporting and primary-source discovery.&lt;/p&gt;&lt;p&gt;&lt;strong&gt;Recorded example:&lt;/strong&gt; the packet was marked complete, contained two fresh sources and included current reporting plus SEC-domain results. Three page fetches failed and that warning was retained.&lt;/p&gt;&lt;/article&gt;
+      &lt;article class=&quot;source&quot;&gt;&lt;h3&gt;SEC EDGAR&lt;/h3&gt;&lt;p class=&quot;muted&quot;&gt;Official filings and releases discovered through explicit SEC searches or configured CIK mappings.&lt;/p&gt;&lt;p&gt;&lt;strong&gt;Recorded example:&lt;/strong&gt; the packet included NVIDIA SEC filing and earnings-release pages. Their presence made them inspectable evidence, not an automatic buy signal.&lt;/p&gt;&lt;/article&gt;
+      &lt;article class=&quot;source&quot;&gt;&lt;h3&gt;Public social context&lt;/h3&gt;&lt;p class=&quot;muted&quot;&gt;Optional Bluesky discussion treated as weak sentiment.&lt;/p&gt;&lt;p&gt;&lt;strong&gt;Active example:&lt;/strong&gt; social collection is currently set to zero results, so today’s live decision cannot quietly rely on social chatter.&lt;/p&gt;&lt;/article&gt;
+      &lt;article class=&quot;source&quot;&gt;&lt;h3&gt;Price history&lt;/h3&gt;&lt;p class=&quot;muted&quot;&gt;Completed bars, live quotes, technical context and average daily dollar volume.&lt;/p&gt;&lt;p&gt;&lt;strong&gt;Recorded example:&lt;/strong&gt; LNG was selected partly for positive 5- and 20-session momentum, non-extreme RSI, lower realized volatility than leading software names and adequate liquidity.&lt;/p&gt;&lt;/article&gt;
+      &lt;article class=&quot;source&quot;&gt;&lt;h3&gt;Edgecraft research&lt;/h3&gt;&lt;p class=&quot;muted&quot;&gt;Causal history and promotion tests when useful or required.&lt;/p&gt;&lt;p&gt;&lt;strong&gt;Recorded example:&lt;/strong&gt; the LNG rationale cited stronger historical next-session and five-session signal outcomes; the active policy did not require a separate research-evidence artifact.&lt;/p&gt;&lt;/article&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;boundary&quot;&gt;&lt;h3&gt;Untrusted-content boundary&lt;/h3&gt;&lt;p&gt;Web pages are evidence only. Scripts and markup are stripped, excerpts are capped, private addresses are rejected, claims must be cross-checked, and a page can never weaken account, budget, freshness, symbol, liquidity, permit or kill-switch controls.&lt;/p&gt;&lt;/div&gt;
+  &lt;/section&gt;
+
+  &lt;section class=&quot;panel&quot; data-panel=&quot;reason&quot;&gt;
+    &lt;div class=&quot;reasoning&quot;&gt;
+      &lt;div class=&quot;num&quot;&gt;1&lt;/div&gt;&lt;div class=&quot;reason-step&quot;&gt;&lt;strong&gt;Establish broker truth&lt;/strong&gt;&lt;div class=&quot;muted&quot;&gt;Select exactly one account explicitly marked agentic_allowed and refresh its complete state.&lt;/div&gt;&lt;/div&gt;
+      &lt;div class=&quot;num&quot;&gt;2&lt;/div&gt;&lt;div class=&quot;reason-step&quot;&gt;&lt;strong&gt;Survey the approved universe&lt;/strong&gt;&lt;div class=&quot;muted&quot;&gt;Inspect quotes, tradability, liquidity, history and useful fundamental or technical evidence.&lt;/div&gt;&lt;/div&gt;
+      &lt;div class=&quot;num&quot;&gt;3&lt;/div&gt;&lt;div class=&quot;reason-step&quot;&gt;&lt;strong&gt;Read current evidence skeptically&lt;/strong&gt;&lt;div class=&quot;muted&quot;&gt;Separate primary sources from commentary, cross-check claims and preserve exact source IDs and UTC timestamps.&lt;/div&gt;&lt;/div&gt;
+      &lt;div class=&quot;num&quot;&gt;4&lt;/div&gt;&lt;div class=&quot;reason-step&quot;&gt;&lt;strong&gt;Compare at least three alternatives&lt;/strong&gt;&lt;div class=&quot;muted&quot;&gt;The strongest eligible candidate, a diversified strategic choice, and holding cash.&lt;/div&gt;&lt;/div&gt;
+      &lt;div class=&quot;num&quot;&gt;5&lt;/div&gt;&lt;div class=&quot;reason-step&quot;&gt;&lt;strong&gt;Form and test a current-cycle hypothesis&lt;/strong&gt;&lt;div class=&quot;muted&quot;&gt;Ask why this candidate, why now, what could falsify the thesis, and whether price history supports or contradicts it.&lt;/div&gt;&lt;/div&gt;
+      &lt;div class=&quot;num&quot;&gt;6&lt;/div&gt;&lt;div class=&quot;reason-step&quot;&gt;&lt;strong&gt;Return a typed answer&lt;/strong&gt;&lt;div class=&quot;muted&quot;&gt;Action, confidence, hypothesis, evidence, alternatives, risks, sources, citations and—only for invest—an exact allocation.&lt;/div&gt;&lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;detail&quot;&gt;&lt;div class=&quot;example-label&quot;&gt;Recorded reasoning example · July 21, 2026&lt;/div&gt;&lt;p&gt;The model assigned LNG 78% confidence and proposed exactly $2. Its hypothesis was that LNG offered better current-cycle price quality than chasing the fastest software momentum: positive short- and medium-term momentum, lower realized volatility, adequate liquidity, a non-extreme RSI and stronger historical signal outcomes.&lt;/p&gt;&lt;div class=&quot;quote&quot;&gt;This was a comparative claim, not “LNG is guaranteed to rise.” The competing choice was explicitly framed as chasing faster software momentum, while holding remained available.&lt;/div&gt;&lt;/div&gt;
+    &lt;div class=&quot;boundary&quot;&gt;&lt;h3&gt;What “reasoning” does not mean&lt;/h3&gt;&lt;p&gt;The system does not expose or depend on private token-by-token chain-of-thought. Its audit record is the structured, decision-relevant justification. Candidate ranking is a probabilistic model judgment; authorization is deterministic code.&lt;/p&gt;&lt;/div&gt;
+  &lt;/section&gt;
+
+  &lt;section class=&quot;panel&quot; data-panel=&quot;runs&quot;&gt;
+    &lt;div class=&quot;run-switch&quot;&gt;
+      &lt;button class=&quot;scenario run-choice&quot; data-run=&quot;trade&quot; aria-pressed=&quot;true&quot;&gt;July 21 · LNG trade&lt;/button&gt;
+      &lt;button class=&quot;scenario run-choice&quot; data-run=&quot;hold&quot; aria-pressed=&quot;false&quot;&gt;July 20 · hold&lt;/button&gt;
+    &lt;/div&gt;
+    &lt;div id=&quot;run-trade&quot; class=&quot;run-view&quot;&gt;
+      &lt;div class=&quot;timeline&quot;&gt;
+        &lt;div class=&quot;time&quot;&gt;07:20:24 PT&lt;/div&gt;&lt;div class=&quot;dotline&quot;&gt;&lt;/div&gt;&lt;div class=&quot;event&quot;&gt;&lt;strong&gt;Cycle started and context collected&lt;/strong&gt;&lt;div class=&quot;muted&quot;&gt;The packet passed completeness checks with two fresh sources. Browserbase reported three failed page fetches; Edgecraft preserved the warning.&lt;/div&gt;&lt;/div&gt;
+        &lt;div class=&quot;time&quot;&gt;07:27:49 PT&lt;/div&gt;&lt;div class=&quot;dotline&quot;&gt;&lt;/div&gt;&lt;div class=&quot;event&quot;&gt;&lt;strong&gt;Broker observation completed&lt;/strong&gt;&lt;div class=&quot;muted&quot;&gt;Eligible account, unrestricted, $5 buying power, zero positions, zero open orders, and quotes for all 44 approved symbols.&lt;/div&gt;&lt;/div&gt;
+        &lt;div class=&quot;time&quot;&gt;07:29:59 PT&lt;/div&gt;&lt;div class=&quot;dotline&quot;&gt;&lt;/div&gt;&lt;div class=&quot;event&quot;&gt;&lt;strong&gt;GPT-5.6 Sol proposed LNG&lt;/strong&gt;&lt;div class=&quot;muted&quot;&gt;Action &lt;code&gt;invest&lt;/code&gt;, confidence 78%, one $2 market buy. The proposal’s original LNG quote was $262.66 with a 9.90 bps spread. Deterministic checks found no violations.&lt;/div&gt;&lt;/div&gt;
+        &lt;div class=&quot;time&quot;&gt;07:33:28 PT&lt;/div&gt;&lt;div class=&quot;dotline&quot;&gt;&lt;/div&gt;&lt;div class=&quot;event&quot;&gt;&lt;strong&gt;Fresh preflight passed&lt;/strong&gt;&lt;div class=&quot;muted&quot;&gt;Regular session, refreshed spread 16.32 bps—still below the 25 bps ceiling—and no risk violations. The policy fingerprint still matched.&lt;/div&gt;&lt;/div&gt;
+        &lt;div class=&quot;time&quot;&gt;07:33:28 PT&lt;/div&gt;&lt;div class=&quot;dotline&quot;&gt;&lt;/div&gt;&lt;div class=&quot;event&quot;&gt;&lt;strong&gt;Exact permit issued&lt;/strong&gt;&lt;div class=&quot;muted&quot;&gt;Only &lt;code&gt;place_equity_order&lt;/code&gt; was allowed; it was bound to LNG, buy, $2, market, good-for-day and expired five minutes later.&lt;/div&gt;&lt;/div&gt;
+        &lt;div class=&quot;time&quot;&gt;07:34:40 PT&lt;/div&gt;&lt;div class=&quot;dotline&quot;&gt;&lt;/div&gt;&lt;div class=&quot;event&quot;&gt;&lt;strong&gt;Broker filled the order&lt;/strong&gt;&lt;div class=&quot;muted&quot;&gt;Robinhood reported 0.007606 LNG shares filled at an average $262.9299, $2 notional and zero reported fees.&lt;/div&gt;&lt;/div&gt;
+        &lt;div class=&quot;time&quot;&gt;07:35:07 PT&lt;/div&gt;&lt;div class=&quot;dotline&quot;&gt;&lt;/div&gt;&lt;div class=&quot;event&quot;&gt;&lt;strong&gt;Runtime result failed schema validation&lt;/strong&gt;&lt;div class=&quot;muted&quot;&gt;The broker fill existed, but the execution agent’s structured response was invalid. Edgecraft recorded the run as failed instead of pretending the workflow completed cleanly. This is why broker truth, run status and reconciliation are separate concepts.&lt;/div&gt;&lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div id=&quot;run-hold&quot; class=&quot;run-view&quot; hidden&gt;
+      &lt;div class=&quot;timeline&quot;&gt;
+        &lt;div class=&quot;time&quot;&gt;July 20&lt;/div&gt;&lt;div class=&quot;dotline&quot;&gt;&lt;/div&gt;&lt;div class=&quot;event&quot;&gt;&lt;strong&gt;Same $5 all-cash portfolio, earlier policy limits&lt;/strong&gt;&lt;div class=&quot;muted&quot;&gt;At that time the policy capped a single position at 15% and a symbol group at 35%.&lt;/div&gt;&lt;/div&gt;
+        &lt;div class=&quot;time&quot;&gt;Decision&lt;/div&gt;&lt;div class=&quot;dotline&quot;&gt;&lt;/div&gt;&lt;div class=&quot;event&quot;&gt;&lt;strong&gt;The model elected to hold&lt;/strong&gt;&lt;div class=&quot;muted&quot;&gt;The mandatory $2 minimum would have created a 40% position in a $5 portfolio—above both applicable limits for every candidate.&lt;/div&gt;&lt;/div&gt;
+        &lt;div class=&quot;time&quot;&gt;Outcome&lt;/div&gt;&lt;div class=&quot;dotline&quot;&gt;&lt;/div&gt;&lt;div class=&quot;event&quot;&gt;&lt;strong&gt;No permit, no broker mutation&lt;/strong&gt;&lt;div class=&quot;muted&quot;&gt;The run ended &lt;code&gt;held&lt;/code&gt;. Cash carryover was treated as a valid outcome, demonstrating that the daily ceiling is not a spending target.&lt;/div&gt;&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;p class=&quot;footer-note&quot;&gt;This is a historical example under the policy limits active for that run. The current policy shown elsewhere in this document has different concentration ceilings.&lt;/p&gt;
+    &lt;/div&gt;
+    &lt;p class=&quot;footer-note&quot;&gt;Times are shown in Pacific Time. Account identifiers and broker order identifiers are intentionally omitted.&lt;/p&gt;
+  &lt;/section&gt;
+
+  &lt;section class=&quot;panel&quot; data-panel=&quot;lab&quot;&gt;
+    &lt;div class=&quot;choicebar&quot; aria-label=&quot;Load an example scenario&quot;&gt;
+      &lt;button class=&quot;scenario&quot; data-scenario=&quot;clean&quot; aria-pressed=&quot;true&quot;&gt;Clean $2 proposal&lt;/button&gt;
+      &lt;button class=&quot;scenario&quot; data-scenario=&quot;stale&quot; aria-pressed=&quot;false&quot;&gt;Stale quote&lt;/button&gt;
+      &lt;button class=&quot;scenario&quot; data-scenario=&quot;wide&quot; aria-pressed=&quot;false&quot;&gt;Wide spread&lt;/button&gt;
+      &lt;button class=&quot;scenario&quot; data-scenario=&quot;over&quot; aria-pressed=&quot;false&quot;&gt;Over budget&lt;/button&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;simulator&quot;&gt;
+      &lt;div class=&quot;controls&quot;&gt;
+        &lt;label&gt;Model confidence: &lt;output id=&quot;confidence-out&quot;&gt;76%&lt;/output&gt;&lt;input id=&quot;confidence&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;100&quot; value=&quot;76&quot;&gt;&lt;/label&gt;
+        &lt;label&gt;Proposed notional: &lt;output id=&quot;notional-out&quot;&gt;$2.00&lt;/output&gt;&lt;input id=&quot;notional&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;5&quot; value=&quot;2&quot; step=&quot;0.25&quot;&gt;&lt;/label&gt;
+        &lt;label&gt;Quote age: &lt;output id=&quot;age-out&quot;&gt;45s&lt;/output&gt;&lt;input id=&quot;age&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;900&quot; value=&quot;45&quot; step=&quot;15&quot;&gt;&lt;/label&gt;
+        &lt;label&gt;Bid/ask spread: &lt;output id=&quot;spread-out&quot;&gt;12 bps&lt;/output&gt;&lt;input id=&quot;spread&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;100&quot; value=&quot;12&quot;&gt;&lt;/label&gt;
+        &lt;label class=&quot;check&quot;&gt;&lt;input id=&quot;allowed&quot; type=&quot;checkbox&quot; checked&gt; Symbol is owner-approved&lt;/label&gt;
+        &lt;label class=&quot;check&quot;&gt;&lt;input id=&quot;regular&quot; type=&quot;checkbox&quot; checked&gt; Regular market session&lt;/label&gt;
+        &lt;label class=&quot;check&quot;&gt;&lt;input id=&quot;account&quot; type=&quot;checkbox&quot; checked&gt; Account is eligible and unrestricted&lt;/label&gt;
+        &lt;label class=&quot;check&quot;&gt;&lt;input id=&quot;open-orders&quot; type=&quot;checkbox&quot;&gt; Open or unresolved order exists&lt;/label&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;result&quot; aria-live=&quot;polite&quot;&gt;&lt;span id=&quot;gate-status&quot; class=&quot;status&quot;&gt;&lt;/span&gt;&lt;ul id=&quot;gate-reasons&quot; class=&quot;violations&quot;&gt;&lt;/ul&gt;&lt;/div&gt;
+    &lt;/div&gt;
+    &lt;p class=&quot;footer-note&quot;&gt;This lab illustrates a subset of the real gate. The production engine also checks cash, concentration, sector groups, tradability, fractional support, liquidity, price deviation, turnover, drawdown, daily order count, policy fingerprint, permits and kill-switch state.&lt;/p&gt;
+  &lt;/section&gt;
+
+  &lt;section class=&quot;panel&quot; data-panel=&quot;authority&quot;&gt;
+    &lt;div class=&quot;lanes&quot;&gt;
+      &lt;article class=&quot;lane&quot;&gt;&lt;h2&gt;Model&lt;/h2&gt;&lt;p class=&quot;muted&quot;&gt;Researches, compares candidates, estimates confidence, proposes an exact buy or elects to hold.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;May recommend&lt;/li&gt;&lt;li&gt;May hold cash&lt;/li&gt;&lt;li&gt;Cannot expand the universe&lt;/li&gt;&lt;li&gt;Cannot mint authority&lt;/li&gt;&lt;/ul&gt;&lt;/article&gt;
+      &lt;article class=&quot;lane&quot;&gt;&lt;h2&gt;Edgecraft&lt;/h2&gt;&lt;p class=&quot;muted&quot;&gt;Owns the typed mandate, mathematical policy, audit ledger, policy fingerprint, idempotency, kill switch and permits.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;Accepts or rejects&lt;/li&gt;&lt;li&gt;Rechecks fresh state&lt;/li&gt;&lt;li&gt;Issues one exact permit&lt;/li&gt;&lt;li&gt;Fails closed&lt;/li&gt;&lt;/ul&gt;&lt;/article&gt;
+      &lt;article class=&quot;lane&quot;&gt;&lt;h2&gt;Robinhood&lt;/h2&gt;&lt;p class=&quot;muted&quot;&gt;Owns broker truth and the actual order lifecycle.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;Accepts or rejects the call&lt;/li&gt;&lt;li&gt;Reports fills and status&lt;/li&gt;&lt;li&gt;Is independently reread&lt;/li&gt;&lt;li&gt;Must reconcile with the ledger&lt;/li&gt;&lt;/ul&gt;&lt;/article&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;boundary&quot;&gt;&lt;h3&gt;Active live boundary&lt;/h3&gt;&lt;p&gt;GPT-5.6 Sol at xhigh reasoning; one buy-only order per market day; exactly $2 maximum; 70% minimum model confidence; 44 whitelisted symbols; regular session only; quote and account snapshots no older than five minutes; maximum 25 bps spread; one short-lived account-bound permit; hold is always valid.&lt;/p&gt;&lt;/div&gt;
+  &lt;/section&gt;
+
+  &lt;script&gt;
+    (() =&gt; {
+      const root = document.getElementById(&#x27;edgecraft-decision-lab&#x27;);
+      const stages = {
+        mandate: {
+          title: &#x27;1. Owner mandate and hard ceiling&#x27;,
+          summary: &#x27;This is the constitution for the trading agent. It defines what outcome the owner wants and, separately, the exact authority the system is allowed to exercise. The model receives these limits as facts; it cannot negotiate or rewrite them.&#x27;,
+          analogy: &#x27;A pilot’s flight plan plus the aircraft’s mechanical limits. The pilot may choose a route inside the envelope, but cannot vote to increase the fuel tank or ignore the maximum speed.&#x27;,
+          rules: [&#x27;Mandate is explicitly enabled&#x27;, &#x27;The scheduled cycle is due&#x27;, &#x27;No completed run already owns today’s idempotency key&#x27;, &#x27;Kill switch is clear and cycle budget remains&#x27;],
+          inputs: [&#x27;Owner goal: find the strongest evidence-backed long-only opportunity&#x27;, &#x27;Execution mode: live or shadow&#x27;, &#x27;Schedule and timezone&#x27;, &#x27;Budget, universe, confidence floor and policy-file path&#x27;, &#x27;Ledger history: prior runs, money already placed and unresolved orders&#x27;],
+          process: [&#x27;Compute a unique cycle key for this mandate and market day.&#x27;, &#x27;Acquire a cycle lock so two schedulers cannot run the same day concurrently.&#x27;, &#x27;Check whether the run is due or already exists.&#x27;, &#x27;Subtract any already-placed notional from today’s hard budget.&#x27;, &#x27;Stop before model invocation if disabled, not due, fully spent or halted.&#x27;],
+          outputs: [&#x27;A new immutable run ID and cycle key&#x27;, &#x27;Exactly calculated remaining budget&#x27;, &#x27;The owner’s mandate and policy supplied to later stages&#x27;, &#x27;An audit event saying the cycle started—or a no-action status&#x27;],
+          failures: [&#x27;Not due → return not_due without calling the model&#x27;, &#x27;Duplicate wakeup → return the existing run&#x27;, &#x27;No budget → complete without research or broker access&#x27;, &#x27;Kill switch active → block every live cycle&#x27;],
+          example: &#x27;The July 21 cycle began with a $2 daily ceiling, one-order maximum, 44-symbol whitelist, 70% confidence floor and GPT-5.6 Sol at xhigh reasoning.&#x27;,
+          why: &#x27;Why this matters: autonomy begins only after the owner has bounded it. “Aggressive” changes the search posture; it does not grant unlimited capital, symbols or order types.&#x27;
+        },
+        context: {
+          title: &#x27;2. Bounded current context packet&#x27;,
+          summary: &#x27;Before asking the model what to buy, deterministic Python gathers a small snapshot of what is being reported now. This keeps current web evidence finite, timestamped and auditable instead of letting the model wander indefinitely.&#x27;,
+          analogy: &#x27;A research assistant prepares a numbered evidence binder. The decision-maker may cite pages in the binder, but may not treat a random note inside it as a command.&#x27;,
+          rules: [&#x27;At least 4 total sources&#x27;, &#x27;At least 3 web sources&#x27;, &#x27;At least 2 fresh sources within the configured lookback&#x27;, &#x27;Live packet is marked complete&#x27;],
+          inputs: [&#x27;All 44 approved symbols&#x27;, &#x27;72-hour lookback policy&#x27;, &#x27;Browserbase Search and Fetch credentials&#x27;, &#x27;SEC-domain search query&#x27;, &#x27;Source-count, freshness and citation minimums&#x27;],
+          process: [&#x27;Run a market-news search and a separate SEC-domain search.&#x27;, &#x27;Fetch a limited number of domain-diverse pages.&#x27;, &#x27;Strip active markup, scripts and oversized content.&#x27;, &#x27;Reject local, private and reserved network addresses.&#x27;, &#x27;Deduplicate sources, timestamp retrieval, count fresh sources and cache for 30 minutes.&#x27;],
+          outputs: [&#x27;A typed ContextSnapshot&#x27;, &#x27;Stable source IDs the model may cite&#x27;, &#x27;Titles, URLs, publication/retrieval times and bounded excerpts&#x27;, &#x27;Completeness flag plus visible warnings&#x27;],
+          failures: [&#x27;Incomplete required packet → live cycle stops before a proposal exists&#x27;, &#x27;Individual fetch failure → warning retained; completeness recalculated&#x27;, &#x27;Unknown source citation later → observation rejected&#x27;, &#x27;Instructions inside an article → treated as untrusted text, never executed&#x27;],
+          example: &#x27;The recorded packet passed completeness with two fresh sources and included current web results plus SEC pages. Three fetch failures became a visible warning; they were not hidden.&#x27;,
+          why: &#x27;Why this matters: “the model read it online” is not evidence provenance. A stable source ID lets the audit answer exactly which retrieved item supported the decision.&#x27;
+        },
+        observe: {
+          title: &#x27;3. Read-only broker observation&#x27;,
+          summary: &#x27;Now the model becomes a research operator. It uses the authenticated Robinhood connection to assemble broker truth and market measurements, but the environment prevents it from creating, changing or canceling anything.&#x27;,
+          analogy: &#x27;A doctor examining the patient and ordering tests while the pharmacy window is physically locked. Diagnosis is allowed; treatment is not yet possible.&#x27;,
+          rules: [&#x27;Exactly one account explicitly marked agentic_allowed&#x27;, &#x27;Account is unrestricted and snapshot is fresh&#x27;, &#x27;Quotes cover every allowed and currently held symbol&#x27;, &#x27;Open orders, buying power and positions are included&#x27;],
+          inputs: [&#x27;Mandate and exact remaining budget&#x27;, &#x27;Read-only Robinhood MCP tools&#x27;, &#x27;Current context packet&#x27;, &#x27;Deterministic risk policy for awareness&#x27;, &#x27;Existing Edgecraft price-history and research tools&#x27;],
+          process: [&#x27;Discover accounts and select only an explicitly eligible agentic account.&#x27;, &#x27;Refresh portfolio, positions, open/history orders and realized/trade P&amp;L.&#x27;, &#x27;Fetch quotes, bid/ask, session and tradability for every relevant symbol.&#x27;, &#x27;Use completed bars to calculate liquidity and inspect momentum, volatility and indicators.&#x27;, &#x27;Compare broker observations with current external evidence.&#x27;],
+          outputs: [&#x27;Canonical PortfolioSnapshot&#x27;, &#x27;One MarketQuote object per symbol with UTC timestamps&#x27;, &#x27;Recent-order and P&amp;L summaries&#x27;, &#x27;A decision object packaged with the raw observations&#x27;],
+          failures: [&#x27;No eligible account or multiple ambiguous choices → fail closed&#x27;, &#x27;Stale or malformed account/quote data → later schema or risk rejection&#x27;, &#x27;Missing quote for a proposed symbol → proposal blocked&#x27;, &#x27;Any attempted mutation in this phase → project hook denies it&#x27;],
+          example: &#x27;Robinhood reported an eligible, unrestricted $5 all-cash account with no open orders. The model returned fresh observations for every one of the 44 allowed symbols.&#x27;,
+          why: &#x27;Why this matters: the model does not reason from a cached portfolio description. It must bring back structured broker facts that ordinary code can independently inspect.&#x27;
+        },
+        proposal: {
+          title: &#x27;4. Structured invest-or-hold proposal&#x27;,
+          summary: &#x27;This is the genuinely probabilistic step. The model weighs unlike evidence—portfolio state, prices, liquidity, trends, fundamentals and reporting—to form a current-cycle hypothesis and compare alternatives.&#x27;,
+          analogy: &#x27;An analyst writes an investment memo with one recommendation. The memo can be insightful, but it is still sitting in the approval inbox—not in the broker order book.&#x27;,
+          rules: [&#x27;Invest confidence reaches 70%&#x27;, &#x27;Allocation is exactly representable and inside the $2 budget&#x27;, &#x27;Symbol belongs to the owner-approved universe&#x27;, &#x27;Evidence, risks, alternatives and at least 2 valid citations are returned&#x27;],
+          inputs: [&#x27;Fresh account and all-symbol quote snapshot&#x27;, &#x27;Current context source packet&#x27;, &#x27;Completed price history and calculated market features&#x27;, &#x27;Owner goal and hard limits&#x27;, &#x27;Explicit alternative requirement, including hold cash&#x27;],
+          process: [&#x27;Rank the strongest eligible opportunity from available evidence.&#x27;, &#x27;Compare it with a more diversified or strategic choice.&#x27;, &#x27;Treat holding cash as a real third alternative.&#x27;, &#x27;Form a falsifiable “why this, why now” hypothesis.&#x27;, &#x27;Estimate confidence, name risks and choose invest or hold.&#x27;, &#x27;Return only typed JSON matching the required schema.&#x27;],
+          outputs: [&#x27;Action: invest or hold&#x27;, &#x27;Confidence and hypothesis&#x27;, &#x27;Evidence, alternatives, risks, data sources and context source IDs&#x27;, &#x27;For invest: exact symbol, notional, conviction and allocation rationale&#x27;],
+          failures: [&#x27;Confidence below 70% → deterministic rejection even if prose sounds strong&#x27;, &#x27;Hold decision → no allocation and no execution path&#x27;, &#x27;Unknown citation or inconsistent IDs → reject observation&#x27;, &#x27;Malformed JSON or mismatched run/mandate ID → fail before authority&#x27;],
+          example: &#x27;The model selected LNG at 78% confidence for exactly $2, preferring its momentum, volatility, liquidity and historical signal profile over chasing faster software momentum.&#x27;,
+          why: &#x27;Why this matters: this stage chooses what looks attractive; it does not decide what is permitted. The recommendation is intentionally richer and less deterministic than the authorization step.&#x27;
+        },
+        risk: {
+          title: &#x27;5. Deterministic risk authorization&#x27;,
+          summary: &#x27;Edgecraft translates the model’s allocation into an exact proposed order and runs a reproducible rule engine. The same numerical inputs always produce the same violations, warnings and projected portfolio.&#x27;,
+          analogy: &#x27;Airport security after ticket selection. Your reason for traveling may be excellent, but the scanner applies the same hard rules to every bag.&#x27;,
+          rules: [&#x27;Symbol, side, size and daily totals are allowed&#x27;, &#x27;Cash and projected concentration remain legal&#x27;, &#x27;Quotes are fresh, tradable and liquid&#x27;, &#x27;Turnover, drawdown and unresolved-order checks pass&#x27;],
+          inputs: [&#x27;Model decision and confidence&#x27;, &#x27;Canonical account snapshot and quotes&#x27;, &#x27;RiskPolicy loaded from disk&#x27;, &#x27;Ledger totals: today’s orders/notional, seven-day turnover and high-water mark&#x27;, &#x27;Optional research-promotion evidence&#x27;],
+          process: [&#x27;Reject hold or below-confidence decisions from the execution path.&#x27;, &#x27;Round money deterministically and construct idempotent order keys.&#x27;, &#x27;Project post-trade cash, positions, stock weights and group weights.&#x27;, &#x27;Calculate quote age, spread, price deviation and order-to-volume fraction.&#x27;, &#x27;Check every limit and collect all violations rather than stopping at the first.&#x27;, &#x27;Hash the complete policy into the proposal fingerprint and persist the proposal before side effects.&#x27;],
+          outputs: [&#x27;Immutable TradeProposal with exact order arguments&#x27;, &#x27;Approved-for-review boolean&#x27;, &#x27;Complete violations and warnings lists&#x27;, &#x27;Projected cash, weights, spread, turnover and drawdown&#x27;, &#x27;Policy digest used to detect later changes&#x27;],
+          failures: [&#x27;Any violation → risk_rejected; no preflight or permit&#x27;, &#x27;No economically material order → reject&#x27;, &#x27;Open/unresolved order → block duplicate exposure&#x27;, &#x27;Policy disabled for live trading → block regardless of model confidence&#x27;],
+          example: &#x27;The LNG proposal projected $3 cash remaining, a 40% LNG portfolio weight, 40% rolling turnover and a 9.90 bps spread. Under the active July 21 policy, all checks passed with zero violations.&#x27;,
+          why: &#x27;Why this matters: a 99% confidence claim does not increase the $2 ceiling by one cent. Model confidence and policy authority are deliberately different currencies.&#x27;
+        },
+        preflight: {
+          title: &#x27;6. Fresh execution preflight&#x27;,
+          summary: &#x27;Minutes may pass during research and reasoning. Preflight repeats broker observation for the exact proposed order immediately before authority so the system does not trade against an expired picture of the market.&#x27;,
+          analogy: &#x27;Checking the traffic light again at the intersection. A green light seen three blocks ago is not permission to drive through now.&#x27;,
+          rules: [&#x27;Account, run, proposal and order identity match exactly&#x27;, &#x27;No new open orders or restrictions appeared&#x27;, &#x27;Current session, spread, tradability and cash still pass&#x27;, &#x27;Current policy hash matches the stored proposal hash&#x27;],
+          inputs: [&#x27;Approved immutable proposal&#x27;, &#x27;Exact one proposed order&#x27;, &#x27;Fresh Robinhood account and quote reads&#x27;, &#x27;Current policy file&#x27;, &#x27;Latest ledger state&#x27;],
+          process: [&#x27;Refresh the exact account and symbol rather than the whole research universe.&#x27;, &#x27;If configured, obtain broker review; the active mandate uses standing authorization instead.&#x27;, &#x27;Validate returned account/order identity and review warnings.&#x27;, &#x27;Rerun the full deterministic risk engine using refreshed values.&#x27;, &#x27;Recompute and compare the policy digest before issuing authority.&#x27;],
+          outputs: [&#x27;ExecutionPreflight tied to the proposal and order key&#x27;, &#x27;Fresh account and exact quote&#x27;, &#x27;Updated spread/session and risk result&#x27;, &#x27;A yes/no decision on whether a permit may be minted&#x27;],
+          failures: [&#x27;Spread widens past 25 bps → reject&#x27;, &#x27;Market leaves regular session → reject&#x27;, &#x27;New open order, restriction or insufficient cash → reject&#x27;, &#x27;Policy file changed after proposal → abort the live execution&#x27;],
+          example: &#x27;About three minutes later, the refreshed LNG spread was 16.32 bps in the regular session. It had widened, but remained under the 25 bps ceiling, so preflight still passed.&#x27;,
+          why: &#x27;Why this matters: proposal approval is not durable authority. It expires conceptually as market and account state change; preflight re-establishes truth at the execution boundary.&#x27;
+        },
+        permit: {
+          title: &#x27;7. Single-use execution permit&#x27;,
+          summary: &#x27;Only after every prior check passes does Edgecraft create a tiny capability token. The token authorizes one precise broker mutation and nothing else.&#x27;,
+          analogy: &#x27;A valet key that starts one car but cannot open the trunk, plus a theater ticket that is scanned once and expires after the show starts.&#x27;,
+          rules: [&#x27;Proposal is live and approved&#x27;, &#x27;Preflight passed against current state&#x27;, &#x27;Policy fingerprint remains unchanged&#x27;, &#x27;Kill switch is clear when issued and claimed&#x27;],
+          inputs: [&#x27;Proposal ID and order key&#x27;, &#x27;Account ID, symbol, side and dollar amount&#x27;, &#x27;Order type, time in force and market-hours scope&#x27;, &#x27;Current timestamp and ledger kill-switch state&#x27;],
+          process: [&#x27;Write a private permit row to the ledger before placement.&#x27;, &#x27;Bind it to every semantic argument of the approved order.&#x27;, &#x27;Set a maximum five-minute expiry.&#x27;, &#x27;Expose the opaque token only to the isolated execution turn.&#x27;, &#x27;At the tool boundary, atomically claim it and compare the actual call arguments.&#x27;],
+          outputs: [&#x27;One opaque, expiring permit token&#x27;, &#x27;Audit event containing allowed tool, order key and expiry—but not the token&#x27;, &#x27;One authorized call shape for place_equity_order&#x27;],
+          failures: [&#x27;Missing, expired or previously claimed token → deny tool call&#x27;, &#x27;Different symbol, amount, side or order settings → deny&#x27;, &#x27;Nested or ambiguous placement syntax → deny&#x27;, &#x27;Kill switch activated → revoke every unclaimed permit&#x27;],
+          example: &#x27;At 07:33:28 PT, Edgecraft issued a permit for only one LNG $2 market buy, good-for-day. It expired at 07:38:28 PT and could not authorize another symbol or amount.&#x27;,
+          why: &#x27;Why this matters: the execution model does not inherit broad “trade the account” permission. It receives a capability no larger than the one approved order.&#x27;
+        },
+        reconcile: {
+          title: &#x27;8. Placement, broker truth and reconciliation&#x27;,
+          summary: &#x27;The execution turn makes the one permitted broker call. Edgecraft then treats the broker—not the model response—as the authority on whether an order exists and what filled.&#x27;,
+          analogy: &#x27;After sending a bank transfer, you check the bank ledger rather than trusting the “sent” screen. The receipt and the account balance must agree.&#x27;,
+          rules: [&#x27;Actual tool call exactly matches the claimed permit&#x27;, &#x27;Broker order identity matches proposal identity&#x27;, &#x27;Placement is never blindly retried after uncertainty&#x27;, &#x27;Order, fill and ledger states reconcile&#x27;],
+          inputs: [&#x27;Claimed single-use permit&#x27;, &#x27;Exact order arguments&#x27;, &#x27;Robinhood placement result&#x27;, &#x27;Read-only order, position and fill lookups&#x27;, &#x27;Immutable proposal reasoning stored earlier&#x27;],
+          process: [&#x27;Call place_equity_order exactly once.&#x27;, &#x27;Record the placed event with broker order ID and immutable reasoning.&#x27;, &#x27;Read broker state again and match account, symbol, side, amount and time window.&#x27;, &#x27;Record fills, quantity, average price, fees and terminal status.&#x27;, &#x27;If model output is malformed, perform one read-only recovery lookup—never another placement.&#x27;, &#x27;Halt trading on partial, unknown or identity-mismatched outcomes.&#x27;],
+          outputs: [&#x27;Placed and filled/rejected/pending audit events&#x27;, &#x27;Reconciled broker order and position state&#x27;, &#x27;Immutable link between reasoning, permitted order and actual fill&#x27;, &#x27;Completed run—or explicit failed/unknown state plus kill switch&#x27;],
+          failures: [&#x27;Malformed execution response → recover broker truth read-only&#x27;, &#x27;Missing or ambiguous broker result → unknown and halt&#x27;, &#x27;Partial fill or identity mismatch → halt for owner review&#x27;, &#x27;Exception after permit issuance → fail closed; no automatic placement retry&#x27;],
+          example: &#x27;Robinhood filled 0.007606 LNG shares at $262.9299 for $2. The agent result then failed schema validation, so Edgecraft marked the run failed rather than claiming a clean success—even though the broker fill was recorded.&#x27;,
+          why: &#x27;Why this matters: “the order filled” and “the autonomous workflow completed cleanly” are different facts. Edgecraft records both instead of collapsing them into a misleading success label.&#x27;
+        }
+      };
+      const stageOrder = [&#x27;mandate&#x27;, &#x27;context&#x27;, &#x27;observe&#x27;, &#x27;proposal&#x27;, &#x27;risk&#x27;, &#x27;preflight&#x27;, &#x27;permit&#x27;, &#x27;reconcile&#x27;];
+      let activeStage = &#x27;mandate&#x27;;
+
+      function selectTab(name) {
+        root.querySelectorAll(&#x27;.tab&#x27;).forEach(b =&gt; b.setAttribute(&#x27;aria-selected&#x27;, String(b.dataset.tab === name)));
+        root.querySelectorAll(&#x27;.panel&#x27;).forEach(p =&gt; p.classList.toggle(&#x27;active&#x27;, p.dataset.panel === name));
+      }
+      root.querySelectorAll(&#x27;.tab&#x27;).forEach(b =&gt; b.addEventListener(&#x27;click&#x27;, () =&gt; selectTab(b.dataset.tab)));
+
+      function selectStage(name) {
+        const data = stages[name];
+        activeStage = name;
+        root.querySelectorAll(&#x27;.stage&#x27;).forEach(b =&gt; b.setAttribute(&#x27;aria-pressed&#x27;, String(b.dataset.stage === name)));
+        root.querySelector(&#x27;#stage-title&#x27;).textContent = data.title;
+        root.querySelector(&#x27;#stage-summary&#x27;).textContent = data.summary;
+        root.querySelector(&#x27;#stage-rules&#x27;).innerHTML = data.rules.map(x =&gt; `&lt;li&gt;${x}&lt;/li&gt;`).join(&#x27;&#x27;);
+        root.querySelector(&#x27;#stage-analogy&#x27;).textContent = data.analogy;
+        root.querySelector(&#x27;#stage-inputs&#x27;).innerHTML = data.inputs.map(x =&gt; `&lt;li&gt;${x}&lt;/li&gt;`).join(&#x27;&#x27;);
+        root.querySelector(&#x27;#stage-process&#x27;).innerHTML = data.process.map(x =&gt; `&lt;li&gt;${x}&lt;/li&gt;`).join(&#x27;&#x27;);
+        root.querySelector(&#x27;#stage-outputs&#x27;).innerHTML = data.outputs.map(x =&gt; `&lt;li&gt;${x}&lt;/li&gt;`).join(&#x27;&#x27;);
+        root.querySelector(&#x27;#stage-failures&#x27;).innerHTML = data.failures.map(x =&gt; `&lt;li&gt;${x}&lt;/li&gt;`).join(&#x27;&#x27;);
+        root.querySelector(&#x27;#stage-example&#x27;).textContent = data.example;
+        root.querySelector(&#x27;#stage-why&#x27;).textContent = data.why;
+        const index = stageOrder.indexOf(name);
+        root.querySelector(&#x27;#stage-counter&#x27;).textContent = `Step ${index + 1} of ${stageOrder.length}`;
+        root.querySelector(&#x27;#previous-stage&#x27;).disabled = index === 0;
+        root.querySelector(&#x27;#next-stage&#x27;).disabled = index === stageOrder.length - 1;
+      }
+      root.querySelectorAll(&#x27;.stage&#x27;).forEach(b =&gt; b.addEventListener(&#x27;click&#x27;, () =&gt; selectStage(b.dataset.stage)));
+      root.querySelector(&#x27;#previous-stage&#x27;).addEventListener(&#x27;click&#x27;, () =&gt; selectStage(stageOrder[stageOrder.indexOf(activeStage) - 1]));
+      root.querySelector(&#x27;#next-stage&#x27;).addEventListener(&#x27;click&#x27;, () =&gt; selectStage(stageOrder[stageOrder.indexOf(activeStage) + 1]));
+      selectStage(&#x27;mandate&#x27;);
+
+      const ids = [&#x27;confidence&#x27;,&#x27;notional&#x27;,&#x27;age&#x27;,&#x27;spread&#x27;,&#x27;allowed&#x27;,&#x27;regular&#x27;,&#x27;account&#x27;,&#x27;open-orders&#x27;];
+      const el = Object.fromEntries(ids.map(id =&gt; [id, root.querySelector(&#x27;#&#x27; + id)]));
+      function evaluate() {
+        root.querySelector(&#x27;#confidence-out&#x27;).textContent = `${el.confidence.value}%`;
+        root.querySelector(&#x27;#notional-out&#x27;).textContent = `$${Number(el.notional.value).toFixed(2)}`;
+        root.querySelector(&#x27;#age-out&#x27;).textContent = `${el.age.value}s`;
+        root.querySelector(&#x27;#spread-out&#x27;).textContent = `${el.spread.value} bps`;
+        const failures = [];
+        if (+el.confidence.value &lt; 70) failures.push(&#x27;Model confidence is below the 70% mandate minimum.&#x27;);
+        if (+el.notional.value !== 2) failures.push(+el.notional.value &gt; 2 ? &#x27;Proposed notional exceeds the $2 ceiling.&#x27; : &#x27;The active policy requires an economically material $2 order.&#x27;);
+        if (+el.age.value &gt; 300) failures.push(&#x27;Quote is older than the five-minute freshness limit.&#x27;);
+        if (+el.spread.value &gt; 25) failures.push(&#x27;Bid/ask spread exceeds 25 basis points.&#x27;);
+        if (!el.allowed.checked) failures.push(&#x27;Symbol is outside the owner-approved whitelist.&#x27;);
+        if (!el.regular.checked) failures.push(&#x27;Only the regular market session is authorized.&#x27;);
+        if (!el.account.checked) failures.push(&#x27;Account is not eligible or is restricted.&#x27;);
+        if (el[&#x27;open-orders&#x27;].checked) failures.push(&#x27;Open or unresolved orders block new authority.&#x27;);
+        const status = root.querySelector(&#x27;#gate-status&#x27;);
+        status.textContent = failures.length ? &#x27;REJECTED — no permit&#x27; : &#x27;APPROVED FOR PREFLIGHT — not yet a trade&#x27;;
+        status.className = `status ${failures.length ? &#x27;fail&#x27; : &#x27;pass&#x27;}`;
+        root.querySelector(&#x27;#gate-reasons&#x27;).innerHTML = (failures.length ? failures : [&#x27;All displayed checks pass. Fresh preflight and remaining production controls still apply.&#x27;]).map(x =&gt; `&lt;li&gt;${x}&lt;/li&gt;`).join(&#x27;&#x27;);
+      }
+      ids.forEach(id =&gt; el[id].addEventListener(&#x27;input&#x27;, evaluate));
+      const scenarios = {
+        clean: [76,2,45,12,true,true,true,false], stale: [78,2,420,11,true,true,true,false],
+        wide: [82,2,30,44,true,true,true,false], over: [91,4,20,8,true,true,true,false]
+      };
+      root.querySelectorAll(&#x27;.scenario&#x27;).forEach(button =&gt; button.addEventListener(&#x27;click&#x27;, () =&gt; {
+        root.querySelectorAll(&#x27;.scenario&#x27;).forEach(b =&gt; b.setAttribute(&#x27;aria-pressed&#x27;, String(b === button)));
+        const v = scenarios[button.dataset.scenario];
+        [el.confidence.value,el.notional.value,el.age.value,el.spread.value] = v.slice(0,4);
+        [el.allowed.checked,el.regular.checked,el.account.checked,el[&#x27;open-orders&#x27;].checked] = v.slice(4);
+        evaluate();
+      }));
+      evaluate();
+
+      root.querySelectorAll(&#x27;.run-choice&#x27;).forEach(button =&gt; button.addEventListener(&#x27;click&#x27;, () =&gt; {
+        root.querySelectorAll(&#x27;.run-choice&#x27;).forEach(b =&gt; b.setAttribute(&#x27;aria-pressed&#x27;, String(b === button)));
+        root.querySelectorAll(&#x27;.run-view&#x27;).forEach(view =&gt; { view.hidden = view.id !== `run-${button.dataset.run}`; });
+      }));
+    })();
+  &lt;/script&gt;
+&lt;/div&gt;
+
+&lt;script src=&quot;https://unpkg.com/@floating-ui/core@1.7.3/dist/floating-ui.core.umd.min.js&quot;&gt;&lt;/script&gt;
+&lt;script src=&quot;https://unpkg.com/@floating-ui/dom@1.7.4/dist/floating-ui.dom.umd.min.js&quot;&gt;&lt;/script&gt;
+&lt;script&gt;
+(() =&gt; {
+  if (window.FloatingUIDOM == null) {
+    return;
+  }
+  const { autoUpdate, computePosition, flip, offset, shift, size } =
+    window.FloatingUIDOM;
+  const tooltipPlacements = new Set([&quot;top&quot;, &quot;right&quot;, &quot;bottom&quot;, &quot;left&quot;]);
+  const tooltipId = `codex-visualization-tooltip-${
+    window.crypto?.randomUUID?.() ?? Date.now().toString(36)
+  }`;
+  const tooltipGap = 5;
+  const hoverDelay = 700;
+  const skipDelay = 300;
+  let activeTrigger = null;
+  let pendingTrigger = null;
+  let tooltip = null;
+  let openTimeout = null;
+  let autoUpdateCleanup = null;
+  let positionRequest = 0;
+  let skipDelayUntil = 0;
+
+  const getTrigger = (target) =&gt;
+    target?.nodeType === Node.ELEMENT_NODE
+      ? target.closest(&quot;[data-tooltip]&quot;)
+      : null;
+  const containsTarget = (trigger, target) =&gt;
+    target?.nodeType != null &amp;&amp; trigger.contains(target);
+  const getContent = (trigger) =&gt;
+    trigger.getAttribute(&quot;data-tooltip&quot;)?.trim() ?? &quot;&quot;;
+  const getPlacement = (trigger) =&gt; {
+    const placement = trigger.getAttribute(&quot;data-tooltip-placement&quot;);
+    return tooltipPlacements.has(placement) ? placement : &quot;top&quot;;
+  };
+  const getTooltip = () =&gt; {
+    if (tooltip == null) {
+      tooltip = document.createElement(&quot;div&quot;);
+      tooltip.id = tooltipId;
+      tooltip.className = &quot;tooltip&quot;;
+      tooltip.setAttribute(&quot;role&quot;, &quot;tooltip&quot;);
+    }
+    return tooltip;
+  };
+  const setDescribedBy = (trigger, described) =&gt; {
+    const ids = new Set(
+      (trigger.getAttribute(&quot;aria-describedby&quot;) ?? &quot;&quot;)
+        .split(/\s+/)
+        .filter(Boolean),
+    );
+    if (described) {
+      ids.add(tooltipId);
+    } else {
+      ids.delete(tooltipId);
+    }
+    if (ids.size === 0) {
+      trigger.removeAttribute(&quot;aria-describedby&quot;);
+    } else {
+      trigger.setAttribute(&quot;aria-describedby&quot;, [...ids].join(&quot; &quot;));
+    }
+  };
+  const clearOpenTimeout = () =&gt; {
+    if (openTimeout != null) {
+      window.clearTimeout(openTimeout);
+      openTimeout = null;
+    }
+    pendingTrigger = null;
+  };
+  const closeTooltip = (activateSkipDelay = true) =&gt; {
+    clearOpenTimeout();
+    positionRequest += 1;
+    autoUpdateCleanup?.();
+    autoUpdateCleanup = null;
+    if (activeTrigger == null) {
+      return;
+    }
+    setDescribedBy(activeTrigger, false);
+    activeTrigger = null;
+    tooltip?.remove();
+    if (activateSkipDelay) {
+      skipDelayUntil = Date.now() + skipDelay;
+    }
+  };
+  const updatePosition = (trigger, floating) =&gt; {
+    const request = ++positionRequest;
+    void computePosition(trigger, floating, {
+      middleware: [
+        offset(tooltipGap),
+        flip({ padding: tooltipGap }),
+        shift({ padding: tooltipGap }),
+        size({
+          padding: tooltipGap,
+          apply({ availableHeight, availableWidth, elements }) {
+            elements.floating.style.setProperty(
+              &quot;--tooltip-available-width&quot;,
+              `${Math.max(0, availableWidth)}px`,
+            );
+            elements.floating.style.setProperty(
+              &quot;--tooltip-available-height&quot;,
+              `${Math.max(0, availableHeight)}px`,
+            );
+          },
+        }),
+      ],
+      placement: getPlacement(trigger),
+      strategy: &quot;fixed&quot;,
+    })
+      .then(({ x, y }) =&gt; {
+        if (activeTrigger !== trigger || request !== positionRequest) {
+          return;
+        }
+        const scale = window.devicePixelRatio || 1;
+        floating.style.transform = `translate(${Math.round(x * scale) / scale}px, ${Math.round(y * scale) / scale}px)`;
+        floating.style.visibility = &quot;visible&quot;;
+      })
+      .catch(() =&gt; {
+        if (activeTrigger === trigger &amp;&amp; request === positionRequest) {
+          closeTooltip(false);
+        }
+      });
+  };
+  const openTooltip = (trigger) =&gt; {
+    const content = getContent(trigger);
+    if (!trigger.isConnected || content.length === 0) {
+      return;
+    }
+    clearOpenTimeout();
+    if (activeTrigger === trigger) {
+      return;
+    }
+    closeTooltip();
+    const floating = getTooltip();
+    floating.textContent = content;
+    floating.style.visibility = &quot;hidden&quot;;
+    floating.style.transform = &quot;translate(0, 0)&quot;;
+    document.body.appendChild(floating);
+    activeTrigger = trigger;
+    setDescribedBy(trigger, true);
+    autoUpdateCleanup = autoUpdate(trigger, floating, () =&gt; {
+      updatePosition(trigger, floating);
+    });
+  };
+  const requestOpen = (trigger, immediate = false) =&gt; {
+    if (
+      getContent(trigger).length === 0 ||
+      activeTrigger === trigger ||
+      pendingTrigger === trigger
+    ) {
+      return;
+    }
+    clearOpenTimeout();
+    pendingTrigger = trigger;
+    const delay =
+      immediate || activeTrigger != null || Date.now() &lt; skipDelayUntil
+        ? 0
+        : hoverDelay;
+    if (delay === 0) {
+      openTooltip(trigger);
+      return;
+    }
+    openTimeout = window.setTimeout(() =&gt; {
+      openTimeout = null;
+      pendingTrigger = null;
+      openTooltip(trigger);
+    }, delay);
+  };
+  const handlePointerOpen = (event) =&gt; {
+    if (event.pointerType === &quot;touch&quot;) {
+      return;
+    }
+    const trigger = getTrigger(event.target);
+    if (trigger == null || containsTarget(trigger, event.relatedTarget)) {
+      return;
+    }
+    requestOpen(trigger);
+  };
+  const handleLeave = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (trigger == null || containsTarget(trigger, event.relatedTarget)) {
+      return;
+    }
+    if (activeTrigger === trigger || pendingTrigger === trigger) {
+      closeTooltip();
+    }
+  };
+  const handleFocusIn = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (trigger?.matches(&quot;:focus-visible&quot;)) {
+      requestOpen(trigger, true);
+    }
+  };
+  const handleKeyDown = (event) =&gt; {
+    if (event.key === &quot;Escape&quot;) {
+      closeTooltip();
+    }
+  };
+  const handleContextMenu = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (activeTrigger === trigger || pendingTrigger === trigger) {
+      closeTooltip();
+    }
+  };
+  const destroy = () =&gt; {
+    closeTooltip(false);
+    document.removeEventListener(&quot;pointerover&quot;, handlePointerOpen);
+    document.removeEventListener(&quot;pointerout&quot;, handleLeave);
+    document.removeEventListener(&quot;focusin&quot;, handleFocusIn);
+    document.removeEventListener(&quot;focusout&quot;, handleLeave);
+    document.removeEventListener(&quot;keydown&quot;, handleKeyDown);
+    document.removeEventListener(&quot;contextmenu&quot;, handleContextMenu);
+    tooltip = null;
+  };
+
+  document.addEventListener(&quot;pointerover&quot;, handlePointerOpen);
+  document.addEventListener(&quot;pointerout&quot;, handleLeave);
+  document.addEventListener(&quot;focusin&quot;, handleFocusIn);
+  document.addEventListener(&quot;focusout&quot;, handleLeave);
+  document.addEventListener(&quot;keydown&quot;, handleKeyDown);
+  document.addEventListener(&quot;contextmenu&quot;, handleContextMenu);
+  window.addEventListener(&quot;pagehide&quot;, destroy, { once: true });
+})();
+&lt;/script&gt;
+&lt;script id=&quot;codex-visualization-lucide&quot; async src=&quot;https://unpkg.com/lucide@1.17.0/dist/umd/lucide.js&quot;&gt;&lt;/script&gt;
+&lt;script&gt;
+(() =&gt; {
+  const initialize = () =&gt; {
+    globalThis.lucide?.createIcons({ attrs: { width: 16, height: 16 } });
+  };
+  if (globalThis.lucide != null) {
+    initialize();
+    return;
+  }
+  document
+    .getElementById(&quot;codex-visualization-lucide&quot;)
+    ?.addEventListener(&quot;load&quot;, initialize, { once: true });
+})();
+&lt;/script&gt;
+
+&lt;/body&gt;
+&lt;/html&gt;
+"></iframe>
+</body>
+</html>
