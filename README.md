@@ -72,9 +72,26 @@ After `make dev`, **[open the dashboard](http://127.0.0.1:8000/)** or jump direc
 <!-- edgecraft-console:start -->
 ### Daily operations snapshot
 
-> **AWAITING FIRST REFRESH** · the scheduled documentation task has not published an aggregate ledger snapshot yet.
+> **READY** · aggregate ledger snapshot for **2026-07-22 UTC**<br>
+> Control-plane warnings: **0**. Details remain in the private ledger.
 
-<sub>This bounded section is generated from privacy-safe aggregate fields. It never publishes account identifiers, symbols, positions, order sizes, broker payloads, credentials, or model prompts.</sub>
+| Control | Current reading |
+|:--|:--|
+| Mandate mode | `live` |
+| Latest cycle | `OBSERVING` · 2026-07-22 15:56 UTC |
+| Last successful cycle | 2026-07-21 18:10 UTC |
+| Kill switch | `INACTIVE` |
+| Unresolved broker orders | `0` |
+
+| Audited lifecycle | Count | What it means |
+|:--|--:|:--|
+| Autonomous cycles | **3** | Idempotent runs persisted |
+| Approved proposals | **2** | Passed deterministic review gates |
+| Held / rejected proposals | **2** | Cash preserved or policy blocked action |
+| Orders placed | **1** | Broker placement events recorded |
+| Fills recorded | **1** | Filled lifecycle events recorded |
+
+<sub>Generated from privacy-safe aggregate ledger fields. Account identifiers, symbols, positions, order sizes, broker payloads, credentials, and model prompts are never written here. A test, proposal, or permit is not counted as a fill.</sub>
 <!-- edgecraft-console:end -->
 
 Want the mental model rather than the feature list? **[Walk through the codebase and one complete trade →](docs/HOW_EDGECRAFT_WORKS.md)**
