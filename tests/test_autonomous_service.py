@@ -224,6 +224,8 @@ def test_shadow_cycle_is_idempotent_and_audited(tmp_path):
     packet = packets[0]
     assert packet["attempt"] == 1
     assert packet["payload"]["runtime"]["prompt_version"]
+    assert packet["payload"]["decision_memory"]["input_sha256"]
+    assert packet["payload"]["decision_memory"]["prior_decisions"] == []
     assert packet["payload"]["mandate"]["mandate_id"] == "service_test"
     assert packet["payload"]["risk_policy"]["policy_name"] == "service-shadow"
     assert packet["payload"]["observation"]["account"]["account_id"].startswith("acct_")
@@ -552,6 +554,7 @@ class FailsOnceRuntime(StaticObservationRuntime):
         risk_policy,
         external_context=None,
         market_intelligence=None,
+        decision_memory=None,
     ):
         self.calls += 1
         if self.calls == 1:
@@ -564,6 +567,7 @@ class FailsOnceRuntime(StaticObservationRuntime):
             risk_policy=risk_policy,
             external_context=external_context,
             market_intelligence=market_intelligence,
+            decision_memory=decision_memory,
         )
 
 

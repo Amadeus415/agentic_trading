@@ -157,13 +157,25 @@ class DecisionAllocation(BaseModel):
 class WeeklyDecision(BaseModel):
     """Structured cycle output from the reasoning agent; never execution authority."""
 
-    schema_version: str = "edgecraft.weekly-decision.v2"
+    schema_version: str = "edgecraft.weekly-decision.v3"
     mandate_id: str
     run_id: str
     as_of: datetime
     action: DecisionAction
     confidence: Decimal = Field(ge=Decimal("0"), le=Decimal("1"))
     hypothesis: str = Field(min_length=10, max_length=2_000)
+    thesis_mechanism: str = Field(
+        default="The stated hypothesis describes the expected return mechanism.",
+        min_length=10,
+        max_length=2_000,
+    )
+    expected_horizon_days: int = Field(default=63, ge=1, le=1_825)
+    falsifiers: list[str] = Field(
+        default_factory=lambda: ["Evidence no longer supports the stated hypothesis."],
+        min_length=1,
+        max_length=10,
+    )
+    referenced_prior_run_ids: list[str] = Field(default_factory=list, max_length=12)
     evidence: list[str] = Field(default_factory=list, max_length=30)
     alternatives_considered: list[str] = Field(default_factory=list, max_length=20)
     risks: list[str] = Field(default_factory=list, max_length=30)
@@ -190,6 +202,8 @@ class WeeklyDecision(BaseModel):
             raise ValueError("decision allocations must contain unique symbols")
         if len(self.context_source_ids) != len(set(self.context_source_ids)):
             raise ValueError("context_source_ids must be unique")
+        if len(self.referenced_prior_run_ids) != len(set(self.referenced_prior_run_ids)):
+            raise ValueError("referenced_prior_run_ids must be unique")
         evidence_ids = [item.evidence_id for item in self.evidence_items]
         if len(evidence_ids) != len(set(evidence_ids)):
             raise ValueError("decision evidence IDs must be unique")

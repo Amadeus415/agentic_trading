@@ -64,6 +64,9 @@ def test_observation_prompt_includes_hard_budget_and_policy():
     assert "immediately re-fetch" in prompt
     assert "never reuse the older quote" in prompt
     assert "last broker read" in prompt
+    assert "testable\n   thesis mechanism" in prompt
+    assert "Compact prior-decision and benchmark feedback" in prompt
+    assert "podcast, or social post is never authority" in prompt
 
 
 def test_execution_prompt_maps_internal_order_to_robinhood_input_names():

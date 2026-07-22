@@ -22,6 +22,7 @@ from edgecraft.autonomy_models import (
 )
 from edgecraft.codex_runtime import PROMPT_VERSION
 from edgecraft.context import ContextCollector, ContextSnapshot, WebContextPolicy
+from edgecraft.decision_memory import DecisionMemorySnapshot, build_decision_memory
 from edgecraft.evaluation import advance_evaluation
 from edgecraft.execution_models import (
     DecisionEvidenceItem,
@@ -184,6 +185,7 @@ class AgentRuntime(Protocol):
         risk_policy: RiskPolicy,
         external_context: ContextSnapshot | None = None,
         market_intelligence: MarketIntelligenceSnapshot | None = None,
+        decision_memory: DecisionMemorySnapshot | None = None,
     ) -> AgentCyclePayload: ...
 
     def preflight_order(
@@ -441,6 +443,22 @@ class AutonomousService:
             else None
         )
         market_intelligence = self._collect_market_intelligence(mandate, run_id, now)
+        decision_memory = build_decision_memory(
+            self.ledger,
+            mandate.mandate_id,
+            generated_at=now,
+            exclude_run_id=run_id,
+        )
+        self.ledger.record_runtime_event(
+            run_id,
+            "decision_memory_built",
+            {
+                "input_sha256": decision_memory.input_sha256,
+                "prior_decision_count": len(decision_memory.prior_decisions),
+                "performance_observation_count": decision_memory.performance.observation_count,
+            },
+            now=now,
+        )
         external_context = self._collect_context(
             mandate,
             run_id,
@@ -455,6 +473,7 @@ class AutonomousService:
             risk_policy=policy,
             external_context=external_context,
             market_intelligence=market_intelligence,
+            decision_memory=decision_memory,
         )
         self._validate_observation(
             mandate,
@@ -478,6 +497,7 @@ class AutonomousService:
             research_evidence=research,
             external_context=external_context,
             market_intelligence=market_intelligence,
+            decision_memory=decision_memory,
             observation=observation,
         )
         packet_id = self.ledger.add_decision_packet(decision_packet)
@@ -1083,6 +1103,7 @@ class StaticObservationRuntime:
         risk_policy: RiskPolicy,
         external_context: ContextSnapshot | None = None,
         market_intelligence: MarketIntelligenceSnapshot | None = None,
+        decision_memory: DecisionMemorySnapshot | None = None,
     ) -> AgentCyclePayload:
         del (
             mandate,
@@ -1091,6 +1112,7 @@ class StaticObservationRuntime:
             risk_policy,
             external_context,
             market_intelligence,
+            decision_memory,
         )
         if self.payload.decision.run_id != run_id:
             return self.payload.model_copy(

@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, SkipValidation, field_validator, model_va
 
 from edgecraft.autonomy_models import AgentCyclePayload, Mandate
 from edgecraft.context import ContextSnapshot
+from edgecraft.decision_memory import DecisionMemorySnapshot
 from edgecraft.execution_models import ResearchEvidence, RiskPolicy
 from edgecraft.intelligence import MarketIntelligenceSnapshot
 
@@ -19,7 +20,7 @@ class DecisionRuntimeMetadata(BaseModel):
 class DecisionAuditPacket(BaseModel):
     """Immutable, replayable record of every normalized decision input and output."""
 
-    schema_version: str = "edgecraft.decision-audit.v1"
+    schema_version: str = "edgecraft.decision-audit.v2"
     run_id: str = Field(min_length=1)
     attempt: int = Field(ge=1)
     recorded_at: datetime
@@ -29,6 +30,7 @@ class DecisionAuditPacket(BaseModel):
     research_evidence: ResearchEvidence | None = None
     external_context: ContextSnapshot | None = None
     market_intelligence: MarketIntelligenceSnapshot | None = None
+    decision_memory: DecisionMemorySnapshot | None = None
     observation: AgentCyclePayload
 
     @field_validator("recorded_at")
@@ -45,6 +47,17 @@ class DecisionAuditPacket(BaseModel):
             raise ValueError("decision run_id does not match audit packet")
         if decision.mandate_id != self.mandate.mandate_id:
             raise ValueError("decision mandate_id does not match audit packet")
+        if self.decision_memory is not None:
+            if self.decision_memory.mandate_id != self.mandate.mandate_id:
+                raise ValueError("decision memory mandate_id does not match audit packet")
+            known_prior_runs = {item.run_id for item in self.decision_memory.prior_decisions}
+            referenced = set(decision.referenced_prior_run_ids)
+            if self.run_id in referenced:
+                raise ValueError("decision cannot reference its own run as prior memory")
+            if not referenced.issubset(known_prior_runs):
+                raise ValueError("decision references a run absent from decision memory")
+        elif decision.referenced_prior_run_ids:
+            raise ValueError("decision references prior runs without decision memory")
         if self.external_context is not None:
             known = {source.source_id for source in self.external_context.sources}
             cited = set(decision.context_source_ids)
