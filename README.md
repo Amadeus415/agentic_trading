@@ -61,6 +61,14 @@ flowchart LR
 - An append-only SQLite audit ledger, structured logs, metrics, health/readiness checks, and a local operator dashboard.
 - Cash-flow-matched agent, SPY benchmark, and strategic-baseline books for honest performance comparison.
 
+## Interactive operator dashboard
+
+[![Synthetic preview of the Edgecraft interactive operator dashboard](docs/assets/edgecraft-theory.svg)](http://127.0.0.1:8000/)
+
+The colorful preview uses synthetic values; the running dashboard reads your local audit ledger. It gives you an interactive overview of portfolio state, autonomy health, agent runs, policy decisions, and recent broker orders without exposing credentials or account identifiers.
+
+After `make dev`, **[open the dashboard](http://127.0.0.1:8000/)** or jump directly to **[recent trades](http://127.0.0.1:8000/#/trades)**. Select an order to inspect its reasoning, evidence, policy result, broker events, and reconciliation status.
+
 Want the mental model rather than the feature list? **[Walk through the codebase and one complete trade →](docs/HOW_EDGECRAFT_WORKS.md)**
 
 ## Run Edgecraft locally

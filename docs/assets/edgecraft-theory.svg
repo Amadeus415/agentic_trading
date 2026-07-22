@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Edgecraft interactive operator dashboard preview</title>
+  <desc id="desc">A colorful synthetic preview of the Edgecraft read-only operator dashboard showing portfolio value, autonomy health, recent trades, and policy controls.</desc>
+  <defs>
+    <linearGradient id="page" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#071c18"/><stop offset="1" stop-color="#12392f"/></linearGradient>
+    <linearGradient id="chart" x1="0" x2="0" y1="0" y2="1"><stop stop-color="#54d69a" stop-opacity=".42"/><stop offset="1" stop-color="#54d69a" stop-opacity="0"/></linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="16" stdDeviation="22" flood-color="#00110d" flood-opacity=".32"/></filter>
+  </defs>
+  <rect width="1600" height="900" rx="36" fill="url(#page)"/>
+  <circle cx="1435" cy="90" r="250" fill="#f2b84b" opacity=".12"/><circle cx="1295" cy="830" r="330" fill="#48c9ff" opacity=".08"/>
+
+  <g filter="url(#shadow)">
+    <rect x="55" y="48" width="1490" height="804" rx="24" fill="#f4f2e9"/>
+    <rect x="55" y="48" width="252" height="804" rx="24" fill="#0d3028"/>
+    <rect x="283" y="48" width="24" height="804" fill="#0d3028"/>
+  </g>
+
+  <g font-family="Inter,Segoe UI,Arial,sans-serif">
+    <g fill="#f7faf8">
+      <rect x="86" y="82" width="50" height="50" rx="13" fill="#58d29a"/><text x="111" y="116" text-anchor="middle" font-size="27" font-weight="900" fill="#09231d">E</text>
+      <text x="153" y="104" font-size="22" font-weight="850">EDGECRAFT</text><text x="153" y="126" font-size="11" letter-spacing="2" fill="#8db0a5">OPERATOR LEDGER</text>
+    </g>
+    <text x="88" y="190" font-size="11" letter-spacing="2" fill="#71998c">FUND</text>
+    <g font-size="17" fill="#9dbbb1"><rect x="76" y="207" width="206" height="48" rx="9" fill="#1b493d"/><circle cx="102" cy="231" r="7" fill="#58d29a"/><text x="124" y="237" fill="#fff" font-weight="700">Overview</text><text x="101" y="291">◫</text><text x="124" y="291">Portfolio</text><text x="101" y="341">↗</text><text x="124" y="341">Trades</text></g>
+    <text x="88" y="405" font-size="11" letter-spacing="2" fill="#71998c">OPERATIONS</text>
+    <g font-size="17" fill="#9dbbb1"><text x="101" y="454">◷</text><text x="124" y="454">Agent runs</text><text x="101" y="504">◇</text><text x="124" y="504">System &amp; method</text></g>
+    <rect x="77" y="670" width="207" height="153" rx="14" fill="#123c32" stroke="#2b594d"/>
+    <circle cx="100" cy="703" r="7" fill="#58d29a"/><text x="119" y="708" font-size="12" letter-spacing="1.5" fill="#dce9e5">SYSTEM READY</text>
+    <text x="94" y="747" font-size="11" fill="#789e92">MODE</text><text x="244" y="747" text-anchor="end" font-size="12" fill="#fff">SHADOW</text>
+    <text x="94" y="779" font-size="11" fill="#789e92">OPEN ORDERS</text><text x="244" y="779" text-anchor="end" font-size="12" fill="#fff">0</text>
+    <text x="94" y="808" font-size="10" fill="#789e92">LOCAL · READ ONLY</text>
+
+    <text x="355" y="96" font-size="11" letter-spacing="2" fill="#718078">FUND / OVERVIEW</text>
+    <rect x="1327" y="76" width="164" height="34" rx="17" fill="#e0f4e9"/><circle cx="1350" cy="93" r="6" fill="#24a56b"/><text x="1364" y="98" font-size="11" letter-spacing="1" fill="#176343">LEDGER CONNECTED</text>
+    <text x="355" y="158" font-size="39" font-weight="750" fill="#17362d">Capital, decisions, and control.</text>
+    <text x="355" y="190" font-size="16" fill="#68776f">Broker observations, autonomous decisions, safety controls, and fills in one auditable surface.</text>
+
+    <rect x="355" y="232" width="750" height="315" rx="16" fill="#fff" stroke="#d8dcd6"/>
+    <text x="385" y="270" font-size="11" letter-spacing="1.6" fill="#758078">LAST VERIFIED PORTFOLIO</text>
+    <text x="385" y="326" font-size="43" font-weight="760" fill="#153a2e">$1,284.63</text>
+    <rect x="942" y="260" width="126" height="30" rx="15" fill="#e2f4ea"/><circle cx="962" cy="275" r="5" fill="#28a76d"/><text x="976" y="280" font-size="11" fill="#1a6f4b">VERIFIED</text>
+    <line x1="385" y1="465" x2="1074" y2="465" stroke="#dfe5df"/>
+    <path d="M390 437 C465 423 487 443 548 405 S655 414 713 365 S815 390 878 328 S1002 345 1070 301 L1070 465 L390 465Z" fill="url(#chart)"/>
+    <path d="M390 437 C465 423 487 443 548 405 S655 414 713 365 S815 390 878 328 S1002 345 1070 301" fill="none" stroke="#2caf75" stroke-width="5"/>
+    <g fill="#6f7c74" font-size="11"><text x="385" y="500">BUYING POWER</text><text x="612" y="500">INVESTED</text><text x="839" y="500">UNREALIZED P&amp;L</text></g>
+    <g fill="#183a30" font-size="18" font-weight="700"><text x="385" y="526">$42.17</text><text x="612" y="526">$1,242.46</text><text x="839" y="526">+$31.08</text></g>
+
+    <rect x="1126" y="232" width="365" height="315" rx="16" fill="#113d32"/>
+    <circle cx="1173" cy="279" r="22" fill="none" stroke="#4bd296" stroke-width="5" stroke-dasharray="94 25"/><circle cx="1173" cy="279" r="5" fill="#4bd296"/>
+    <text x="1210" y="269" font-size="11" letter-spacing="1.5" fill="#82aa9d">AUTONOMY HEALTH</text><text x="1210" y="296" font-size="17" font-weight="700" fill="#f4fbf8">Operating inside hard limits</text>
+    <line x1="1158" y1="326" x2="1458" y2="326" stroke="#315d51"/>
+    <g font-size="11" fill="#85a99e"><text x="1158" y="363">KILL SWITCH</text><text x="1158" y="408">UNRESOLVED ORDERS</text><text x="1158" y="453">POLICY STATUS</text></g>
+    <g font-size="13" fill="#fff" text-anchor="end"><text x="1458" y="363">CLEAR</text><text x="1458" y="408">0</text><text x="1458" y="453">AUTHORIZED</text></g>
+    <rect x="1158" y="482" width="300" height="38" rx="9" fill="#205745"/><text x="1308" y="506" text-anchor="middle" font-size="11" letter-spacing="1" fill="#dff7ec">MODEL PROPOSES · POLICY DECIDES</text>
+
+    <rect x="355" y="568" width="1136" height="232" rx="16" fill="#fff" stroke="#d8dcd6"/>
+    <text x="385" y="606" font-size="11" letter-spacing="1.6" fill="#758078">RECENT ORDERS · SYNTHETIC PREVIEW</text>
+    <text x="1457" y="606" text-anchor="end" font-size="12" fill="#267354">Open full trade ledger →</text>
+    <g font-size="10" letter-spacing="1.2" fill="#8a948e"><text x="385" y="649">ASSET</text><text x="620" y="649">DECISION</text><text x="835" y="649">NOTIONAL</text><text x="1025" y="649">BROKER TRUTH</text><text x="1285" y="649">TIME</text></g>
+    <line x1="385" y1="663" x2="1458" y2="663" stroke="#e0e4df"/>
+    <g font-size="14" fill="#17362d"><circle cx="400" cy="695" r="16" fill="#e1f4ea"/><text x="400" y="700" text-anchor="middle" font-size="10" font-weight="800" fill="#20835a">SPY</text><text x="430" y="700" font-weight="700">SPY</text><text x="620" y="700">Buy · 0.018 shares</text><text x="835" y="700">$10.00</text><rect x="1025" y="681" width="118" height="28" rx="14" fill="#e1f4ea"/><circle cx="1045" cy="695" r="5" fill="#28a76d"/><text x="1058" y="700" font-size="11" fill="#1a6f4b">CONFIRMED</text><text x="1285" y="700" fill="#6d7972">Today, 7:42 AM</text></g>
+    <line x1="385" y1="724" x2="1458" y2="724" stroke="#ecefea"/>
+    <g font-size="14" fill="#17362d"><circle cx="400" cy="756" r="16" fill="#fff0d5"/><text x="400" y="761" text-anchor="middle" font-size="10" font-weight="800" fill="#a76700">VTI</text><text x="430" y="761" font-weight="700">VTI</text><text x="620" y="761">Hold · spread gate</text><text x="835" y="761">$0.00</text><rect x="1025" y="742" width="118" height="28" rx="14" fill="#fff0d5"/><circle cx="1045" cy="756" r="5" fill="#d58b17"/><text x="1058" y="761" font-size="11" fill="#8b5a08">HELD SAFE</text><text x="1285" y="761" fill="#6d7972">Yesterday, 7:40 AM</text></g>
+
+    <text x="800" y="833" text-anchor="middle" font-size="12" letter-spacing="1.5" fill="#b7cdc5">SYNTHETIC PREVIEW · THE RUNNING DASHBOARD READS YOUR LOCAL AUDIT LEDGER</text>
+  </g>
+</svg>
