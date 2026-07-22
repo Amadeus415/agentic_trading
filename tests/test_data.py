@@ -48,7 +48,29 @@ def test_provider_retries_transient_invalid_download(monkeypatch, tmp_path):
         return next(responses)
 
     monkeypatch.setattr("edgecraft.data.yf.download", fake_download)
+    monkeypatch.setattr("edgecraft.data.time.sleep", lambda _: None)
     result = MarketDataProvider(tmp_path).load(["AAA"], "2020-01-01", "2021-01-01")
 
     assert calls == 2
+    pd.testing.assert_frame_equal(result["AAA"], valid, check_freq=False)
+
+
+def test_provider_backs_off_after_empty_downloads(monkeypatch, tmp_path):
+    valid = synthetic_market_data(["AAA"], periods=100)["AAA"]
+    responses = iter([pd.DataFrame(), pd.DataFrame(), valid])
+    calls = 0
+    delays: list[float] = []
+
+    def fake_download(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return next(responses)
+
+    monkeypatch.setattr("edgecraft.data.yf.download", fake_download)
+    monkeypatch.setattr("edgecraft.data.time.sleep", delays.append)
+
+    result = MarketDataProvider(tmp_path).load(["AAA"], "2020-01-01", "2021-01-01")
+
+    assert calls == 3
+    assert delays == [0.5, 1.5]
     pd.testing.assert_frame_equal(result["AAA"], valid, check_freq=False)

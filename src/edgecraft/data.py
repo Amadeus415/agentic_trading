@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import time
 from pathlib import Path
 
 import numpy as np
@@ -8,6 +9,7 @@ import pandas as pd
 import yfinance as yf
 
 REQUIRED_COLUMNS = ("open", "high", "low", "close", "volume")
+DOWNLOAD_RETRY_DELAYS_SECONDS = (0.5, 1.5, 3.0)
 
 
 class MarketDataError(RuntimeError):
@@ -46,7 +48,7 @@ class MarketDataProvider:
 
         frame: pd.DataFrame | None = None
         last_error: MarketDataError | None = None
-        for _ in range(2):
+        for attempt in range(len(DOWNLOAD_RETRY_DELAYS_SECONDS) + 1):
             raw = yf.download(
                 symbol,
                 start=start,
@@ -59,6 +61,8 @@ class MarketDataProvider:
             )
             if raw.empty:
                 last_error = MarketDataError("no market data returned")
+                if attempt < len(DOWNLOAD_RETRY_DELAYS_SECONDS):
+                    time.sleep(DOWNLOAD_RETRY_DELAYS_SECONDS[attempt])
                 continue
             if isinstance(raw.columns, pd.MultiIndex):
                 raw.columns = raw.columns.get_level_values(0)
@@ -72,6 +76,8 @@ class MarketDataProvider:
                 # Yahoo occasionally returns a transient malformed adjusted bar.
                 # Retry the complete request rather than caching or silently repairing it.
                 last_error = exc
+                if attempt < len(DOWNLOAD_RETRY_DELAYS_SECONDS):
+                    time.sleep(DOWNLOAD_RETRY_DELAYS_SECONDS[attempt])
         if frame is None:
             raise last_error or MarketDataError("market data download failed")
         self.cache_dir.mkdir(parents=True, exist_ok=True)
