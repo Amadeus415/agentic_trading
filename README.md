@@ -32,6 +32,8 @@ The governing rule is simple:
 
 > **The model proposes. Typed policy authorizes. The broker executes. Reconciliation proves.**
 
+![Edgecraft theory of control](docs/assets/edgecraft-theory.svg)
+
 ```mermaid
 flowchart LR
     M["Owner mandate"] --> O["Observe account + market"]

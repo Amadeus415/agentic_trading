@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Edgecraft theory of control</title>
+  <desc id="desc">A loop showing observe, reason, deterministic gate, execute, prove, and halt steps around the rule that the model proposes, policy authorizes, and reconciliation proves.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#061226"/><stop offset="1" stop-color="#0f2747"/></linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#000814" flood-opacity="0.35"/></filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/></marker>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <circle cx="800" cy="455" r="292" fill="none" stroke="#0f365f" stroke-width="34"/>
+  <circle cx="800" cy="455" r="292" fill="none" stroke="#38bdf8" stroke-width="8" stroke-dasharray="34 18" opacity="0.9"/>
+  <text x="80" y="95" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="48" font-weight="800" fill="#f8fafc">EDGECRAFT THEORY OF CONTROL</text>
+  <text x="82" y="142" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="27" fill="#cbd5e1">Probabilistic reasoning can suggest action; deterministic policy is the authority; audit data proves the outcome.</text>
+
+  <g fill="none" stroke="#94a3b8" stroke-width="5" marker-end="url(#arrow)" opacity="0.9">
+    <path d="M570 382 C610 285 705 240 865 246"/>
+    <path d="M962 285 C1048 292 1105 342 1132 432"/>
+    <path d="M1180 504 C1194 570 1158 628 1080 658"/>
+    <path d="M983 684 C861 735 706 728 605 688"/>
+    <path d="M514 665 C424 638 368 592 360 516"/>
+    <path d="M385 430 C404 370 452 338 535 330"/>
+  </g>
+
+  <g filter="url(#shadow)" font-family="Inter,Segoe UI,Arial,sans-serif">
+    <g transform="translate(205 310)"><rect width="370" height="136" rx="26" fill="#0d1f3b" stroke="#38bdf8" stroke-width="3"/><text x="26" y="45" font-size="27" font-weight="800" fill="#38bdf8">OBSERVE</text><text x="26" y="86" font-size="24" fill="#f1f5f9">Account state, market data,</text><text x="26" y="116" font-size="24" fill="#f1f5f9">filings, and context</text></g>
+    <g transform="translate(595 205)"><rect width="410" height="136" rx="26" fill="#0d1f3b" stroke="#f59e0b" stroke-width="3"/><text x="26" y="45" font-size="27" font-weight="800" fill="#f59e0b">REASON</text><text x="26" y="86" font-size="24" fill="#f1f5f9">Thesis, alternatives, costs,</text><text x="26" y="116" font-size="24" fill="#f1f5f9">and downside tests</text></g>
+    <g transform="translate(1015 310)"><rect width="380" height="136" rx="26" fill="#0d1f3b" stroke="#22c55e" stroke-width="3"/><text x="26" y="45" font-size="27" font-weight="800" fill="#22c55e">GATE</text><text x="26" y="86" font-size="24" fill="#f1f5f9">Cash, risk, freshness,</text><text x="26" y="116" font-size="24" fill="#f1f5f9">liquidity, and mandate</text></g>
+    <g transform="translate(995 585)"><rect width="395" height="136" rx="26" fill="#0d1f3b" stroke="#38bdf8" stroke-width="3"/><text x="26" y="45" font-size="27" font-weight="800" fill="#38bdf8">EXECUTE</text><text x="26" y="86" font-size="24" fill="#f1f5f9">Fresh preflight plus</text><text x="26" y="116" font-size="24" fill="#f1f5f9">one-use broker permit</text></g>
+    <g transform="translate(555 665)"><rect width="420" height="136" rx="26" fill="#0d1f3b" stroke="#22c55e" stroke-width="3"/><text x="26" y="45" font-size="27" font-weight="800" fill="#22c55e">PROVE</text><text x="26" y="86" font-size="24" fill="#f1f5f9">Append-only ledger and</text><text x="26" y="116" font-size="24" fill="#f1f5f9">independent reconciliation</text></g>
+    <g transform="translate(210 585)"><rect width="365" height="136" rx="26" fill="#0d1f3b" stroke="#f87171" stroke-width="3"/><text x="26" y="45" font-size="27" font-weight="800" fill="#f87171">HALT</text><text x="26" y="86" font-size="24" fill="#f1f5f9">Fail closed whenever</text><text x="26" y="116" font-size="24" fill="#f1f5f9">state is ambiguous</text></g>
+    <g transform="translate(535 382)"><rect width="530" height="160" rx="32" fill="#081830" stroke="#22c55e" stroke-width="4"/><text x="65" y="50" font-size="27" font-weight="800" fill="#f59e0b">MODEL PROPOSES</text><text x="65" y="92" font-size="27" font-weight="800" fill="#22c55e">TYPED POLICY AUTHORIZES</text><text x="65" y="134" font-size="27" font-weight="800" fill="#38bdf8">RECONCILIATION PROVES</text></g>
+  </g>
+  <text x="80" y="840" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="28" fill="#cbd5e1">Shadow-first by default • Explicit live authority • Append-only flight recorder • Independent broker checks</text>
+</svg>
