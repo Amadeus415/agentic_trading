@@ -69,6 +69,14 @@ The colorful preview uses synthetic values; the running dashboard reads your loc
 
 After `make dev`, **[open the dashboard](http://127.0.0.1:8000/)** or jump directly to **[recent trades](http://127.0.0.1:8000/#/trades)**. Select an order to inspect its reasoning, evidence, policy result, broker events, and reconciliation status.
 
+<!-- edgecraft-console:start -->
+### Daily operations snapshot
+
+> **AWAITING FIRST REFRESH** · the scheduled documentation task has not published an aggregate ledger snapshot yet.
+
+<sub>This bounded section is generated from privacy-safe aggregate fields. It never publishes account identifiers, symbols, positions, order sizes, broker payloads, credentials, or model prompts.</sub>
+<!-- edgecraft-console:end -->
+
 Want the mental model rather than the feature list? **[Walk through the codebase and one complete trade →](docs/HOW_EDGECRAFT_WORKS.md)**
 
 ## Run Edgecraft locally

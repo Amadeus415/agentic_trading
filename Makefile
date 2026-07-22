@@ -1,4 +1,4 @@
-.PHONY: install dev test lint security demo health validate
+.PHONY: install dev test lint security demo health readme-dashboard validate
 
 install:
 	uv sync --extra dev
@@ -24,6 +24,11 @@ demo:
 
 health:
 	uv run edgecraft health
+
+readme-dashboard:
+	uv run python -m edgecraft.readme_dashboard \
+		--ledger state/edgecraft.db \
+		--readme README.md
 
 validate: test lint
 	uv run edgecraft mandate-validate --config examples/mandate.index-dca.json
