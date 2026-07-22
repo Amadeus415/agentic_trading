@@ -53,11 +53,11 @@ flowchart LR
 - Causal backtests: a signal at session close cannot receive a same-close fantasy fill.
 - Walk-forward evaluation, cost stress, block-bootstrap intervals, Deflated Sharpe Ratio, and PBO/CSCV overfitting checks.
 - A typed mandate that scopes capital, cadence, symbols, benchmark, strategy tilt, and live authority.
-- Current web, SEC filing, social, historical-price, account, quote, and order-history inputs with source timestamps.
+- Completed-session intelligence across the full universe, focused web/SEC/social research for ranked candidates, and final fresh broker reads for selected symbols.
 - A market-day autonomous loop powered by Codex, with deterministic trade approval outside the model.
 - Shadow and explicitly armed live paths; new examples remain shadow-first.
-- A second read-only broker preflight, a policy-fingerprint re-check, and an expiring single-use permit before placement.
-- A kill switch, overlap lock, retry-safe IDs, unresolved-order blocking, and post-order reconciliation.
+- A second read-only broker preflight, a policy-fingerprint re-check, exact Robinhood input mapping, and an expiring single-use permit before placement.
+- A kill switch, overlap lock, attempt-scoped order IDs, bounded side-effect-free retries, unresolved-order blocking, and post-order reconciliation.
 - An append-only SQLite audit ledger, structured logs, metrics, health/readiness checks, and a local operator dashboard.
 - Cash-flow-matched agent, SPY benchmark, and strategic-baseline books for honest performance comparison.
 
@@ -78,16 +78,16 @@ After `make dev`, **[open the dashboard](http://127.0.0.1:8000/)** or jump direc
 | Control | Current reading |
 |:--|:--|
 | Mandate mode | `live` |
-| Latest cycle | `OBSERVING` · 2026-07-22 15:56 UTC |
-| Last successful cycle | 2026-07-21 18:10 UTC |
+| Latest cycle | `HELD` · 2026-07-22 18:33 UTC |
+| Last successful cycle | 2026-07-22 18:33 UTC |
 | Kill switch | `INACTIVE` |
 | Unresolved broker orders | `0` |
 
 | Audited lifecycle | Count | What it means |
 |:--|--:|:--|
 | Autonomous cycles | **3** | Idempotent runs persisted |
-| Approved proposals | **2** | Passed deterministic review gates |
-| Held / rejected proposals | **2** | Cash preserved or policy blocked action |
+| Approved proposals | **3** | Passed deterministic review gates |
+| Held / rejected proposals | **5** | Cash preserved or policy blocked action |
 | Orders placed | **1** | Broker placement events recorded |
 | Fills recorded | **1** | Filled lifecycle events recorded |
 

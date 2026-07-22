@@ -6,8 +6,9 @@ approval. Autonomy is split across two trust domains:
 ```text
 Codex Scheduled wakeup
   → Edgecraft due/idempotency/budget check
-  → Browserbase + public-source context collection and audit
-  → Codex read-only Robinhood observation and structured recommendation
+  → completed-session intelligence across the full mandate universe
+  → focused Browserbase + public-source context for ranked candidates
+  → Codex read-only Robinhood observation, final quote refresh, and structured recommendation
   → Edgecraft policy + freshness + cash + concentration + tilt gate
   → shadow complete
      or, only for an explicitly live mandate:
@@ -69,8 +70,18 @@ idempotent run without invoking the model again.
 
 The Mac must be on, the user session available, Codex authenticated, and
 Robinhood MCP OAuth current. A side-effect-free transient failure may retry up
-to three times. A run that issued any execution permit never retries
-automatically.
+to three times after the initial attempt. An operator may authorize up to four
+additional audited attempts with `--retry-side-effect-free "reason"`, but only
+when the ledger proves there was no broker side effect, the kill switch is
+inactive, no order is unresolved, and no order was placed that day. A permit
+that was claimed or could have reached the broker is never retryable. A permit
+that was revoked before claim is retryable only when a matching terminal
+rejection records zero fill and no broker order identity.
+
+Each retry receives new proposal and order identities while retaining the same
+idempotent daily run. The first immutable performance observation for that run
+is reused, so a retry cannot double-count the day's contribution or rewrite the
+benchmark record.
 
 ## Risk settings
 

@@ -142,13 +142,15 @@ If nothing remains, the cycle completes without asking the model to manufacture 
 `AutonomousService._run_started_cycle()` moves the run to `observing` and assembles four evidence families:
 
 1. The mandate and exact risk policy loaded from disk.
-2. Completed-session price and regime data from `intelligence.py`.
-3. Timestamped public context from `context.py` when required.
-4. Read-only Robinhood account, position, quote, and order-history facts gathered through `CodexRuntime.observe()`.
+2. Completed-session price, liquidity, factor, and regime data for the full universe from `intelligence.py`.
+3. Timestamped public context from `context.py` for up to eight top-ranked candidates when required.
+4. Read-only Robinhood account, position, quote, and order-history facts gathered through `CodexRuntime.observe()`. Live quote reads are limited to the benchmark, held symbols, and at most three finalists rather than repeating full-universe broker calls.
 
 The runtime must return an `AgentCyclePayload`. Pydantic validates its shapes, money precision, timestamps, symbol uniqueness, and relationship between the stated action and allocations.
 
-`_validate_observation()` then checks deeper facts: the mandate/run identities match, every proposed symbol is in the universe, evaluation quotes exist, cited source IDs are real, no evidence comes from the future, and every invested symbol has quote plus historical and current-context support.
+After the model chooses its final action, the observation runtime immediately refreshes the selected account and every allocated symbol plus the benchmark. Those reads replace the earlier account and quote objects and must be the final broker reads of observation. A stale, failed, or newly ineligible refresh forces a hold.
+
+`_validate_observation()` then checks deeper facts: the mandate/run identities match, every proposed symbol is in the universe, the benchmark and every allocation have a fresh live quote, cited source IDs are real, no evidence comes from the future, and every invested symbol has quote plus historical and current-context support. Completed-session intelligence supplies valuation prices for unrelated strategic and benchmark holdings, so the broker does not need to quote the entire universe twice.
 
 **Invariant:** no free-form prose can quietly become an order.
 
@@ -225,7 +227,7 @@ The raw token is not stored; the ledger stores its hash and sanitized constraint
 
 ### Step 8 — Robinhood receives the order
 
-`CodexRuntime.execute_order()` hands the permitted action to Robinhood MCP. The Python process does not keep Robinhood credentials and does not secretly open another broker connection.
+`CodexRuntime.execute_order()` hands the permitted action to Robinhood MCP. The execution component performs one account-identity read, then promptly submits the exact preflighted order. It maps Edgecraft's internal fields to Robinhood's accepted placement fields (`dollar_amount`, `type`, and `account_number`) instead of leaking internal names such as `notional` or `order_type`. The Python process does not keep Robinhood credentials and does not secretly open another broker connection.
 
 The `PreToolUse` guard independently checks the ledger and exact tool arguments before the placement tool can run.
 
@@ -239,19 +241,19 @@ If the broker returns an order identity or an execution-like state, `reconcile_o
 
 Terminal states are recorded as lifecycle events. A `filled` event includes the observed filled notional, average fill price, fees, and broker identity in the private ledger.
 
-If the placement call errors after authority was issued, `recover_order()` searches the broker’s recent orders rather than blindly retrying. If recovery cannot prove a terminal state, Edgecraft activates the kill switch and leaves the incident unresolved.
+If the placement call errors after authority was issued, `recover_order()` searches the broker’s recent orders rather than blindly retrying. If recovery cannot prove a terminal state, Edgecraft activates the kill switch and leaves the incident unresolved. Only a confirmed pre-submission rejection with a revoked, never-claimed permit, zero fill, and no broker order identity can return to the bounded retry path.
 
 **Invariant:** ambiguity after authority is a stop condition, not permission to submit again.
 
 ### Step 10 — the cycle closes and performance advances
 
-The run becomes `completed` only after its execution path is safely accounted for. `evaluation.py` advances three cash-flow-matched books:
+The run becomes `completed` only after its execution path is safely accounted for. `evaluation.py` advances three cash-flow-matched books once per daily run:
 
 - the agent’s chosen portfolio;
 - the SPY benchmark;
 - the mandate’s deterministic strategic-weight baseline.
 
-This avoids comparing a small, periodic contribution strategy with a benchmark that received different cash flows.
+This avoids comparing a small, periodic contribution strategy with a benchmark that received different cash flows. If a provably side-effect-free run is retried, Edgecraft creates new attempt-scoped proposal and order identities but reuses the first immutable daily evaluation observation. It cannot double-count the contribution or rewrite performance with later prices.
 
 The local dashboard, CLI, logs, and metrics all derive their summaries from the same ledger rather than inventing separate truth.
 
