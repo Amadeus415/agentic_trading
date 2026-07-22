@@ -59,3 +59,10 @@ The daily decision packet stores the exact snapshot, its completed-session date,
 and its input checksum. Yahoo data can be revised later; the checksum makes that
 revision risk visible instead of pretending the source is an institutional
 point-in-time feed.
+
+Before each new decision, Edgecraft also builds a compact decision-memory
+packet. It includes recent thesis mechanisms, horizons, falsifiers, allocations,
+and the next observable cash-flow-matched excess return, plus the aggregate
+benchmark report. The packet is content-hashed and stored with the new decision.
+It is feedback, not proof: short-term outcomes must not overrule a thesis's
+declared horizon or induce optimization to a handful of observations.
