@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 
@@ -118,3 +119,24 @@ def test_evaluation_requires_complete_point_in_time_prices():
             observed_at=NOW,
             prior=None,
         )
+
+
+def test_evaluation_uses_completed_session_prices_for_unrelated_symbols():
+    state, observation = advance_evaluation(
+        _mandate(),
+        _proposal(invest=True),
+        [MarketQuote(symbol="AAA", last=100, as_of=NOW)],
+        completed_session_prices={"BBB": 90, "SPY": 110},
+        run_id="run-invest",
+        cycle_key="evaluation_test:2026-W30",
+        observed_at=NOW,
+        prior=None,
+        cost_bps=Decimal("0"),
+    )
+
+    assert state.agent.positions["AAA"] == Decimal("0.1")
+    assert observation.prices == {
+        "AAA": Decimal("100"),
+        "BBB": Decimal("90"),
+        "SPY": Decimal("110"),
+    }

@@ -84,6 +84,7 @@ def advance_evaluation(
     proposal: TradeProposal,
     quotes: list[MarketQuote],
     *,
+    completed_session_prices: dict[str, Decimal | float] | None = None,
     run_id: str,
     cycle_key: str,
     observed_at: datetime,
@@ -91,7 +92,11 @@ def advance_evaluation(
     cost_bps: Decimal = Decimal("10"),
 ) -> tuple[EvaluationState, EvaluationObservation]:
     """Advance cash-flow-matched agent, S&P benchmark, and strategic shadow books."""
-    quote_map = {quote.symbol: Decimal(str(quote.last)) for quote in quotes}
+    quote_map = {
+        symbol.strip().upper(): Decimal(str(price))
+        for symbol, price in (completed_session_prices or {}).items()
+    }
+    quote_map.update({quote.symbol: Decimal(str(quote.last)) for quote in quotes})
     required = {mandate.benchmark, *mandate.strategic_weights}
     if prior is not None:
         required.update(prior.agent.positions)

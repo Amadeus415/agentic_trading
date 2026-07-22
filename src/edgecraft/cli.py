@@ -157,6 +157,14 @@ def _add_operation_commands(commands: Any) -> None:
         action="store_true",
         help="Ignore schedule timing; never bypass budget, policy, risk, or permits.",
     )
+    cycle.add_argument(
+        "--retry-side-effect-free",
+        metavar="REASON",
+        help=(
+            "Authorize a bounded audited retry after the ledger proves no broker side effect; "
+            "never bypasses budget, policy, risk, freshness, or permits."
+        ),
+    )
 
     runs = commands.add_parser("runs", help="List recent autonomous runs.")
     runs.add_argument("--ledger", default="state/edgecraft.db")
@@ -343,7 +351,11 @@ def _run_cycle(args: argparse.Namespace) -> dict[str, Any]:
         context_collector=context_service,
         context_policy=context_service.policy if context_service else None,
         market_intelligence_collector=intelligence_collector,
-    ).run_cycle(mandate, force=args.force)
+    ).run_cycle(
+        mandate,
+        force=args.force,
+        retry_side_effect_free_reason=args.retry_side_effect_free,
+    )
 
 
 def _backtest(args: argparse.Namespace) -> dict[str, Any]:

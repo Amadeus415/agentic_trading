@@ -182,11 +182,11 @@ def _invoke(ledger, token=None, *, symbol="VTI", omitted=None):
         "hook_event_name": "PreToolUse",
         "tool_name": "mcp__robinhood_trading__place_equity_order",
         "tool_input": {
-            "account_id": "agentic-test",
+            "account_number": "agentic-test",
             "symbol": symbol,
             "side": "buy",
-            "dollar_notional": 10,
-            "order_type": "market",
+            "dollar_amount": "10.00",
+            "type": "market",
             "time_in_force": "gfd",
         },
     }
@@ -273,12 +273,46 @@ def test_trade_guard_rejects_mismatch_then_claims_exactly_once(tmp_path):
 
 def test_trade_guard_rejects_missing_required_constraint(tmp_path):
     ledger, token = _setup_live_permit(tmp_path)
-    result = _invoke(ledger, token, omitted="account_id")
+    result = _invoke(ledger, token, omitted="account_number")
     assert result["permissionDecision"] == "deny"
     assert "missing permitted account_id_hash" in result["permissionDecisionReason"]
 
     # A rejected attempt must not consume the single-use permit.
     assert _invoke(ledger, token)["permissionDecision"] == "allow"
+
+
+def test_trade_guard_rejects_internal_field_names_before_claiming_permit(tmp_path):
+    ledger, token = _setup_live_permit(tmp_path)
+    event = {
+        "session_id": "test-session",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "mcp__robinhood_trading__place_equity_order",
+        "tool_input": {
+            "account_number": "agentic-test",
+            "symbol": "VTI",
+            "side": "buy",
+            "dollar_based_amount": {"amount": "10.00", "currency_code": "USD"},
+            "order_type": "market",
+            "time_in_force": "gfd",
+        },
+    }
+    environment = os.environ.copy()
+    environment["EDGECRAFT_LEDGER_PATH"] = str(ledger.path)
+    environment["EDGECRAFT_PERMIT_TOKEN"] = token
+
+    completed = subprocess.run(
+        [sys.executable, str(SCRIPT)],
+        input=json.dumps(event),
+        text=True,
+        capture_output=True,
+        check=True,
+        env=environment,
+    )
+    result = json.loads(completed.stdout)["hookSpecificOutput"]
+
+    assert result["permissionDecision"] == "deny"
+    assert "dollar_notional" in result["permissionDecisionReason"]
+    assert ledger.permit_status(token) == "issued"
 
 
 def test_trade_guard_claims_nested_exec_placement(tmp_path):

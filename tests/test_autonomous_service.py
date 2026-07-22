@@ -11,6 +11,7 @@ from edgecraft.autonomy import cycle_key
 from edgecraft.autonomy_models import AgentCyclePayload, ExecutionResult, Mandate
 from edgecraft.context import ContextSnapshot, ContextSource, WebContextPolicy
 from edgecraft.execution_models import DecisionEvidenceItem, ExecutionPreflight, TradeProposal
+from edgecraft.intelligence import AssetIntelligence, MarketIntelligenceSnapshot
 from edgecraft.ledger import AuditLedger
 
 NOW = datetime(2026, 7, 20, 15, 0, tzinfo=UTC)
@@ -175,9 +176,11 @@ def _write_policy(tmp_path):
 class FixedContextCollector:
     def __init__(self, snapshot):
         self.snapshot = snapshot
+        self.symbols = None
 
     def collect(self, symbols, *, now=None):
-        del symbols, now
+        del now
+        self.symbols = symbols
         return self.snapshot
 
 
@@ -249,6 +252,73 @@ def test_shadow_cycle_is_idempotent_and_audited(tmp_path):
     assert replay["idempotent_replay"]
     assert replay["run"]["run_id"] == first["run"]["run_id"]
     assert ledger.status()["proposals"] == 1
+
+
+def test_external_context_focuses_on_ranked_candidates(tmp_path):
+    policy = _write_policy(tmp_path)
+    mandate = _mandate(str(policy)).model_copy(update={"external_context_path": "context.json"})
+    ledger = AuditLedger(tmp_path / "state.db")
+    collector = FixedContextCollector(_context_snapshot())
+    service = AutonomousService(
+        tmp_path,
+        ledger,
+        StaticObservationRuntime(_payload()),
+        context_collector=collector,
+        context_policy=WebContextPolicy(min_sources=2, min_fresh_sources=2),
+    )
+    run_id = ledger.start_run(mandate, "service_test:2026-W30", now=NOW)
+    intelligence = MarketIntelligenceSnapshot.model_construct(
+        assets={
+            "VTI": AssetIntelligence.model_construct(symbol="VTI", cross_sectional_rank=2),
+            "VXUS": AssetIntelligence.model_construct(symbol="VXUS", cross_sectional_rank=1),
+        }
+    )
+
+    service._collect_context(
+        mandate,
+        run_id,
+        NOW,
+        market_intelligence=intelligence,
+    )
+
+    assert collector.symbols == ["VXUS", "VTI"]
+
+
+def test_cycle_requires_live_quotes_only_for_benchmark_and_allocations(tmp_path):
+    policy = _write_policy(tmp_path)
+    mandate = _mandate(str(policy)).model_copy(update={"strategic_weights": {"VTI": Decimal("1")}})
+    base = _payload()
+    payload = base.model_copy(
+        update={
+            "quotes": [base.quotes[0]],
+            "decision": base.decision.model_copy(
+                update={"allocations": [base.decision.allocations[0]]}
+            ),
+        }
+    )
+
+    result = AutonomousService(
+        tmp_path,
+        AuditLedger(tmp_path / "state.db"),
+        StaticObservationRuntime(payload),
+    ).run_cycle(mandate, now=NOW)
+
+    assert result["ok"]
+    assert result["run"]["status"] == "shadow_complete"
+
+
+def test_cycle_rejects_missing_selected_symbol_quote(tmp_path):
+    policy = _write_policy(tmp_path)
+    mandate = _mandate(str(policy))
+    base = _payload()
+    payload = base.model_copy(update={"quotes": [base.quotes[0]]})
+
+    with pytest.raises(ValueError, match="missing required live quotes.*VXUS"):
+        AutonomousService(
+            tmp_path,
+            AuditLedger(tmp_path / "state.db"),
+            StaticObservationRuntime(payload),
+        ).run_cycle(mandate, now=NOW)
 
 
 def test_real_cycle_evaluates_freshness_after_observation(monkeypatch, tmp_path):
@@ -573,6 +643,117 @@ def test_permit_makes_failed_run_non_retryable(tmp_path):
     assert not ledger.run_is_safe_to_retry(run_id)
 
 
+def test_confirmed_pre_submission_rejection_is_retryable(tmp_path):
+    policy = _write_policy(tmp_path)
+    mandate = _mandate(str(policy)).model_copy(update={"mode": "live"})
+    ledger = AuditLedger(tmp_path / "state.db")
+    run_id = ledger.start_run(mandate, "service_test:2026-W30", now=NOW)
+    proposal = TradeProposal.model_validate(
+        {
+            "proposal_id": "prop-rejected-test",
+            "mandate_id": mandate.mandate_id,
+            "run_id": run_id,
+            "created_at": NOW,
+            "mode": "live",
+            "account_id": "agentic-test",
+            "strategy": "agentic_weekly_dca",
+            "rationale": "Test confirmed pre-submission rejection.",
+            "policy_name": "test",
+            "snapshot_as_of": NOW,
+            "orders": [
+                {
+                    "order_key": "order-rejected-test",
+                    "symbol": "VTI",
+                    "side": "buy",
+                    "notional": 10,
+                    "expected_price": 330,
+                    "rationale": "Test rejected order.",
+                    "quote_as_of": NOW,
+                }
+            ],
+            "risk": {
+                "approved_for_review": True,
+                "projected_cash": 90,
+                "projected_weights": {"VTI": 0.1},
+                "gross_notional": 10,
+            },
+            "robinhood_handoff": {},
+        }
+    )
+    ledger.add_proposal(proposal)
+    token = ledger.issue_permit(
+        run_id,
+        proposal.proposal_id,
+        "order-rejected-test",
+        now=NOW,
+    )
+    ledger.revoke_permit(token)
+    ledger.record_event(
+        proposal.proposal_id,
+        "rejected",
+        {
+            "order_key": "order-rejected-test",
+            "filled_notional": 0,
+            "broker_order_id": None,
+        },
+        occurred_at=NOW,
+    )
+    ledger.update_run(run_id, "failed", detail="rejected before submission", now=NOW)
+
+    assert ledger.run_is_safe_to_retry(run_id)
+
+
+def test_operator_retry_allows_four_extra_side_effect_free_attempts(tmp_path):
+    policy = _write_policy(tmp_path)
+    mandate = _mandate(str(policy)).model_copy(update={"mode": "live"})
+    ledger = AuditLedger(tmp_path / "state.db")
+    run_id = ledger.start_run(mandate, "service_test:2026-W30", now=NOW)
+    ledger.update_run(run_id, "failed", detail="side-effect-free failure", now=NOW)
+    for _ in range(3):
+        ledger.record_retry(run_id, now=NOW)
+        ledger.update_run(run_id, "failed", detail="side-effect-free failure", now=NOW)
+
+    assert ledger.run_attempt_count(run_id) == 4
+    assert not ledger.run_is_safe_to_retry(run_id)
+    assert ledger.run_is_safe_to_retry(run_id, operator_override=True)
+
+    ledger.record_retry(run_id, now=NOW, operator_reason="No broker order was submitted.")
+
+    assert ledger.run_attempt_count(run_id) == 5
+    assert ledger.run_is_safe_to_retry(run_id, operator_override=True)
+    ledger.update_run(run_id, "failed", detail="external account blocker", now=NOW)
+    ledger.record_retry(run_id, now=NOW, operator_reason="External blocker was corrected.")
+
+    assert ledger.run_attempt_count(run_id) == 6
+    assert ledger.run_is_safe_to_retry(run_id, operator_override=True)
+    ledger.update_run(run_id, "failed", detail="pipeline defect corrected", now=NOW)
+    ledger.record_retry(run_id, now=NOW, operator_reason="Pipeline defect was corrected.")
+
+    assert ledger.run_attempt_count(run_id) == 7
+    assert ledger.run_is_safe_to_retry(run_id, operator_override=True)
+    ledger.update_run(run_id, "failed", detail="context policy corrected", now=NOW)
+    ledger.record_retry(run_id, now=NOW, operator_reason="Context policy was corrected.")
+
+    assert ledger.run_attempt_count(run_id) == 8
+    assert not ledger.run_is_safe_to_retry(run_id, operator_override=True)
+    operator_events = [
+        event
+        for event in ledger.observability_feed()["runtime_events"]
+        if event["event_type"] == "operator_retry_authorized"
+    ]
+    assert len(operator_events) == 4
+    reasons_by_attempt = {
+        event["payload"]["attempt"]: event["payload"]["operator_reason"]
+        for event in operator_events
+    }
+    assert reasons_by_attempt == {
+        5: "No broker order was submitted.",
+        6: "External blocker was corrected.",
+        7: "Pipeline defect was corrected.",
+        8: "Context policy was corrected.",
+    }
+
+
 class FilledLiveRuntime(StaticObservationRuntime):
     def preflight_order(self, mandate, proposal, order, *, ledger_path):
         del mandate, ledger_path
@@ -765,6 +946,23 @@ class RejectedRecoveryRuntime(FilledLiveRuntime):
             requested_notional=Decimal(str(order.notional)),
             observed_at=NOW,
             detail="broker independently confirmed rejection",
+        )
+
+
+class PreSubmissionRejectedRuntime(FilledLiveRuntime):
+    def execute_order(self, mandate, proposal, order, *, permit_token, ledger_path):
+        del mandate, permit_token, ledger_path
+        return ExecutionResult(
+            run_id=proposal.run_id,
+            proposal_id=proposal.proposal_id,
+            order_key=order.order_key,
+            status="rejected",
+            broker_order_id=None,
+            symbol=order.symbol,
+            side=order.side,
+            requested_notional=Decimal(str(order.notional)),
+            observed_at=NOW,
+            detail="request rejected before broker submission",
         )
 
 
@@ -995,6 +1193,59 @@ def test_terminal_rejection_recovery_revokes_unused_permits_without_halting(tmp_
     assert result["run"]["status"] == "failed"
     assert not ledger.trading_halted()
     assert ledger.operational_snapshot()["permits_by_status"] == {"revoked": 2}
+
+
+def test_retry_reuses_daily_evaluation_without_overwriting_it(tmp_path):
+    policy_path = tmp_path / "live-policy.json"
+    policy_path.write_text(
+        json.dumps(
+            {
+                "policy_name": "service-live-pre-submission-rejection",
+                "trading_enabled": True,
+                "allowed_symbols": ["VTI", "VXUS"],
+                "managed_capital_limit": 1000,
+                "max_order_notional": 10,
+                "max_daily_notional": 20,
+                "max_orders_per_day": 2,
+                "max_position_weight": 0.75,
+                "min_cash_reserve": 0,
+                "require_research_evidence": False,
+            }
+        )
+    )
+    mandate = _mandate(str(policy_path)).model_copy(update={"mode": "live"})
+    ledger = AuditLedger(tmp_path / "state.db")
+    runtime = PreSubmissionRejectedRuntime(_payload())
+    service = AutonomousService(tmp_path, ledger, runtime)
+
+    first = service.run_cycle(mandate, now=NOW)
+    assert first["run"]["status"] == "failed"
+    assert ledger.run_is_safe_to_retry(first["run"]["run_id"])
+    runtime.payload = runtime.payload.model_copy(
+        update={
+            "quotes": [
+                quote.model_copy(update={"last": quote.last + 1})
+                for quote in runtime.payload.quotes
+            ]
+        }
+    )
+
+    second = service.run_cycle(mandate, now=NOW)
+
+    assert second["run"]["status"] == "failed"
+    assert ledger.run_attempt_count(second["run"]["run_id"]) == 2
+    assert ledger.status()["evaluation_observations"] == 1
+    assert len(ledger.decision_packets_for_run(second["run"]["run_id"])) == 2
+    proposals = [
+        item["payload"]
+        for item in ledger.observability_feed()["proposals"]
+        if item["run_id"] == second["run"]["run_id"]
+    ]
+    assert len(proposals) == 2
+    assert proposals[0]["proposal_id"] != proposals[1]["proposal_id"]
+    assert proposals[0]["orders"][0]["order_key"] != proposals[1]["orders"][0]["order_key"]
+    runtime_types = {event["event_type"] for event in ledger.observability_feed()["runtime_events"]}
+    assert "benchmark_evaluation_reused" in runtime_types
 
 
 def test_uncertain_recovery_halts_and_requires_incident_reconciliation(tmp_path):

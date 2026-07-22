@@ -62,9 +62,9 @@ def _validate_observation_identity(
         raise ValueError("agent observation proposed a symbol outside the mandate universe")
 
     quote_symbols = {quote.symbol for quote in observation.quotes}
-    missing_quotes = sorted({mandate.benchmark, *mandate.strategic_weights} - quote_symbols)
+    missing_quotes = sorted({mandate.benchmark, *decision_symbols} - quote_symbols)
     if missing_quotes:
-        raise ValueError(f"agent observation is missing evaluation quotes: {missing_quotes}")
+        raise ValueError(f"agent observation is missing required live quotes: {missing_quotes}")
 
 
 def _context_citations(
@@ -250,6 +250,7 @@ class AutonomousService:
         *,
         now: datetime | None = None,
         force: bool = False,
+        retry_side_effect_free_reason: str | None = None,
     ) -> dict:
         use_wall_clock = now is None
         current_time = now or datetime.now(UTC)
@@ -276,6 +277,7 @@ class AutonomousService:
                 key=key,
                 use_wall_clock=use_wall_clock,
                 force=force,
+                retry_side_effect_free_reason=retry_side_effect_free_reason,
             )
 
     def _run_cycle_locked(
@@ -286,15 +288,40 @@ class AutonomousService:
         key: str,
         use_wall_clock: bool,
         force: bool,
+        retry_side_effect_free_reason: str | None,
     ) -> dict:
         existing = self.ledger.get_run_for_cycle(mandate.mandate_id, key)
         if existing is not None:
-            if (
-                existing["status"] == "failed"
-                and self.ledger.run_is_safe_to_retry(existing["run_id"])
-                and self.runtime is not None
-            ):
-                self.ledger.record_retry(existing["run_id"], now=current_time)
+            operator_retry = retry_side_effect_free_reason is not None
+            retryable_status = existing["status"] == "failed" or (
+                operator_retry and existing["status"] == "risk_rejected"
+            )
+            retry_is_safe = self.ledger.run_is_safe_to_retry(
+                existing["run_id"],
+                operator_override=operator_retry,
+            )
+            if operator_retry and not retryable_status:
+                raise RuntimeError(
+                    f"operator retry is not allowed from run status {existing['status']}"
+                )
+            if operator_retry and not retry_is_safe:
+                raise RuntimeError(
+                    "operator retry blocked because the cycle is not provably side-effect-free "
+                    "or an operator retry was already used"
+                )
+            if operator_retry:
+                if self.ledger.trading_halted():
+                    raise RuntimeError("operator retry blocked by the trading kill switch")
+                if self.ledger.unresolved_order_keys():
+                    raise RuntimeError("operator retry blocked by unresolved orders")
+                if self.ledger.daily_placed_order_count(current_time.date()) != 0:
+                    raise RuntimeError("operator retry requires zero placed orders today")
+            if retryable_status and retry_is_safe and self.runtime is not None:
+                self.ledger.record_retry(
+                    existing["run_id"],
+                    now=current_time,
+                    operator_reason=retry_side_effect_free_reason,
+                )
                 log_event(
                     "cycle_retry_started",
                     mandate_id=mandate.mandate_id,
@@ -333,6 +360,8 @@ class AutonomousService:
                 "idempotent_replay": True,
                 "run": existing,
             }
+        if retry_side_effect_free_reason is not None:
+            raise ValueError("operator retry requires an existing cycle for this date")
         if not force and not cycle_due(mandate, current_time):
             self.ledger.upsert_mandate(mandate, now=current_time)
             return {
@@ -412,7 +441,12 @@ class AutonomousService:
             else None
         )
         market_intelligence = self._collect_market_intelligence(mandate, run_id, now)
-        external_context = self._collect_context(mandate, run_id, now)
+        external_context = self._collect_context(
+            mandate,
+            run_id,
+            now,
+            market_intelligence=market_intelligence,
+        )
         observation = self.runtime.observe(
             mandate,
             run_id=run_id,
@@ -463,6 +497,7 @@ class AutonomousService:
             cycle_budget=budget,
             ledger=self.ledger,
             research=research,
+            attempt=self.ledger.run_attempt_count(run_id),
             # A real observation can take minutes. Evaluate freshness against
             # completion time, not the cycle-start timestamp captured before
             # broker and market reads began. Explicit `now` remains stable for
@@ -481,35 +516,56 @@ class AutonomousService:
             "decision_model": mandate.decision_model or "configured_default",
         }
         self.ledger.record_runtime_event(run_id, "proposal_created", proposal_summary)
-        evaluation_state, evaluation_observation = advance_evaluation(
-            mandate,
-            proposal,
-            observation.quotes,
-            run_id=run_id,
-            cycle_key=self.ledger.get_run(run_id)["cycle_key"],
-            observed_at=observation.observed_at,
-            prior=self.ledger.evaluation_state(mandate.mandate_id),
-            cost_bps=mandate.evaluation_cost_bps,
-        )
-        evaluation_digest = self.ledger.record_evaluation(
-            evaluation_observation,
-            evaluation_state,
-        )
-        self.ledger.record_runtime_event(
-            run_id,
-            "benchmark_evaluation_recorded",
-            {
-                "benchmark": mandate.benchmark,
-                "agent_action": evaluation_observation.agent_action,
-                "contribution": str(evaluation_observation.contribution),
-                "payload_sha256": evaluation_digest,
-                "post_trade_values": {
-                    name: str(value)
-                    for name, value in evaluation_observation.post_trade_values.items()
+        evaluation_digest = self.ledger.evaluation_digest_for_run(run_id)
+        if evaluation_digest is None:
+            evaluation_state, evaluation_observation = advance_evaluation(
+                mandate,
+                proposal,
+                observation.quotes,
+                completed_session_prices=(
+                    {
+                        symbol: asset.last_close
+                        for symbol, asset in market_intelligence.assets.items()
+                    }
+                    if market_intelligence is not None
+                    else None
+                ),
+                run_id=run_id,
+                cycle_key=self.ledger.get_run(run_id)["cycle_key"],
+                observed_at=observation.observed_at,
+                prior=self.ledger.evaluation_state(mandate.mandate_id),
+                cost_bps=mandate.evaluation_cost_bps,
+            )
+            evaluation_digest = self.ledger.record_evaluation(
+                evaluation_observation,
+                evaluation_state,
+            )
+            self.ledger.record_runtime_event(
+                run_id,
+                "benchmark_evaluation_recorded",
+                {
+                    "benchmark": mandate.benchmark,
+                    "agent_action": evaluation_observation.agent_action,
+                    "contribution": str(evaluation_observation.contribution),
+                    "payload_sha256": evaluation_digest,
+                    "post_trade_values": {
+                        name: str(value)
+                        for name, value in evaluation_observation.post_trade_values.items()
+                    },
                 },
-            },
-            now=observation.observed_at,
-        )
+                now=observation.observed_at,
+            )
+        else:
+            self.ledger.record_runtime_event(
+                run_id,
+                "benchmark_evaluation_reused",
+                {
+                    "benchmark": mandate.benchmark,
+                    "payload_sha256": evaluation_digest,
+                    "reason": "daily run already has an immutable performance observation",
+                },
+                now=observation.observed_at,
+            )
 
         if observation.decision.action == "hold":
             self.ledger.update_run(
@@ -902,6 +958,8 @@ class AutonomousService:
         mandate: Mandate,
         run_id: str,
         now: datetime,
+        *,
+        market_intelligence: MarketIntelligenceSnapshot | None = None,
     ) -> ContextSnapshot | None:
         if not mandate.external_context_path:
             return None
@@ -909,7 +967,18 @@ class AutonomousService:
             raise RuntimeError(
                 "mandate requires external context but no context collector is configured"
             )
-        context_symbols = list(dict.fromkeys([*mandate.universe, mandate.benchmark]))
+        if market_intelligence is None:
+            context_symbols = list(dict.fromkeys([*mandate.universe, mandate.benchmark]))
+        else:
+            ranked = sorted(
+                (
+                    asset
+                    for symbol, asset in market_intelligence.assets.items()
+                    if symbol in mandate.universe
+                ),
+                key=lambda asset: (asset.cross_sectional_rank, asset.symbol),
+            )
+            context_symbols = [asset.symbol for asset in ranked[:8]]
         snapshot = self.context_collector.collect(context_symbols, now=now)
         self.ledger.record_runtime_event(
             run_id,

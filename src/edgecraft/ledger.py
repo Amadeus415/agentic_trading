@@ -389,13 +389,35 @@ class AuditLedger:
             ).fetchone()
         return int(row["count"])
 
-    def run_is_safe_to_retry(self, run_id: str, *, max_attempts: int = 3) -> bool:
-        if self.run_attempt_count(run_id) >= max_attempts:
+    def run_is_safe_to_retry(
+        self,
+        run_id: str,
+        *,
+        max_attempts: int = 4,
+        operator_override: bool = False,
+        max_operator_retries: int = 4,
+    ) -> bool:
+        if operator_override:
+            with self._connection() as connection:
+                prior_overrides = connection.execute(
+                    """
+                    SELECT COUNT(*) AS count FROM runtime_events
+                    WHERE run_id = ? AND event_type = 'operator_retry_authorized'
+                    """,
+                    (run_id,),
+                ).fetchone()
+            if int(prior_overrides["count"]) >= max_operator_retries:
+                return False
+        elif self.run_attempt_count(run_id) >= max_attempts:
             return False
         with self._connection() as connection:
-            permit = connection.execute(
-                "SELECT 1 FROM permits WHERE run_id = ? LIMIT 1", (run_id,)
-            ).fetchone()
+            permits = connection.execute(
+                """
+                SELECT proposal_id, order_key, status, claimed_at
+                FROM permits WHERE run_id = ?
+                """,
+                (run_id,),
+            ).fetchall()
             side_effect = connection.execute(
                 """
                 SELECT 1
@@ -408,11 +430,55 @@ class AuditLedger:
                 """,
                 (run_id,),
             ).fetchone()
-        return permit is None and side_effect is None
+            rejected_events = connection.execute(
+                """
+                SELECT p.proposal_id, e.payload
+                FROM events e
+                JOIN proposals p ON p.proposal_id = e.proposal_id
+                WHERE p.run_id = ? AND e.event_type = 'rejected'
+                """,
+                (run_id,),
+            ).fetchall()
+        if side_effect is not None:
+            return False
+        if not permits:
+            return True
+        confirmed_rejections = {
+            (row["proposal_id"], payload.get("order_key"))
+            for row in rejected_events
+            if (payload := json.loads(row["payload"])).get("broker_order_id") is None
+            and Decimal(str(payload.get("filled_notional", 0))) == 0
+        }
+        return all(
+            permit["status"] == "revoked"
+            and permit["claimed_at"] is None
+            and (permit["proposal_id"], permit["order_key"]) in confirmed_rejections
+            for permit in permits
+        )
 
-    def record_retry(self, run_id: str, *, now: datetime | None = None) -> None:
+    def record_retry(
+        self,
+        run_id: str,
+        *,
+        now: datetime | None = None,
+        operator_reason: str | None = None,
+    ) -> None:
         timestamp = now or datetime.now(UTC)
         attempt = self.run_attempt_count(run_id) + 1
+        detail = "retrying a side-effect-free failed cycle"
+        payload: dict[str, Any] = {"attempt": attempt}
+        if operator_reason is not None:
+            reason = operator_reason.strip()
+            if not reason:
+                raise ValueError("operator retry reason cannot be empty")
+            detail = "operator-authorized side-effect-free retry"
+            payload["operator_reason"] = reason
+            self.record_runtime_event(
+                run_id,
+                "operator_retry_authorized",
+                payload,
+                now=timestamp,
+            )
         with self._connection() as connection:
             cursor = connection.execute(
                 """
@@ -421,8 +487,8 @@ class AuditLedger:
                 WHERE run_id = ?
                 """,
                 (
-                    "retrying a side-effect-free failed cycle",
-                    json.dumps({"attempt": attempt}),
+                    detail,
+                    json.dumps(payload, sort_keys=True),
                     timestamp.isoformat(),
                     run_id,
                 ),
@@ -432,7 +498,7 @@ class AuditLedger:
         self.record_runtime_event(
             run_id,
             "run_retry_started",
-            {"attempt": attempt},
+            payload,
             now=timestamp,
         )
 
@@ -991,6 +1057,14 @@ class AuditLedger:
                 (state.mandate_id, state.updated_at.isoformat(), state_payload),
             )
         return digest
+
+    def evaluation_digest_for_run(self, run_id: str) -> str | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT payload_sha256 FROM evaluation_observations WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+        return str(row["payload_sha256"]) if row else None
 
     def evaluation_state(self, mandate_id: str) -> EvaluationState | None:
         with self._connection() as connection:

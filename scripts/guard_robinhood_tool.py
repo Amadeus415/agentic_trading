@@ -196,18 +196,13 @@ def _claim_permit(
 def _constraint_mismatch(constraints: dict[str, Any], tool_input: Any) -> str | None:
     leaves = _flatten(tool_input)
     aliases = {
-        "account_id_hash": {"account_id", "accountid", "account_number", "accountnumber"},
-        "symbol": {"symbol", "ticker"},
+        "account_id_hash": {"account_number"},
+        "symbol": {"symbol"},
         "side": {"side"},
-        "dollar_notional": {
-            "dollar_notional",
-            "dollar_amount",
-            "notional",
-            "amount",
-        },
-        "order_type": {"order_type", "ordertype", "type"},
-        "time_in_force": {"time_in_force", "timeinforce"},
-        "market_hours": {"market_hours", "markethours"},
+        "dollar_notional": {"dollar_amount"},
+        "order_type": {"type"},
+        "time_in_force": {"time_in_force"},
+        "market_hours": {"market_hours"},
     }
     for expected_key, names in aliases.items():
         if expected_key not in constraints:

@@ -28,7 +28,7 @@ from edgecraft.intelligence import MarketIntelligenceSnapshot
 from edgecraft.observability import log_event
 
 OutputModel = TypeVar("OutputModel", bound=BaseModel)
-PROMPT_VERSION = "edgecraft.prompts.v2"
+PROMPT_VERSION = "edgecraft.prompts.v4"
 
 SAFE_ENVIRONMENT_KEYS = (
     "CODEX_HOME",
@@ -464,9 +464,10 @@ Use the authenticated Robinhood Trading MCP as broker truth. Perform this cycle:
    agentic_allowed=true. Never use a primary or non-agentic account.
 2. Refresh its portfolio, equity positions, equity order history/open orders,
    realized P&L, and trade-by-trade P&L.
-3. Fetch current quotes and tradability for every mandate-universe symbol, the
-   mandate benchmark, and every held symbol. Preserve bid/ask and the current
-   market session. Use
+3. Use the supplied deterministic market-intelligence snapshot to compare the
+   complete universe. Fetch current quotes and tradability only for the mandate
+   benchmark, every held symbol, and at most three finalists that could receive
+   this cycle's allocation. Preserve bid/ask and the current market session. Use
    completed daily historical bars to calculate 20-session average daily dollar
    volume for every proposed symbol. Use fundamentals and technical indicators
    where useful. Prefer completed bars and name each source used.
@@ -497,6 +498,13 @@ Use the authenticated Robinhood Trading MCP as broker truth. Perform this cycle:
    research evidence, and—when external context exists—at least one web or
    regulatory item linked to its supplied context source ID. Social sentiment
    may supplement but cannot replace factual web or regulatory evidence.
+7. After choosing the final action and allocations, immediately re-fetch the
+   selected account and current quotes/tradability for every allocated symbol
+   and the benchmark. Replace the earlier account and matching quote objects
+   with these final reads before returning JSON. If a final refresh fails, is
+   stale, or changes eligibility, return hold; never reuse the older quote for
+   an invest decision. This final refresh must be the last broker read in the
+   observation phase so model reasoning cannot age the execution inputs.
 
 The model is advisory only. Edgecraft will independently enforce budget, symbol,
 concentration, cash, freshness, market-session, spread, liquidity, drawdown,
@@ -531,6 +539,13 @@ def execution_prompt(
     *,
     require_review: bool = True,
 ) -> str:
+    broker_input = {
+        "symbol": order.symbol,
+        "side": order.side,
+        "dollar_amount": f"{Decimal(str(order.notional)):.2f}",
+        "type": order.order_type,
+        "time_in_force": order.time_in_force,
+    }
     constraints = {
         "mandate_id": mandate.mandate_id,
         "run_id": proposal.run_id,
@@ -539,10 +554,10 @@ def execution_prompt(
         "snapshot_as_of": proposal.snapshot_as_of.isoformat(),
         "policy_name": proposal.policy_name,
     }
-    broker_step = (
-        "Call review_equity_order for the exact approved order and abort on any warning or mismatch; then call place_equity_order once."
+    preflight_status = (
+        "Edgecraft's immediately preceding preflight already completed the required Robinhood review."
         if require_review
-        else "The account owner explicitly authorized unattended placement and waived the per-order Robinhood preview/confirmation step for this mandate. Call place_equity_order exactly once without calling review_equity_order."
+        else "Edgecraft's immediately preceding preflight applied the mandate's standing execution authorization."
     )
     return f"""
 You are the narrowly scoped execution component of an autonomous portfolio
@@ -550,22 +565,30 @@ manager. You are authorized to handle exactly ONE approved long-equity order
 described below. Do not edit files and do not perform any other broker mutation.
 
 Before placement:
-1. Refresh get_accounts and select only the account returned as
-   agentic_allowed=true that matches the proposal.
-2. Refresh portfolio, positions, open equity orders, quote, and tradability.
-3. ABORT without placing if there is an unknown open order, account restriction,
-   account mismatch, insufficient buying power, non-tradability, a quote older
-   than five minutes, or price movement over 100 bps from expected_price.
-4. {broker_step}
-5. A single-use Edgecraft hook permit
+1. Edgecraft has just completed a deterministic, fresh execution preflight for
+   this exact order, including account, portfolio, open-order, quote,
+   tradability, price-deviation, risk, and review checks. {preflight_status}
+   Do not repeat those broad reads or call review_equity_order again.
+2. Call get_accounts once to resolve the exact account number. Select only the
+   account returned as agentic_allowed=true that matches the proposal. ABORT on
+   an account mismatch, restriction, ambiguity, or missing eligible account.
+3. Place the exact approved order promptly. The permit expires after five
+   minutes; never work around an expired or rejected permit.
+4. A single-use Edgecraft hook permit
    enforces this. Never place an option, margin, short, crypto, or second order.
+   The Robinhood placement INPUT uses the exact field names shown below. Add
+   account_number from the freshly matched account, market_hours from the fresh
+   session, and one fresh UUID ref_id. Do not send Edgecraft/internal or broker
+   response field names such as `order_type`, `notional`, `dollar_notional`, or
+   `dollar_based_amount`; Robinhood does not accept them as placement inputs.
+   {json.dumps(broker_input, sort_keys=True)}
    When Robinhood tools are available only through `exec`, place using one
    dedicated call containing only this flat literal form:
    `const result = await tools.mcp__robinhood_trading__place_equity_order({{...}}); text(result);`
    Do not alias the tool, inspect it through `ALL_TOOLS`, add another statement,
    or combine placement with any other tool call. The permit guard rejects any
    other nested mutation form.
-6. Return the narrow broker receipt from the placement response. Do not perform
+5. Return the narrow broker receipt from the placement response. Do not perform
    another mutation or restate proposal identity fields. Edgecraft owns those
    fields in code and will start a separate read-only reconciliation phase for
    every returned broker_order_id. Report "unknown" rather than guessing.

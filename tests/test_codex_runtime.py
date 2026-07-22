@@ -1,6 +1,7 @@
 import json
 import subprocess
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -10,10 +11,12 @@ from edgecraft.codex_runtime import (
     CodexRuntime,
     CodexRuntimeConfig,
     _runtime_environment,
+    execution_prompt,
     observation_prompt,
     strict_output_schema,
 )
 from edgecraft.context import ContextSnapshot, ContextSource
+from edgecraft.execution_models import ProposedOrder, RiskDecision, TradeProposal
 
 
 def test_runtime_defaults_to_read_only_workspace(tmp_path):
@@ -58,6 +61,63 @@ def test_observation_prompt_includes_hard_budget_and_policy():
     )
     assert "Remaining hard cycle budget: 10.00" in prompt
     assert '"min_order_notional": 1' in prompt
+    assert "immediately re-fetch" in prompt
+    assert "never reuse the older quote" in prompt
+    assert "last broker read" in prompt
+
+
+def test_execution_prompt_maps_internal_order_to_robinhood_input_names():
+    now = datetime(2026, 7, 22, 15, 0, tzinfo=UTC)
+    mandate = Mandate(
+        mandate_id="execution_prompt",
+        goal="Place one bounded approved order.",
+        mode="live",
+        weekly_budget="2",
+        universe=["AMD"],
+        strategic_weights={"AMD": "1"},
+        policy_path="policy.json",
+        external_context_path="context.json",
+    )
+    order = ProposedOrder(
+        order_key="order-test",
+        symbol="AMD",
+        side="buy",
+        notional=2,
+        expected_price=160,
+        order_type="market",
+        time_in_force="gfd",
+        rationale="Bounded test order.",
+        quote_as_of=now,
+    )
+    proposal = TradeProposal(
+        proposal_id="proposal-test",
+        mandate_id=mandate.mandate_id,
+        run_id="run-test",
+        created_at=now,
+        mode="live",
+        account_id="agentic-test",
+        strategy="test",
+        rationale="Test exact broker input names.",
+        policy_name="test-policy",
+        snapshot_as_of=now,
+        orders=[order],
+        risk=RiskDecision(
+            approved_for_review=True,
+            projected_cash=10,
+            projected_weights={"AMD": 0.2},
+            gross_notional=2,
+        ),
+        robinhood_handoff={},
+    )
+
+    prompt = execution_prompt(mandate, proposal, order, require_review=False)
+
+    assert '"dollar_amount": "2.00"' in prompt
+    assert '"type": "market"' in prompt
+    assert "`dollar_based_amount`" in prompt
+    assert "does not accept them as placement inputs" in prompt
+    assert "Do not repeat those broad reads" in prompt
+    assert "permit expires after five" in prompt
 
 
 def test_observation_prompt_marks_web_context_untrusted_and_citable():

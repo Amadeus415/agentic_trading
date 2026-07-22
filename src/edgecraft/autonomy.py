@@ -87,6 +87,7 @@ def create_weekly_proposal(
     cycle_budget: Decimal,
     ledger: AuditLedger | None = None,
     research: ResearchEvidence | None = None,
+    attempt: int = 1,
     now: datetime | None = None,
 ) -> TradeProposal:
     current_time = _aware(now or datetime.now(UTC))
@@ -101,6 +102,7 @@ def create_weekly_proposal(
         quotes,
         cycle_budget=cycle_budget,
         min_order_notional=Decimal(str(policy.min_order_notional)),
+        attempt=attempt,
     )
     daily_notional = ledger.daily_placed_notional(current_time.date()) if ledger else 0.0
     daily_order_count = ledger.daily_placed_order_count(current_time.date()) if ledger else 0
@@ -143,7 +145,9 @@ def create_weekly_proposal(
             }
         )
 
-    identifier = _weekly_proposal_id(mandate, run_id, snapshot, orders, policy, decision)
+    identifier = _weekly_proposal_id(
+        mandate, run_id, snapshot, orders, policy, decision, attempt=attempt
+    )
     proposal = TradeProposal(
         proposal_id=identifier,
         mandate_id=mandate.mandate_id,
@@ -190,6 +194,7 @@ def _decision_orders(
     *,
     cycle_budget: Decimal,
     min_order_notional: Decimal,
+    attempt: int,
 ) -> tuple[list[ProposedOrder], list[str], list[str]]:
     if decision.action == "hold":
         return [], ["reasoning agent elected to hold this cycle"], []
@@ -207,6 +212,7 @@ def _decision_orders(
             quote_map.get(allocation.symbol),
             total=total,
             min_order_notional=min_order_notional,
+            attempt=attempt,
         )
         violations.extend(allocation_violations)
         warnings.extend(allocation_warnings)
@@ -244,6 +250,7 @@ def _allocation_order(
     *,
     total: Decimal,
     min_order_notional: Decimal,
+    attempt: int,
 ) -> tuple[ProposedOrder | None, list[str], list[str]]:
     if allocation.symbol not in mandate.universe:
         return None, [f"{allocation.symbol} is outside the mandate universe"], []
@@ -263,7 +270,8 @@ def _allocation_order(
         )
 
     identity = (
-        f"{mandate.mandate_id}:{run_id}:{allocation.symbol}:{notional}:{quote.as_of.isoformat()}"
+        f"{mandate.mandate_id}:{run_id}:{allocation.symbol}:{notional}:"
+        f"{quote.as_of.isoformat()}:attempt={attempt}"
     )
     return (
         ProposedOrder(
@@ -305,6 +313,8 @@ def _weekly_proposal_id(
     orders: list[ProposedOrder],
     policy: RiskPolicy,
     decision: WeeklyDecision,
+    *,
+    attempt: int,
 ) -> str:
     content = "|".join(
         [
@@ -313,6 +323,7 @@ def _weekly_proposal_id(
             snapshot.as_of.isoformat(),
             policy.policy_name,
             decision.as_of.isoformat(),
+            f"attempt={attempt}",
             *(f"{order.order_key}:{order.notional:.2f}" for order in orders),
         ]
     )
