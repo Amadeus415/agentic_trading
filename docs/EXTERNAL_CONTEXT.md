@@ -4,6 +4,12 @@ Edgecraft gathers a small, auditable context packet before the model forms a
 weekly decision. The packet complements—not replaces—broker truth, price
 history, causal backtests, and deterministic risk controls.
 
+Each source is labeled with `source_quality` (`primary`, `secondary`, or
+`unverified`) and `evidence_role` (`fact`, `management_claim`, `analysis`, or
+`sentiment`). Reputation alone never upgrades a source. Podcasts, investor
+posts, and general social activity may generate research questions or reduce
+confidence; they cannot independently support an allocation.
+
 ## Why Browserbase
 
 [Browserbase Search](https://docs.browserbase.com/platform/search/overview) is
@@ -90,6 +96,8 @@ Important boundaries:
 - Page scripts, styles, SVG, and markup are removed. Excerpts are length-capped.
 - The model is told never to follow instructions from retrieved content. Social
   posts are sentiment, not facts.
+- Social collection is optional by default. A manipulable, unvalidated channel
+  must not become a live-trading availability dependency.
 - A live mandate must name an external-context policy. If collection does not
   meet configured source, web-source, freshness, and channel minimums, the run
   stops before a proposal or execution permit exists.

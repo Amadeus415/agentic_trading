@@ -178,10 +178,22 @@ class DecisionEvidenceItem(BaseModel):
 class DecisionReasoning(BaseModel):
     """Immutable explanation captured before any live execution authority exists."""
 
-    schema_version: str = "edgecraft.decision-reasoning.v1"
+    schema_version: str = "edgecraft.decision-reasoning.v2"
     action: Literal["invest", "hold"]
     confidence: Decimal = Field(ge=Decimal("0"), le=Decimal("1"))
     hypothesis: str = Field(min_length=10, max_length=2_000)
+    thesis_mechanism: str = Field(
+        default="The stated hypothesis describes the expected return mechanism.",
+        min_length=10,
+        max_length=2_000,
+    )
+    expected_horizon_days: int = Field(default=63, ge=1, le=1_825)
+    falsifiers: list[str] = Field(
+        default_factory=lambda: ["Evidence no longer supports the stated hypothesis."],
+        min_length=1,
+        max_length=10,
+    )
+    referenced_prior_run_ids: list[str] = Field(default_factory=list, max_length=12)
     evidence: list[str] = Field(default_factory=list, max_length=30)
     alternatives_considered: list[str] = Field(default_factory=list, max_length=20)
     risks: list[str] = Field(default_factory=list, max_length=30)

@@ -14,7 +14,7 @@
   "min_web_sources": 2,
   "min_fresh_sources": 2,
   "min_decision_citations": 2,
-  "require_social": true,
+  "require_social": false,
   "require_for_live": true,
   "sec_ciks": {},
   "sec_user_agent": null

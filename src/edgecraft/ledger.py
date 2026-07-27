@@ -1007,6 +1007,33 @@ class AuditLedger:
             packets.append(item)
         return packets
 
+    def recent_decision_records(
+        self,
+        mandate_id: str,
+        *,
+        limit: int = 24,
+    ) -> list[dict[str, Any]]:
+        """Return recent immutable packets for a mandate, newest first."""
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT d.packet_id, d.run_id, d.attempt, d.recorded_at,
+                       d.schema_version, d.payload_sha256, d.payload
+                FROM decision_packets d
+                JOIN runs r ON r.run_id = d.run_id
+                WHERE r.mandate_id = ?
+                ORDER BY d.recorded_at DESC, d.attempt DESC
+                LIMIT ?
+                """,
+                (mandate_id, limit),
+            ).fetchall()
+        records = []
+        for row in rows:
+            item = dict(row)
+            item["payload"] = json.loads(item["payload"])
+            records.append(item)
+        return records
+
     def record_evaluation(
         self,
         observation: EvaluationObservation,

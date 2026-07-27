@@ -11,7 +11,7 @@ Researches the market. Forms a thesis. Tests the downside. Places only permitted
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-0b1220.svg)](LICENSE)
 [![Mode: shadow first](https://img.shields.io/badge/default-shadow%20first-22c55e)](docs/AUTONOMY.md)
 
-**[How it works](docs/HOW_EDGECRAFT_WORKS.md)** · **[Autonomy runbook](docs/AUTONOMY.md)** · **[Decision data](docs/DECISION_DATA_MODEL.md)** · **[Performance](docs/PERFORMANCE_EVALUATION.md)** · **[Security](SECURITY.md)**
+**[Fund thesis](docs/FIRST_PRINCIPLES_FUND.md)** · **[How it works](docs/HOW_EDGECRAFT_WORKS.md)** · **[Autonomy runbook](docs/AUTONOMY.md)** · **[Decision data](docs/DECISION_DATA_MODEL.md)** · **[Performance](docs/PERFORMANCE_EVALUATION.md)** · **[Security](SECURITY.md)**
 
 </div>
 
@@ -137,6 +137,7 @@ src/edgecraft/
 ├── engine.py               # causal backtest execution
 ├── research.py             # experiment matrix and robustness evidence
 ├── evaluation.py           # agent vs benchmark vs strategic baseline
+├── decision_memory.py      # bounded prior-thesis and benchmark feedback
 └── cli.py                  # the operational entrypoint
 
 frontend/                   # dependency-free local control plane
@@ -155,6 +156,7 @@ Never commit account exports, OAuth material, tax records, raw broker responses,
 
 | Guide | Use it when you want to… |
 |:--|:--|
+| [First-principles fund thesis](docs/FIRST_PRINCIPLES_FUND.md) | See which real-world investment lessons transfer, the evidence hierarchy, and the build order |
 | [How Edgecraft works](docs/HOW_EDGECRAFT_WORKS.md) | Build a mental model, follow the code, and trace a trade step by step |
 | [Autonomous operations](docs/AUTONOMY.md) | Configure shadow/live mandates, scheduling, monitoring, and incidents |
 | [Decision data model](docs/DECISION_DATA_MODEL.md) | See what evidence and reasoning are retained for every decision |

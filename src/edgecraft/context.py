@@ -42,7 +42,7 @@ class WebContextPolicy(BaseModel):
     min_web_sources: int = Field(2, ge=1, le=20)
     min_fresh_sources: int = Field(2, ge=1, le=20)
     min_decision_citations: int = Field(2, ge=1, le=10)
-    require_social: bool = True
+    require_social: bool = False
     require_for_live: bool = True
     sec_ciks: dict[str, str] = Field(default_factory=dict)
     sec_user_agent: str | None = None
@@ -69,6 +69,8 @@ class WebContextPolicy(BaseModel):
 class ContextSource(BaseModel):
     source_id: str
     channel: Literal["web", "social", "regulatory"]
+    source_quality: Literal["primary", "secondary", "unverified"] = "secondary"
+    evidence_role: Literal["fact", "management_claim", "analysis", "sentiment"] = "analysis"
     title: str
     url: str
     retrieved_at: datetime
@@ -76,6 +78,21 @@ class ContextSource(BaseModel):
     author: str | None = None
     excerpt: str = ""
     metadata: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def default_source_classification(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        channel = normalized.get("channel")
+        if channel == "social":
+            normalized.setdefault("source_quality", "unverified")
+            normalized.setdefault("evidence_role", "sentiment")
+        elif channel == "regulatory":
+            normalized.setdefault("source_quality", "primary")
+            normalized.setdefault("evidence_role", "fact")
+        return normalized
 
     @field_validator("retrieved_at", "published_at")
     @classmethod
@@ -543,7 +560,7 @@ def _context_queries(
     policy: WebContextPolicy,
 ) -> list[str]:
     queries: list[str] = []
-    queries_per_batch = 3 if policy.include_social_search else 2
+    queries_per_batch = 4 if policy.include_social_search else 3
     available_batches = max(1, ceil(policy.max_search_queries / queries_per_batch))
     effective_batch_size = max(policy.symbols_per_query, ceil(len(symbols) / available_batches))
     for batch in _symbol_batches(symbols, effective_batch_size):
@@ -553,6 +570,10 @@ def _context_queries(
                 _bounded_query(f"{symbol_text} market news earnings catalysts since {since}"),
                 _bounded_query(
                     f"site:sec.gov {symbol_text} filing 8-K 10-Q 10-K 6-K since {since}"
+                ),
+                _bounded_query(
+                    f"{symbol_text} investor relations earnings release CEO capital allocation "
+                    f"guidance since {since}"
                 ),
             ]
         )
@@ -609,11 +630,14 @@ def _web_source(
         channel = "social"
     else:
         channel = "web"
+    source_quality, evidence_role = _classify_source(channel, hostname)
     title = str(result.get("title") or urlparse(url).hostname or "Untitled source")[:500]
     search_excerpt = str(result.get("snippet") or result.get("description") or "")
     return ContextSource(
         source_id=_source_id(channel, url),
         channel=channel,
+        source_quality=source_quality,
+        evidence_role=evidence_role,
         title=title,
         url=url,
         retrieved_at=now,
@@ -669,6 +693,8 @@ def _bluesky_sources(
             ContextSource(
                 source_id=_source_id("social", url),
                 channel="social",
+                source_quality="unverified",
+                evidence_role="sentiment",
                 title=f"Bluesky post by @{handle}",
                 url=url,
                 retrieved_at=now,
@@ -695,6 +721,8 @@ def _sec_sources(filings: list[dict[str, Any]], now: datetime) -> list[ContextSo
             ContextSource(
                 source_id=_source_id("regulatory", url),
                 channel="regulatory",
+                source_quality="primary",
+                evidence_role="fact",
                 title=f"{symbol} SEC {form} filing",
                 url=url,
                 retrieved_at=now,
@@ -723,6 +751,14 @@ def _deduplicate_sources(sources: list[ContextSource]) -> list[ContextSource]:
         if existing is not None:
             existing.metadata.update(source.metadata)
     return output
+
+
+def _classify_source(channel: str, hostname: str) -> tuple[str, str]:
+    if channel == "regulatory" or hostname.endswith(".gov"):
+        return "primary", "fact"
+    if channel == "social":
+        return "unverified", "sentiment"
+    return "secondary", "analysis"
 
 
 def _select_sources(sources: list[ContextSource], *, limit: int) -> list[ContextSource]:

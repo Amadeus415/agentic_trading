@@ -124,6 +124,11 @@ def test_context_collection_is_diverse_fresh_cached_and_bounded(tmp_path):
     filing = next(source for source in snapshot.sources if source.metadata.get("form") == "8-K")
     assert filing.metadata["form"] == "8-K"
     assert filing.metadata["accession_number"] == "0000000001-26-000001"
+    assert filing.source_quality == "primary"
+    assert filing.evidence_role == "fact"
+    social = next(source for source in snapshot.sources if source.channel == "social")
+    assert social.source_quality == "unverified"
+    assert social.evidence_role == "sentiment"
     assert all(len(query) <= 200 for query in snapshot.queries)
     call_count = len(transport.calls)
 
@@ -143,6 +148,26 @@ def test_context_source_rejects_private_network_urls():
             url="https://127.0.0.1/secrets",
             retrieved_at=NOW,
         )
+
+
+def test_context_source_defaults_are_channel_safe():
+    social = ContextSource(
+        source_id="social-test",
+        channel="social",
+        title="Public post",
+        url="https://bsky.app/profile/example/post/test",
+        retrieved_at=NOW,
+    )
+    regulatory = ContextSource(
+        source_id="regulatory-test",
+        channel="regulatory",
+        title="Filing",
+        url="https://www.sec.gov/Archives/test",
+        retrieved_at=NOW,
+    )
+
+    assert (social.source_quality, social.evidence_role) == ("unverified", "sentiment")
+    assert (regulatory.source_quality, regulatory.evidence_role) == ("primary", "fact")
 
 
 def test_large_universe_respects_query_and_social_budgets():
