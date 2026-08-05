@@ -231,7 +231,7 @@ The raw token is not stored; the ledger stores its hash and sanitized constraint
 
 The `PreToolUse` guard independently checks the ledger and exact tool arguments before the placement tool can run.
 
-Possible immediate results include `aborted`, `rejected`, `placed`, `partially_filled`, `filled`, or `unknown`. These words are not interchangeable.
+Possible immediate results include `aborted`, `rejected`, `placed`, `partially_filled`, `filled`, or `unknown`. These words are not interchangeable. Only `filled` finalizes the run as `completed`. Non-terminal `placed` fails the run, arms the kill switch, and leaves unresolved order keys so future risk approvals block until the order reaches a terminal broker state.
 
 **Invariant:** an order API response is evidence about submission, not automatic proof of a fill.
 
@@ -247,7 +247,7 @@ If the placement call errors after authority was issued, `recover_order()` searc
 
 ### Step 10 — the cycle closes and performance advances
 
-The run becomes `completed` only after its execution path is safely accounted for. `evaluation.py` advances three cash-flow-matched books once per daily run:
+The run becomes `completed` only after every live order reconciles to `filled` (or the cycle held/shadow-completed without placement). Pure rejected/canceled outcomes fail the run without leaving unresolved keys. `evaluation.py` advances three cash-flow-matched books once per daily run:
 
 - the agent’s chosen portfolio;
 - the SPY benchmark;
@@ -255,7 +255,7 @@ The run becomes `completed` only after its execution path is safely accounted fo
 
 This avoids comparing a small, periodic contribution strategy with a benchmark that received different cash flows. If a provably side-effect-free run is retried, Edgecraft creates new attempt-scoped proposal and order identities but reuses the first immutable daily evaluation observation. It cannot double-count the contribution or rewrite performance with later prices.
 
-The local dashboard, CLI, logs, and metrics all derive their summaries from the same ledger rather than inventing separate truth.
+The CLI, structured logs, and metrics all derive their summaries from the same ledger rather than inventing separate truth.
 
 ## The evidence ladder
 
@@ -306,9 +306,9 @@ Follow this order if you want to learn the implementation without getting lost:
 Then use the operational guides:
 
 - [Autonomous operations](AUTONOMY.md)
+- [Scheduled Codex task](CODEX_SCHEDULED_TASK.md)
 - [Decision data model](DECISION_DATA_MODEL.md)
 - [Performance evaluation](PERFORMANCE_EVALUATION.md)
-- [Production readiness](PRODUCTION_READINESS.md)
 
 ## Final mental model
 
