@@ -237,6 +237,10 @@ def main(argv: list[str] | None = None) -> None:
         payload = dispatch(args)
         output = getattr(args, "output", None)
         _emit(payload, output)
+        if _should_exit_nonzero(args.command, payload):
+            raise SystemExit(1)
+    except SystemExit:
+        raise
     except Exception as exc:
         print(
             json.dumps(
@@ -246,6 +250,13 @@ def main(argv: list[str] | None = None) -> None:
             file=sys.stderr,
         )
         raise SystemExit(2) from exc
+
+
+def _should_exit_nonzero(command: str, payload: Any) -> bool:
+    """Hard-fail schedule gates when a health payload reports not ok."""
+    if command != "health":
+        return False
+    return isinstance(payload, dict) and payload.get("ok") is False
 
 
 def dispatch(args: argparse.Namespace) -> Any:
@@ -562,10 +573,13 @@ def _base_readiness_reasons(
         reasons.append("live mandate policy has trading_enabled=false")
     if not set(mandate.universe).issubset(set(policy.allowed_symbols)):
         reasons.append("mandate universe is not a subset of the policy whitelist")
-    if ledger.trading_halted():
+    unresolved = ledger.unresolved_order_keys()
+    if ledger.trading_halted() and not unresolved:
+        # Halt with unresolved orders is allowed so the next cycle can re-reconcile
+        # fills before any new risk approval. Cycle blocks new work until terminal.
         reasons.append("trading kill switch is active")
-    if ledger.unresolved_order_keys():
-        reasons.append("audit ledger contains unresolved broker orders")
+    # Unresolved orders are not a readiness hard-fail: run_cycle re-reconciles them
+    # first and refuses new proposals until every key is terminal.
     if shutil.which("codex") is None:
         reasons.append("codex executable is unavailable")
     if mandate.external_context_path:

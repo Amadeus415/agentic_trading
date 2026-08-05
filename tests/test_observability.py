@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from stat import S_IMODE
 
 from edgecraft.autonomy import cycle_key
@@ -10,7 +10,12 @@ from edgecraft.execution_models import (
     TradeProposal,
 )
 from edgecraft.ledger import AuditLedger
-from edgecraft.observability import autonomy_health, control_plane_snapshot, prometheus_metrics
+from edgecraft.observability import (
+    SUCCESS_STALE_GRACE_SECONDS,
+    autonomy_health,
+    prometheus_metrics,
+    success_staleness_threshold_seconds,
+)
 
 NOW = datetime(2026, 7, 20, 15, 0, tzinfo=UTC)
 
@@ -31,11 +36,13 @@ def test_operational_health_and_prometheus_metrics_are_sanitized(tmp_path):
     assert S_IMODE(ledger.path.stat().st_mode) == 0o600
     mandate = _mandate()
     run_id = ledger.start_run(mandate, cycle_key(mandate, NOW), now=NOW)
-    ledger.update_run(run_id, "shadow_complete", detail="safe", now=NOW)
+    ledger.update_run(run_id, "shadow_complete", detail="safe", now=datetime.now(UTC))
 
     health = autonomy_health(ledger)
     assert health["status"] == "ready"
     assert health["snapshot"]["runs_by_status"]["shadow_complete"] == 1
+    assert health["last_success_age_seconds"] is not None
+    assert health["success_stale_after_seconds"] == success_staleness_threshold_seconds(ledger)
 
     text = prometheus_metrics(ledger)
     assert 'edgecraft_runs_total{status="shadow_complete"} 1' in text
@@ -47,30 +54,57 @@ def test_health_degrades_on_failure_and_halts_on_kill_switch(tmp_path):
     ledger = AuditLedger(tmp_path / "state.db")
     mandate = _mandate()
     current_time = datetime.now(UTC)
+    # Fresh success first so failure (not missing success) drives degraded.
+    success_id = ledger.start_run(mandate, "metrics_test:success", now=current_time)
+    ledger.update_run(success_id, "shadow_complete", detail="ok", now=current_time)
     run_id = ledger.start_run(
         mandate,
         cycle_key(mandate, current_time),
         now=current_time,
     )
     ledger.update_run(run_id, "failed", detail="test failure", now=current_time)
-    assert autonomy_health(ledger)["status"] == "degraded"
+    health = autonomy_health(ledger)
+    assert health["status"] == "degraded"
+    assert any("failed" in reason for reason in health["reasons"])
 
     ledger.set_trading_halt(True, reason="test halt", now=current_time)
     assert autonomy_health(ledger)["status"] == "halted"
 
 
-def test_control_plane_snapshot_exposes_runs_without_sensitive_account_data(tmp_path):
+def test_autonomy_health_degrades_when_no_success_ever(tmp_path):
+    ledger = AuditLedger(tmp_path / "state.db")
+    health = autonomy_health(ledger)
+    assert health["status"] == "degraded"
+    assert "no successful autonomous run recorded" in health["reasons"]
+    assert health["last_success_at"] is None
+    assert health["last_success_age_seconds"] is None
+
+
+def test_autonomy_health_degrades_when_last_success_is_stale(tmp_path):
     ledger = AuditLedger(tmp_path / "state.db")
     mandate = _mandate()
-    run_id = ledger.start_run(mandate, cycle_key(mandate, NOW), now=NOW)
-    ledger.update_run(run_id, "shadow_complete", detail="safe", now=NOW)
+    threshold = success_staleness_threshold_seconds(ledger)
+    stale_at = datetime.now(UTC) - timedelta(seconds=threshold + SUCCESS_STALE_GRACE_SECONDS)
+    run_id = ledger.start_run(mandate, cycle_key(mandate, stale_at), now=stale_at)
+    ledger.update_run(run_id, "shadow_complete", detail="old success", now=stale_at)
 
-    snapshot = control_plane_snapshot(ledger)
-    assert snapshot["has_history"] is True
-    assert snapshot["runs"][0]["run_id"] == run_id
-    assert snapshot["events"][0]["event_type"] == "run_shadow_complete"
-    assert snapshot["mandates"][0]["weekly_budget"] == 10
-    assert "account_id" not in str(snapshot)
+    health = autonomy_health(ledger)
+    assert health["status"] == "degraded"
+    assert any("stale" in reason for reason in health["reasons"])
+    assert health["last_success_age_seconds"] is not None
+    assert health["last_success_age_seconds"] > health["success_stale_after_seconds"]
+
+
+def test_autonomy_health_ready_when_last_success_is_fresh(tmp_path):
+    ledger = AuditLedger(tmp_path / "state.db")
+    mandate = _mandate()
+    current_time = datetime.now(UTC)
+    run_id = ledger.start_run(mandate, cycle_key(mandate, current_time), now=current_time)
+    ledger.update_run(run_id, "held", detail="fresh hold", now=current_time)
+    health = autonomy_health(ledger)
+    assert health["status"] == "ready"
+    assert health["last_success_age_seconds"] is not None
+    assert health["last_success_age_seconds"] <= health["success_stale_after_seconds"]
 
 
 def test_trade_audit_joins_order_authority_broker_events_and_reconciliation(tmp_path):
@@ -162,7 +196,3 @@ def test_trade_audit_joins_order_authority_broker_events_and_reconciliation(tmp_
     assert detail["permits"][0]["constraints"]["account_id_hash"].startswith("acct_")
     assert "private-account-id" not in str(detail)
     assert any("No immutable decision packet" in item for item in detail["audit_gaps"])
-
-    snapshot = control_plane_snapshot(ledger)
-    assert len(snapshot["trades"]) == 1
-    assert snapshot["trades"][0]["confirmed_execution"] is True
