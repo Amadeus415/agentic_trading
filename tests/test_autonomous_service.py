@@ -216,7 +216,7 @@ def test_shadow_cycle_is_idempotent_and_audited(tmp_path):
     first = service.run_cycle(mandate, now=NOW)
     assert first["ok"]
     assert first["run"]["status"] == "shadow_complete"
-    assert first["run"]["payload"]["gross_notional"] == 10
+    assert Decimal(str(first["run"]["payload"]["gross_notional"])) == Decimal("10")
     assert ledger.status()["proposals"] == 1
     assert ledger.status()["decision_packets"] == 1
     packets = ledger.decision_packets_for_run(first["run"]["run_id"])
@@ -233,7 +233,9 @@ def test_shadow_cycle_is_idempotent_and_audited(tmp_path):
     assert packet["payload"]["observation"]["quotes"][0]["symbol"] == "VTI"
     portfolio_feed = ledger.portfolio_snapshot_feed()
     assert portfolio_feed[0]["packet_id"] == packet["packet_id"]
-    assert portfolio_feed[0]["payload"]["observation"]["account"]["portfolio_value"] == 100
+    assert Decimal(
+        str(portfolio_feed[0]["payload"]["observation"]["account"]["portfolio_value"])
+    ) == Decimal("100")
     assert "market_intelligence" not in portfolio_feed[0]["payload"]
     assert (
         packet["payload"]["observation"]["decision"]["evidence_items"][0]["evidence_id"]
@@ -572,18 +574,18 @@ class FailsOnceRuntime(StaticObservationRuntime):
 
 
 def test_side_effect_free_failure_retries_same_cycle_safely(tmp_path):
+    """In-process auto-retry on the same wake when the ledger proves no side effects."""
     policy = _write_policy(tmp_path)
     mandate = _mandate(str(policy))
     ledger = AuditLedger(tmp_path / "state.db")
     runtime = FailsOnceRuntime(_payload())
     service = AutonomousService(tmp_path, ledger, runtime)
 
-    with pytest.raises(RuntimeError, match="transient MCP failure"):
-        service.run_cycle(mandate, now=NOW)
-    retry = service.run_cycle(mandate, now=NOW)
-    assert retry["ok"]
-    assert retry["run"]["status"] == "shadow_complete"
-    assert ledger.run_attempt_count(retry["run"]["run_id"]) == 2
+    result = service.run_cycle(mandate, now=NOW)
+    assert result["ok"]
+    assert result["run"]["status"] == "shadow_complete"
+    assert ledger.run_attempt_count(result["run"]["run_id"]) == 2
+    assert runtime.calls == 2
 
 
 def test_concurrent_cycle_returns_in_progress_without_invoking_runtime(tmp_path):
@@ -645,6 +647,61 @@ def test_permit_makes_failed_run_non_retryable(tmp_path):
     ledger.issue_permit(run_id, proposal.proposal_id, "order-test", now=NOW)
     ledger.update_run(run_id, "failed", detail="execution uncertainty", now=NOW)
     assert not ledger.run_is_safe_to_retry(run_id)
+    # In-process / second-wake auto-retry must not re-enter after authority.
+    replay = AutonomousService(tmp_path, ledger, StaticObservationRuntime(_payload())).run_cycle(
+        mandate, now=NOW
+    )
+    assert replay.get("idempotent_replay") is True
+    assert not replay["ok"]
+
+
+class AlwaysFailsRuntime(StaticObservationRuntime):
+    def __init__(self, payload):
+        super().__init__(payload)
+        self.calls = 0
+
+    def observe(
+        self,
+        mandate,
+        *,
+        run_id,
+        remaining_budget,
+        ledger_path,
+        risk_policy,
+        external_context=None,
+        market_intelligence=None,
+        decision_memory=None,
+    ):
+        self.calls += 1
+        del (
+            mandate,
+            remaining_budget,
+            ledger_path,
+            risk_policy,
+            external_context,
+            market_intelligence,
+            decision_memory,
+            run_id,
+        )
+        raise RuntimeError("persistent MCP failure")
+
+
+def test_in_process_retry_stops_at_attempt_budget(tmp_path):
+    policy = _write_policy(tmp_path)
+    mandate = _mandate(str(policy))
+    ledger = AuditLedger(tmp_path / "state.db")
+    runtime = AlwaysFailsRuntime(_payload())
+    service = AutonomousService(tmp_path, ledger, runtime)
+
+    with pytest.raises(RuntimeError, match="persistent MCP failure"):
+        service.run_cycle(mandate, now=NOW)
+
+    run = ledger.list_runs()[0]
+    assert run["status"] == "failed"
+    # max_attempts default is 4: initial + 3 in-process retries.
+    assert ledger.run_attempt_count(run["run_id"]) == 4
+    assert runtime.calls == 4
+    assert not ledger.run_is_safe_to_retry(run["run_id"])
 
 
 def test_confirmed_pre_submission_rejection_is_retryable(tmp_path):
@@ -996,7 +1053,8 @@ class PolicyMutatingPreflightRuntime(FilledLiveRuntime):
             ledger_path=ledger_path,
         )
         policy = json.loads(self.policy_path.read_text())
-        policy["max_daily_notional"] = 11
+        # Bump every preflight so each attempt (including in-process retries) sees drift.
+        policy["max_daily_notional"] = float(policy["max_daily_notional"]) + 1
         self.policy_path.write_text(json.dumps(policy))
         return result
 
@@ -1128,6 +1186,160 @@ def test_placed_orders_receive_independent_terminal_reconciliation(tmp_path):
     assert not ledger.unresolved_order_keys()
 
 
+class StaysPlacedRuntime(FilledLiveRuntime):
+    """Leave orders non-terminal at place; later fills only via cross-cycle reconcile."""
+
+    def __init__(self, payload, *, fill_on_reconcile: bool = False):
+        super().__init__(payload)
+        self.fill_on_reconcile = fill_on_reconcile
+        self.reconcile_calls = 0
+
+    def execute_order(self, mandate, proposal, order, *, permit_token, ledger_path):
+        filled = super().execute_order(
+            mandate,
+            proposal,
+            order,
+            permit_token=permit_token,
+            ledger_path=ledger_path,
+        )
+        return filled.model_copy(
+            update={
+                "status": "placed",
+                "filled_notional": Decimal("0"),
+                "average_fill_price": None,
+                "broker_order_id": f"broker-{order.order_key}",
+            }
+        )
+
+    def reconcile_order(
+        self,
+        mandate,
+        proposal,
+        order,
+        placed_result,
+        *,
+        ledger_path,
+    ):
+        del mandate, ledger_path
+        self.reconcile_calls += 1
+        if not self.fill_on_reconcile:
+            return placed_result
+        return placed_result.model_copy(
+            update={
+                "status": "filled",
+                "filled_notional": Decimal(str(order.notional)),
+                "average_fill_price": Decimal("330"),
+                "proposal_id": proposal.proposal_id,
+                "observed_at": NOW + timedelta(days=7),
+            }
+        )
+
+
+def test_non_terminal_placed_fails_run_and_auto_halts(tmp_path):
+    """A run that only reaches placed must not finalize as completed success."""
+    policy_path = tmp_path / "live-policy.json"
+    policy_path.write_text(
+        json.dumps(
+            {
+                "policy_name": "service-live-stays-placed",
+                "trading_enabled": True,
+                "allowed_symbols": ["VTI", "VXUS"],
+                "managed_capital_limit": 1000,
+                "max_order_notional": 10,
+                "max_daily_notional": 10,
+                "max_orders_per_day": 2,
+                "max_position_weight": 0.75,
+                "min_cash_reserve": 0,
+                "require_research_evidence": False,
+            }
+        )
+    )
+    mandate = _mandate(str(policy_path)).model_copy(update={"mode": "live"})
+    ledger = AuditLedger(tmp_path / "state.db")
+    result = AutonomousService(tmp_path, ledger, StaysPlacedRuntime(_payload())).run_cycle(
+        mandate, now=NOW
+    )
+    assert result["run"]["status"] == "failed"
+    assert not result["ok"]
+    assert "non-terminal" in result["run"]["detail"]
+    assert ledger.trading_halted()
+    assert ledger.unresolved_order_keys()
+    # completed runs cannot be incident-reconciled; failed+placed can after terminal events.
+
+
+def test_cross_cycle_monitor_reconciles_placed_to_filled(tmp_path):
+    """Next live cycle re-reconciles unresolved placed orders before new observe."""
+    policy_path = tmp_path / "live-policy.json"
+    policy_path.write_text(
+        json.dumps(
+            {
+                "policy_name": "service-live-cross-cycle",
+                "trading_enabled": True,
+                "allowed_symbols": ["VTI", "VXUS"],
+                "managed_capital_limit": 1000,
+                "max_order_notional": 10,
+                "max_daily_notional": 10,
+                "max_orders_per_day": 2,
+                "max_position_weight": 0.75,
+                "min_cash_reserve": 0,
+                "require_research_evidence": False,
+            }
+        )
+    )
+    mandate = _mandate(str(policy_path)).model_copy(update={"mode": "live"})
+    ledger = AuditLedger(tmp_path / "state.db")
+    runtime = StaysPlacedRuntime(_payload(), fill_on_reconcile=False)
+    first = AutonomousService(tmp_path, ledger, runtime).run_cycle(mandate, now=NOW)
+    assert first["run"]["status"] == "failed"
+    assert ledger.unresolved_order_keys()
+    assert ledger.trading_halted()
+
+    # Later wake: same runtime now reports filled on re-reconcile only.
+    runtime.fill_on_reconcile = True
+    later = NOW + timedelta(days=7)
+    second = AutonomousService(tmp_path, ledger, runtime).run_cycle(mandate, now=later)
+    assert second.get("monitor") is not None
+    assert second["monitor"]["still_unresolved"] == []
+    assert not ledger.unresolved_order_keys()
+    assert not ledger.trading_halted()
+    assert runtime.reconcile_calls >= 1
+    feed = ledger.observability_feed()
+    assert any(
+        event["event_type"] == "cross_cycle_reconciliation" for event in feed["runtime_events"]
+    )
+    assert any(event["event_type"] == "filled" for event in feed["order_events"])
+
+
+def test_cross_cycle_monitor_keeps_halt_when_still_placed(tmp_path):
+    policy_path = tmp_path / "live-policy.json"
+    policy_path.write_text(
+        json.dumps(
+            {
+                "policy_name": "service-live-still-placed",
+                "trading_enabled": True,
+                "allowed_symbols": ["VTI", "VXUS"],
+                "managed_capital_limit": 1000,
+                "max_order_notional": 10,
+                "max_daily_notional": 10,
+                "max_orders_per_day": 2,
+                "max_position_weight": 0.75,
+                "min_cash_reserve": 0,
+                "require_research_evidence": False,
+            }
+        )
+    )
+    mandate = _mandate(str(policy_path)).model_copy(update={"mode": "live"})
+    ledger = AuditLedger(tmp_path / "state.db")
+    runtime = StaysPlacedRuntime(_payload(), fill_on_reconcile=False)
+    AutonomousService(tmp_path, ledger, runtime).run_cycle(mandate, now=NOW)
+    later = NOW + timedelta(days=7)
+    blocked = AutonomousService(tmp_path, ledger, runtime).run_cycle(mandate, now=later)
+    assert blocked["ok"] is False
+    assert blocked["status"] == "unresolved_orders"
+    assert ledger.trading_halted()
+    assert ledger.unresolved_order_keys()
+
+
 def test_execution_schema_failure_recovers_broker_fill_and_reasoning(tmp_path):
     policy_path = tmp_path / "live-policy.json"
     policy_path.write_text(
@@ -1157,8 +1369,8 @@ def test_execution_schema_failure_recovers_broker_fill_and_reasoning(tmp_path):
     feed = ledger.observability_feed()
     events = {item["event_type"]: item for item in feed["order_events"]}
     assert set(events) == {"placed", "filled"}
-    assert events["filled"]["payload"]["filled_notional"] == 2.0
-    assert events["filled"]["payload"]["average_fill_price"] == 330.123456
+    assert Decimal(str(events["filled"]["payload"]["filled_notional"])) == Decimal("2.00")
+    assert Decimal(str(events["filled"]["payload"]["average_fill_price"])) == Decimal("330.123456")
     reasoning = events["filled"]["payload"]["reasoning"]
     assert reasoning["decision_reasoning"]["risks"] == ["market prices can fall"]
     assert reasoning["order_rationale"] == "Maintain the diversified US core."

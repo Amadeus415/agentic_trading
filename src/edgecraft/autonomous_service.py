@@ -46,6 +46,54 @@ TERMINAL_RUN_STATUSES = {
     "failed",
 }
 SUCCESSFUL_RUN_STATUSES = TERMINAL_RUN_STATUSES - {"failed"}
+# Terminal broker states that close an order without leaving unresolved keys.
+_TERMINAL_ORDER_STATUSES = frozenset({"filled", "rejected", "canceled"})
+# Only filled means the cycle fully executed its approved intent successfully.
+_SUCCESS_ORDER_STATUSES = frozenset({"filled"})
+_NON_TERMINAL_ORDER_STATUSES = frozenset({"placed", "partially_filled", "unknown"})
+
+
+def _execution_cycle_outcome(results: list[dict]) -> tuple[str, str]:
+    """Map execution results to a terminal run status.
+
+    ``placed`` is non-terminal: it leaves unresolved_order_keys that block future
+    risk approvals. Only fully filled orders mark the run completed. Pure
+    rejected/canceled outcomes are failed but terminal (no unresolved keys).
+    """
+    if not results:
+        return "failed", "execution produced no order results"
+    statuses = [str(item.get("status", "")) for item in results]
+    if any(status in _NON_TERMINAL_ORDER_STATUSES for status in statuses):
+        return (
+            "failed",
+            "execution left non-terminal broker order state; kill switch armed",
+        )
+    if all(status in _SUCCESS_ORDER_STATUSES for status in statuses):
+        return "completed", "broker execution cycle reconciled to filled"
+    if all(status in _TERMINAL_ORDER_STATUSES for status in statuses):
+        return (
+            "failed",
+            "execution reached terminal broker states without a full fill",
+        )
+    return "failed", "execution did not reach a fully reconciled terminal state"
+
+
+_PERMIT_MARKET_HOURS = {
+    "regular": "regular_hours",
+    "pre_market": "extended_hours",
+    "after_hours": "extended_hours",
+}
+
+
+def _permit_market_hours(market_session: str) -> str:
+    """Map broker session to Robinhood market_hours; refuse closed/unknown."""
+    try:
+        return _PERMIT_MARKET_HOURS[market_session]
+    except KeyError as exc:
+        raise RuntimeError(
+            f"refuse permit: market_session={market_session!r} is not placeable "
+            "(only regular, pre_market, after_hours)"
+        ) from exc
 
 
 def _validate_observation_identity(
@@ -292,6 +340,31 @@ class AutonomousService:
         force: bool,
         retry_side_effect_free_reason: str | None,
     ) -> dict:
+        # Cross-cycle post-trade monitor: re-reconcile unresolved orders before any
+        # new observe/proposal. Runs even while halted so a later wake can clear fills.
+        monitor: dict | None = None
+        if (
+            mandate.mode == "live"
+            and self.runtime is not None
+            and self.ledger.unresolved_order_keys()
+        ):
+            monitor = self._monitor_unresolved_orders(mandate, now=current_time)
+            if self.ledger.unresolved_order_keys():
+                log_event(
+                    "cycle_blocked_unresolved_orders",
+                    mandate_id=mandate.mandate_id,
+                    unresolved=self.ledger.unresolved_order_keys(),
+                )
+                return {
+                    "ok": False,
+                    "status": "unresolved_orders",
+                    "cycle_key": key,
+                    "monitor": monitor,
+                    "run": self.ledger.get_run_for_cycle(mandate.mandate_id, key),
+                    "trading_halted": self.ledger.trading_halted(),
+                    "unresolved_order_keys": self.ledger.unresolved_order_keys(),
+                }
+
         existing = self.ledger.get_run_for_cycle(mandate.mandate_id, key)
         if existing is not None:
             operator_retry = retry_side_effect_free_reason is not None
@@ -330,48 +403,42 @@ class AutonomousService:
                     run_id=existing["run_id"],
                     attempt=self.ledger.run_attempt_count(existing["run_id"]),
                 )
-                try:
-                    return self._run_started_cycle(
-                        mandate,
-                        existing["run_id"],
-                        current_time,
-                        use_wall_clock=use_wall_clock,
-                    )
-                except Exception as exc:
-                    self.ledger.update_run(
-                        existing["run_id"],
-                        "failed",
-                        detail=f"{type(exc).__name__}: {exc}",
-                        now=datetime.now(UTC),
-                    )
-                    log_event(
-                        "cycle_retry_failed",
-                        mandate_id=mandate.mandate_id,
-                        run_id=existing["run_id"],
-                        error_type=type(exc).__name__,
-                    )
-                    raise
+                result = self._run_with_side_effect_free_retries(
+                    mandate,
+                    existing["run_id"],
+                    current_time,
+                    use_wall_clock=use_wall_clock,
+                )
+                if monitor is not None:
+                    result = {**result, "monitor": monitor}
+                return result
             log_event(
                 "cycle_idempotent_replay",
                 mandate_id=mandate.mandate_id,
                 run_id=existing["run_id"],
                 status=existing["status"],
             )
-            return {
+            payload = {
                 "ok": existing["status"] in SUCCESSFUL_RUN_STATUSES,
                 "idempotent_replay": True,
                 "run": existing,
             }
+            if monitor is not None:
+                payload["monitor"] = monitor
+            return payload
         if retry_side_effect_free_reason is not None:
             raise ValueError("operator retry requires an existing cycle for this date")
         if not force and not cycle_due(mandate, current_time):
             self.ledger.upsert_mandate(mandate, now=current_time)
-            return {
+            payload = {
                 "ok": True,
                 "status": "not_due",
                 "cycle_key": key,
                 "next_action": "Run again after the mandate's scheduled local time.",
             }
+            if monitor is not None:
+                payload["monitor"] = monitor
+            return payload
         if mandate.mode == "live" and self.ledger.trading_halted():
             raise RuntimeError("live cycle blocked because the trading kill switch is active")
         if self.runtime is None:
@@ -385,32 +452,64 @@ class AutonomousService:
             mode=mandate.mode,
             cycle_key=key,
         )
-        try:
-            return self._run_started_cycle(
-                mandate,
-                run_id,
-                current_time,
-                use_wall_clock=use_wall_clock,
-            )
-        except Exception as exc:
-            self.ledger.update_run(
-                run_id,
-                "failed",
-                detail=f"{type(exc).__name__}: {exc}",
-                now=datetime.now(UTC),
-            )
-            if mandate.mode == "live" and self.ledger.run_has_permit(run_id):
-                self.ledger.set_trading_halt(
-                    True,
-                    reason=f"automatic halt after live execution exception in {run_id}",
+        result = self._run_with_side_effect_free_retries(
+            mandate,
+            run_id,
+            current_time,
+            use_wall_clock=use_wall_clock,
+        )
+        if monitor is not None:
+            result = {**result, "monitor": monitor}
+        return result
+
+    def _run_with_side_effect_free_retries(
+        self,
+        mandate: Mandate,
+        run_id: str,
+        current_time: datetime,
+        *,
+        use_wall_clock: bool,
+    ) -> dict:
+        """Run the cycle body; auto-retry in-process while the ledger proves no side effects."""
+        while True:
+            try:
+                return self._run_started_cycle(
+                    mandate,
+                    run_id,
+                    current_time,
+                    use_wall_clock=use_wall_clock,
                 )
-            log_event(
-                "cycle_failed",
-                mandate_id=mandate.mandate_id,
-                run_id=run_id,
-                error_type=type(exc).__name__,
-            )
-            raise
+            except Exception as exc:
+                self.ledger.update_run(
+                    run_id,
+                    "failed",
+                    detail=f"{type(exc).__name__}: {exc}",
+                    now=datetime.now(UTC),
+                )
+                if mandate.mode == "live" and self.ledger.run_has_permit(run_id):
+                    self.ledger.set_trading_halt(
+                        True,
+                        reason=f"automatic halt after live execution exception in {run_id}",
+                    )
+                log_event(
+                    "cycle_failed",
+                    mandate_id=mandate.mandate_id,
+                    run_id=run_id,
+                    error_type=type(exc).__name__,
+                    attempt=self.ledger.run_attempt_count(run_id),
+                )
+                if not self.ledger.run_is_safe_to_retry(run_id):
+                    raise
+                self.ledger.record_retry(
+                    run_id, now=datetime.now(UTC) if use_wall_clock else current_time
+                )
+                log_event(
+                    "cycle_retry_started",
+                    mandate_id=mandate.mandate_id,
+                    run_id=run_id,
+                    attempt=self.ledger.run_attempt_count(run_id),
+                    in_process=True,
+                )
 
     def _run_started_cycle(
         self,
@@ -529,7 +628,7 @@ class AutonomousService:
             "approved_for_review": proposal.risk.approved_for_review,
             "violations": proposal.risk.violations,
             "warnings": proposal.risk.warnings,
-            "gross_notional": proposal.risk.gross_notional,
+            "gross_notional": str(proposal.risk.gross_notional),
             "order_count": len(proposal.orders),
             "policy_digest": proposal.policy_digest,
             "prompt_version": PROMPT_VERSION,
@@ -630,25 +729,20 @@ class AutonomousService:
                 use_wall_clock=use_wall_clock,
             )
             results.append(result.model_dump(mode="json"))
-            if result.status in {"unknown", "partially_filled"}:
+            if result.status in {"unknown", "partially_filled", "placed"}:
                 self.ledger.set_trading_halt(
                     True,
                     reason=(
-                        f"automatic halt after {result.status} order state for {order.order_key}"
+                        f"automatic halt after non-terminal {result.status} order state "
+                        f"for {order.order_key}"
                     ),
                 )
                 break
-        final_status = (
-            "completed"
-            if results and all(item["status"] in {"placed", "filled"} for item in results)
-            else "failed"
-        )
+        final_status, final_detail = _execution_cycle_outcome(results)
         self.ledger.update_run(
             run_id,
             final_status,
-            detail="broker execution cycle reconciled"
-            if final_status == "completed"
-            else ("execution did not reach a fully reconciled terminal state"),
+            detail=final_detail,
             payload={**proposal_summary, "execution_results": results},
         )
         return self._summary(run_id)
@@ -728,6 +822,7 @@ class AutonomousService:
             != proposal.policy_digest
         ):
             raise RuntimeError("live policy changed during execution preflight")
+        market_hours = _permit_market_hours(preflight.quote.market_session)
         constraints = {
             "account_id": proposal.account_id,
             "symbol": order.symbol,
@@ -735,11 +830,7 @@ class AutonomousService:
             "dollar_notional": order.notional,
             "order_type": order.order_type,
             "time_in_force": order.time_in_force,
-            "market_hours": {
-                "regular": "regular_hours",
-                "pre_market": "extended_hours",
-                "after_hours": "extended_hours",
-            }.get(preflight.quote.market_session, "regular_hours"),
+            "market_hours": market_hours,
         }
         authority_issued_at = datetime.now(UTC)
         token = self.ledger.issue_permit(
@@ -898,24 +989,26 @@ class AutonomousService:
         if result.status in {"placed", "filled", "partially_filled"}:
             placed_payload = {
                 "order_key": order.order_key,
-                "notional": float(result.requested_notional),
+                "notional": str(result.requested_notional),
                 "broker_order_id": result.broker_order_id,
                 "reasoning": reasoning,
             }
+            # Stable key so cross-cycle re-reconcile does not insert a second placed.
             self._record_once(
                 proposal.proposal_id,
                 "placed",
                 placed_payload,
                 occurred_at=result.observed_at,
+                idempotency_key=f"{proposal.proposal_id}:{order.order_key}:placed",
             )
         if result.status in {"filled", "partially_filled", "rejected", "canceled"}:
             terminal_payload = {
                 "order_key": order.order_key,
-                "notional": float(result.requested_notional),
-                "filled_notional": float(result.filled_notional),
+                "notional": str(result.requested_notional),
+                "filled_notional": str(result.filled_notional),
                 "broker_order_id": result.broker_order_id,
                 "average_fill_price": (
-                    float(result.average_fill_price) if result.average_fill_price else None
+                    str(result.average_fill_price) if result.average_fill_price else None
                 ),
                 "fees": str(result.fees),
                 "reasoning": reasoning,
@@ -925,6 +1018,7 @@ class AutonomousService:
                 result.status,
                 terminal_payload,
                 occurred_at=result.observed_at,
+                idempotency_key=f"{proposal.proposal_id}:{order.order_key}:{result.status}",
             )
 
     @staticmethod
@@ -956,6 +1050,7 @@ class AutonomousService:
         payload: dict,
         *,
         occurred_at: datetime,
+        idempotency_key: str | None = None,
     ) -> None:
         with suppress(DuplicateProposalError):
             self.ledger.record_event(
@@ -963,6 +1058,7 @@ class AutonomousService:
                 event_type,
                 payload,
                 occurred_at=occurred_at,
+                idempotency_key=idempotency_key,
             )
 
     def _load_model(self, configured_path: str | None, model_type):
@@ -1086,6 +1182,134 @@ class AutonomousService:
             "trading_halted": self.ledger.trading_halted(),
         }
 
+    def _monitor_unresolved_orders(self, mandate: Mandate, *, now: datetime) -> dict:
+        """Re-reconcile or recover each unresolved placed order before new proposals."""
+        contexts = self.ledger.unresolved_order_contexts()
+        outcomes: list[dict] = []
+        for context in contexts:
+            try:
+                result = self._reconcile_unresolved_one(mandate, context, now=now)
+                outcomes.append(
+                    {
+                        "order_key": context["order_key"],
+                        "status": result.status,
+                        "terminal": result.status in _TERMINAL_ORDER_STATUSES,
+                    }
+                )
+                self.ledger.record_runtime_event(
+                    context["run_id"] or "",
+                    "cross_cycle_reconciliation",
+                    {
+                        "order_key": context["order_key"],
+                        "proposal_id": context["proposal_id"],
+                        "status": result.status,
+                        "terminal": result.status in _TERMINAL_ORDER_STATUSES,
+                    },
+                    now=now,
+                )
+            except Exception as exc:
+                outcomes.append(
+                    {
+                        "order_key": context["order_key"],
+                        "status": "error",
+                        "terminal": False,
+                        "error_type": type(exc).__name__,
+                        "detail": str(exc),
+                    }
+                )
+                self.ledger.record_runtime_event(
+                    context["run_id"] or "",
+                    "cross_cycle_reconciliation_failed",
+                    {
+                        "order_key": context["order_key"],
+                        "proposal_id": context["proposal_id"],
+                        "error_type": type(exc).__name__,
+                    },
+                    now=now,
+                )
+        still_unresolved = self.ledger.unresolved_order_keys()
+        if not still_unresolved and self.ledger.trading_halted():
+            # Auto-halt after non-terminal placed is cleared once broker truth is terminal.
+            self.ledger.set_trading_halt(
+                False,
+                reason="automatic clear after unresolved orders reached terminal broker state",
+                now=now,
+            )
+            log_event(
+                "trading_halt_cleared_after_monitor",
+                mandate_id=mandate.mandate_id,
+                outcomes=outcomes,
+            )
+        log_event(
+            "unresolved_order_monitor_completed",
+            mandate_id=mandate.mandate_id,
+            outcomes=outcomes,
+            still_unresolved=still_unresolved,
+        )
+        return {
+            "outcomes": outcomes,
+            "still_unresolved": still_unresolved,
+        }
+
+    def _reconcile_unresolved_one(
+        self,
+        mandate: Mandate,
+        context: dict,
+        *,
+        now: datetime,
+    ) -> ExecutionResult:
+        if self.runtime is None:
+            raise RuntimeError("runtime is required to re-reconcile unresolved orders")
+        proposal = TradeProposal.model_validate(context["proposal"])
+        order = ProposedOrder.model_validate(context["order"])
+        placed_event = context["placed_event"]
+        placed_at = context.get("placed_at")
+        observed_at = (
+            datetime.fromisoformat(placed_at).astimezone(UTC) if isinstance(placed_at, str) else now
+        )
+        if observed_at.tzinfo is None:
+            observed_at = observed_at.replace(tzinfo=UTC)
+        placed_result = ExecutionResult(
+            run_id=context["run_id"] or proposal.run_id or "",
+            proposal_id=context["proposal_id"],
+            order_key=order.order_key,
+            status="placed",
+            broker_order_id=placed_event.get("broker_order_id"),
+            symbol=order.symbol,
+            side=order.side,
+            requested_notional=Decimal(str(order.notional)),
+            filled_notional=Decimal(str(placed_event.get("filled_notional", 0) or 0)),
+            observed_at=observed_at,
+        )
+        if placed_result.broker_order_id:
+            result = self.runtime.reconcile_order(
+                mandate,
+                proposal,
+                order,
+                placed_result,
+                ledger_path=self.ledger.path,
+            )
+        else:
+            authority = context.get("permit_issued_at")
+            authority_issued_at = (
+                datetime.fromisoformat(authority).astimezone(UTC)
+                if isinstance(authority, str)
+                else observed_at
+            )
+            if authority_issued_at.tzinfo is None:
+                authority_issued_at = authority_issued_at.replace(tzinfo=UTC)
+            result = self.runtime.recover_order(
+                mandate,
+                proposal,
+                order,
+                authority_issued_at=authority_issued_at,
+                failure_observed_at=now,
+                ledger_path=self.ledger.path,
+            )
+        self._validate_execution_identity(proposal, order, result)
+        self._record_execution_result(proposal, order, result)
+        return result
+
 
 class StaticObservationRuntime:
     """Deterministic integration-test/runtime adapter for a captured MCP payload."""
@@ -1155,14 +1379,34 @@ class StaticObservationRuntime:
         del mandate, proposal, order, placed_result, ledger_path
         raise RuntimeError("captured observations cannot reconcile live orders")
 
+    def recover_order(
+        self,
+        mandate: Mandate,
+        proposal: TradeProposal,
+        order: ProposedOrder,
+        *,
+        authority_issued_at: datetime,
+        failure_observed_at: datetime,
+        ledger_path: str | Path,
+    ) -> ExecutionResult:
+        del (
+            mandate,
+            proposal,
+            order,
+            authority_issued_at,
+            failure_observed_at,
+            ledger_path,
+        )
+        raise RuntimeError("captured observations cannot recover live orders")
+
 
 def _sanitized_observation_summary(observation: AgentCyclePayload) -> dict:
     return {
         "observed_at": observation.observed_at.isoformat(),
         "agentic_allowed": observation.account.agentic_allowed,
         "account_restricted": observation.account.account_restricted,
-        "portfolio_value": observation.account.portfolio_value,
-        "buying_power": observation.account.buying_power,
+        "portfolio_value": str(observation.account.portfolio_value),
+        "buying_power": str(observation.account.buying_power),
         "position_symbols": sorted(position.symbol for position in observation.account.positions),
         "open_order_count": len(observation.account.open_orders),
         "quote_symbols": sorted(quote.symbol for quote in observation.quotes),
