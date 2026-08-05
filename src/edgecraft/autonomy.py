@@ -101,10 +101,10 @@ def create_weekly_proposal(
         decision,
         quotes,
         cycle_budget=cycle_budget,
-        min_order_notional=Decimal(str(policy.min_order_notional)),
+        min_order_notional=policy.min_order_notional,
         attempt=attempt,
     )
-    daily_notional = ledger.daily_placed_notional(current_time.date()) if ledger else 0.0
+    daily_notional = ledger.daily_placed_notional(current_time.date()) if ledger else Decimal("0")
     daily_order_count = ledger.daily_placed_order_count(current_time.date()) if ledger else 0
     rolling_notional = (
         ledger.rolling_placed_notional(
@@ -112,7 +112,7 @@ def create_weekly_proposal(
             before=current_time,
         )
         if ledger
-        else 0.0
+        else Decimal("0")
     )
     high_watermark = ledger.portfolio_high_watermark(mandate.mandate_id) if ledger else None
     shadow_history_id = mandate.promotion_source_mandate_id or mandate.mandate_id
@@ -282,7 +282,7 @@ def _allocation_order(
             order_key=hashlib.sha256(identity.encode()).hexdigest()[:20],
             symbol=allocation.symbol,
             side="buy",
-            notional=float(notional),
+            notional=notional,
             expected_price=quote.last,
             rationale=allocation.rationale,
             quote_as_of=quote.as_of,

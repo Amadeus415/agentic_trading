@@ -9,9 +9,9 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 class PositionSnapshot(BaseModel):
     symbol: str
-    quantity: float = Field(ge=0)
-    market_price: float = Field(gt=0)
-    average_cost: float | None = Field(default=None, ge=0)
+    quantity: Decimal = Field(ge=0)
+    market_price: Decimal = Field(gt=0)
+    average_cost: Decimal | None = Field(default=None, ge=0)
 
     @field_validator("symbol")
     @classmethod
@@ -21,8 +21,15 @@ class PositionSnapshot(BaseModel):
             raise ValueError("symbol cannot be empty")
         return clean
 
+    @field_validator("quantity", "market_price", "average_cost", mode="before")
+    @classmethod
+    def coerce_position_money(cls, value):
+        if value is None:
+            return None
+        return Decimal(str(value))
+
     @property
-    def market_value(self) -> float:
+    def market_value(self) -> Decimal:
         return self.quantity * self.market_price
 
 
@@ -30,8 +37,15 @@ class OpenOrderSnapshot(BaseModel):
     order_id: str = Field(min_length=1)
     symbol: str
     side: Literal["buy", "sell"]
-    notional: float | None = Field(default=None, gt=0)
+    notional: Decimal | None = Field(default=None, gt=0)
     status: str = Field(min_length=1)
+
+    @field_validator("notional", mode="before")
+    @classmethod
+    def coerce_open_order_notional(cls, value):
+        if value is None:
+            return None
+        return Decimal(str(value))
 
     @field_validator("symbol")
     @classmethod
@@ -47,13 +61,18 @@ class PortfolioSnapshot(BaseModel):
     nickname: str = ""
     account_type: str = "individual"
     agentic_allowed: bool
-    buying_power: float = Field(ge=0)
-    portfolio_value: float = Field(gt=0)
+    buying_power: Decimal = Field(ge=0)
+    portfolio_value: Decimal = Field(gt=0)
     as_of: datetime
     positions: list[PositionSnapshot] = Field(default_factory=list)
     open_orders: list[OpenOrderSnapshot] = Field(default_factory=list)
     account_restricted: bool = False
     source: str = "robinhood_mcp"
+
+    @field_validator("buying_power", "portfolio_value", mode="before")
+    @classmethod
+    def coerce_snapshot_money(cls, value):
+        return Decimal(str(value))
 
     @field_validator("as_of")
     @classmethod
@@ -73,9 +92,9 @@ class PortfolioSnapshot(BaseModel):
 
 class MarketQuote(BaseModel):
     symbol: str
-    last: float = Field(gt=0)
-    bid: float | None = Field(default=None, gt=0)
-    ask: float | None = Field(default=None, gt=0)
+    last: Decimal = Field(gt=0)
+    bid: Decimal | None = Field(default=None, gt=0)
+    ask: Decimal | None = Field(default=None, gt=0)
     as_of: datetime
     tradable: bool = True
     fractionally_tradable: bool = True
@@ -89,6 +108,13 @@ class MarketQuote(BaseModel):
         if not clean:
             raise ValueError("symbol cannot be empty")
         return clean
+
+    @field_validator("last", "bid", "ask", "average_daily_dollar_volume", mode="before")
+    @classmethod
+    def coerce_quote_money(cls, value):
+        if value is None:
+            return None
+        return Decimal(str(value))
 
     @field_validator("as_of")
     @classmethod
@@ -208,31 +234,50 @@ class RiskPolicy(BaseModel):
     policy_name: str = "bounded-500-v1"
     trading_enabled: bool = False
     allowed_symbols: list[str] = Field(default_factory=list)
-    managed_capital_limit: float = Field(500.0, gt=0)
-    max_order_notional: float = Field(50.0, gt=0)
-    max_daily_notional: float = Field(100.0, gt=0)
+    managed_capital_limit: Decimal = Field(Decimal("500"), gt=0)
+    max_order_notional: Decimal = Field(Decimal("50"), gt=0)
+    max_daily_notional: Decimal = Field(Decimal("100"), gt=0)
     max_orders_per_day: int = Field(2, ge=1, le=100)
-    max_position_weight: float = Field(0.40, gt=0, le=1)
+    max_position_weight: Decimal = Field(Decimal("0.40"), gt=0, le=1)
     symbol_groups: dict[str, list[str]] = Field(default_factory=dict)
-    max_group_weight: float = Field(1.0, gt=0, le=1)
-    min_cash_reserve: float = Field(25.0, ge=0)
-    min_order_notional: float = Field(1.0, gt=0)
+    max_group_weight: Decimal = Field(Decimal("1"), gt=0, le=1)
+    min_cash_reserve: Decimal = Field(Decimal("25"), ge=0)
+    min_order_notional: Decimal = Field(Decimal("1"), gt=0)
     max_quote_age_seconds: int = Field(300, ge=1, le=86_400)
     max_snapshot_age_seconds: int = Field(300, ge=1, le=86_400)
     max_research_age_days: int = Field(45, ge=1, le=365)
-    max_price_deviation_bps: float = Field(100.0, ge=0, le=10_000)
-    max_spread_bps: float = Field(50.0, ge=0, le=10_000)
-    max_order_adv_fraction: float = Field(0.01, gt=0, le=1)
+    max_price_deviation_bps: Decimal = Field(Decimal("100"), ge=0, le=10_000)
+    max_spread_bps: Decimal = Field(Decimal("50"), ge=0, le=10_000)
+    max_order_adv_fraction: Decimal = Field(Decimal("0.01"), gt=0, le=1)
     allowed_market_sessions: list[Literal["regular", "pre_market", "after_hours"]] = Field(
         default_factory=lambda: ["regular"]
     )
-    max_rolling_7d_turnover: float = Field(0.50, gt=0, le=10)
-    max_drawdown_fraction: float = Field(0.10, gt=0, le=1)
+    max_rolling_7d_turnover: Decimal = Field(Decimal("0.50"), gt=0, le=10)
+    max_drawdown_fraction: Decimal = Field(Decimal("0.10"), gt=0, le=1)
     min_shadow_cycles_before_live: int = Field(0, ge=0, le=10_000)
     allow_sells: bool = False
     require_research_evidence: bool = True
     require_review: bool = True
     standing_execution_authorization: bool = False
+
+    @field_validator(
+        "managed_capital_limit",
+        "max_order_notional",
+        "max_daily_notional",
+        "max_position_weight",
+        "max_group_weight",
+        "min_cash_reserve",
+        "min_order_notional",
+        "max_price_deviation_bps",
+        "max_spread_bps",
+        "max_order_adv_fraction",
+        "max_rolling_7d_turnover",
+        "max_drawdown_fraction",
+        mode="before",
+    )
+    @classmethod
+    def coerce_policy_decimals(cls, value):
+        return Decimal(str(value))
 
     @field_validator("allowed_symbols")
     @classmethod
@@ -285,13 +330,20 @@ class ProposedOrder(BaseModel):
     order_key: str
     symbol: str
     side: Literal["buy", "sell"]
-    notional: float = Field(gt=0)
-    expected_price: float = Field(gt=0)
+    notional: Decimal = Field(gt=0)
+    expected_price: Decimal = Field(gt=0)
     order_type: Literal["market", "limit"] = "market"
     time_in_force: Literal["gfd", "gtc"] = "gfd"
-    limit_price: float | None = Field(default=None, gt=0)
+    limit_price: Decimal | None = Field(default=None, gt=0)
     rationale: str = Field(min_length=1, max_length=1_000)
     quote_as_of: datetime
+
+    @field_validator("notional", "expected_price", "limit_price", mode="before")
+    @classmethod
+    def coerce_order_money(cls, value):
+        if value is None:
+            return None
+        return Decimal(str(value))
 
     @model_validator(mode="after")
     def limit_has_price(self) -> ProposedOrder:
@@ -304,12 +356,32 @@ class RiskDecision(BaseModel):
     approved_for_review: bool
     violations: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
-    projected_cash: float
-    projected_weights: dict[str, float]
-    gross_notional: float
-    spread_bps: dict[str, float] = Field(default_factory=dict)
-    rolling_7d_turnover: float | None = None
-    drawdown_fraction: float | None = None
+    projected_cash: Decimal
+    projected_weights: dict[str, Decimal]
+    gross_notional: Decimal
+    spread_bps: dict[str, Decimal] = Field(default_factory=dict)
+    rolling_7d_turnover: Decimal | None = None
+    drawdown_fraction: Decimal | None = None
+
+    @field_validator(
+        "projected_cash",
+        "gross_notional",
+        "rolling_7d_turnover",
+        "drawdown_fraction",
+        mode="before",
+    )
+    @classmethod
+    def coerce_decision_money(cls, value):
+        if value is None:
+            return None
+        return Decimal(str(value))
+
+    @field_validator("projected_weights", "spread_bps", mode="before")
+    @classmethod
+    def coerce_decision_maps(cls, value):
+        if value is None:
+            return {}
+        return {str(key): Decimal(str(item)) for key, item in value.items()}
 
 
 class TradeProposal(BaseModel):
