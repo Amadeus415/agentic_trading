@@ -79,11 +79,11 @@ def test_tiny_live_policy_allows_one_two_dollar_position(tmp_path):
     )
 
     assert proposal.risk.approved_for_review
-    assert proposal.risk.projected_weights["NVDA"] == 0.4
-    assert policy.max_position_weight == 0.5
-    assert policy.max_group_weight == 0.5
-    assert policy.max_order_notional == 2
-    assert policy.max_daily_notional == 2
+    assert proposal.risk.projected_weights["NVDA"] == Decimal("0.4")
+    assert policy.max_position_weight == Decimal("0.5")
+    assert policy.max_group_weight == Decimal("0.5")
+    assert policy.max_order_notional == Decimal("2")
+    assert policy.max_daily_notional == Decimal("2")
     assert policy.max_orders_per_day == 1
     assert not policy.allow_sells
 
@@ -165,6 +165,7 @@ def _setup_live_permit(tmp_path):
         "dollar_notional": order.notional,
         "order_type": order.order_type,
         "time_in_force": order.time_in_force,
+        "market_hours": "regular_hours",
     }
     token = ledger.issue_permit(
         run_id,
@@ -188,6 +189,7 @@ def _invoke(ledger, token=None, *, symbol="VTI", omitted=None):
             "dollar_amount": "10.00",
             "type": "market",
             "time_in_force": "gfd",
+            "market_hours": "regular_hours",
         },
     }
     if omitted:
@@ -281,6 +283,31 @@ def test_trade_guard_rejects_missing_required_constraint(tmp_path):
     assert _invoke(ledger, token)["permissionDecision"] == "allow"
 
 
+def test_trade_guard_rejects_missing_market_hours_on_tool_input(tmp_path):
+    ledger, token = _setup_live_permit(tmp_path)
+    result = _invoke(ledger, token, omitted="market_hours")
+    assert result["permissionDecision"] == "deny"
+    assert "missing permitted market_hours" in result["permissionDecisionReason"]
+    assert ledger.permit_status(token) == "issued"
+
+
+def test_trade_guard_denies_permit_missing_required_constraint_keys(tmp_path):
+    ledger, token = _setup_live_permit(tmp_path)
+    connection = sqlite3.connect(ledger.path)
+    constraints = json.loads(connection.execute("SELECT constraints FROM permits").fetchone()[0])
+    del constraints["market_hours"]
+    connection.execute(
+        "UPDATE permits SET constraints = ?",
+        (json.dumps(constraints, sort_keys=True),),
+    )
+    connection.commit()
+    connection.close()
+    result = _invoke(ledger, token)
+    assert result["permissionDecision"] == "deny"
+    assert "missing required constraint" in result["permissionDecisionReason"]
+    assert ledger.permit_status(token) == "issued"
+
+
 def test_trade_guard_rejects_internal_field_names_before_claiming_permit(tmp_path):
     ledger, token = _setup_live_permit(tmp_path)
     event = {
@@ -294,6 +321,7 @@ def test_trade_guard_rejects_internal_field_names_before_claiming_permit(tmp_pat
             "dollar_based_amount": {"amount": "10.00", "currency_code": "USD"},
             "order_type": "market",
             "time_in_force": "gfd",
+            "market_hours": "regular_hours",
         },
     }
     environment = os.environ.copy()

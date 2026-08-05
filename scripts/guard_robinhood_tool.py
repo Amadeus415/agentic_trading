@@ -179,7 +179,7 @@ def _claim_permit(
         if mismatch:
             connection.rollback()
             return False, mismatch
-        connection.execute(
+        cursor = connection.execute(
             """
             UPDATE permits
             SET status = 'claimed', claimed_at = ?
@@ -187,10 +187,24 @@ def _claim_permit(
             """,
             (datetime.now(UTC).isoformat(), token_hash),
         )
+        if cursor.rowcount != 1:
+            connection.rollback()
+            return False, "The Edgecraft placement permit could not be claimed atomically."
         connection.commit()
         return True, ""
     finally:
         connection.close()
+
+
+REQUIRED_PERMIT_CONSTRAINTS = (
+    "account_id_hash",
+    "symbol",
+    "side",
+    "dollar_notional",
+    "order_type",
+    "time_in_force",
+    "market_hours",
+)
 
 
 def _constraint_mismatch(constraints: dict[str, Any], tool_input: Any) -> str | None:
@@ -204,9 +218,10 @@ def _constraint_mismatch(constraints: dict[str, Any], tool_input: Any) -> str | 
         "time_in_force": {"time_in_force"},
         "market_hours": {"market_hours"},
     }
+    missing = [key for key in REQUIRED_PERMIT_CONSTRAINTS if key not in constraints]
+    if missing:
+        return f"Edgecraft permit is missing required constraint(s): {', '.join(missing)}."
     for expected_key, names in aliases.items():
-        if expected_key not in constraints:
-            continue
         observed = [value for key, value in leaves if key in names]
         if not observed:
             return f"Robinhood tool input is missing permitted {expected_key}."
@@ -215,7 +230,7 @@ def _constraint_mismatch(constraints: dict[str, Any], tool_input: Any) -> str | 
             if expected_key == "account_id_hash"
             else any(_equivalent(constraints[expected_key], value) for value in observed)
         )
-        if observed and not matches:
+        if not matches:
             return f"Robinhood tool input does not match permitted {expected_key}."
     return None
 
