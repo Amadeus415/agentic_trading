@@ -28,7 +28,7 @@ class Mandate(BaseModel):
     daily_budget: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=2)
     max_rollover_weeks: int = Field(1, ge=0, le=12)
     risk_level: RiskLevel = "balanced"
-    universe: list[str] = Field(min_length=1, max_length=60)
+    universe: list[str] = Field(min_length=1, max_length=250)
     strategic_weights: dict[str, Decimal]
     max_tactical_tilt: Decimal | None = Field(default=None, ge=Decimal("0"), le=Decimal("0.50"))
     minimum_confidence: Decimal = Field(Decimal("0.55"), ge=Decimal("0"), le=Decimal("1"))
@@ -226,7 +226,7 @@ class AgentCyclePayload(BaseModel):
     schema_version: str = "edgecraft.agent-cycle-payload.v1"
     observed_at: datetime
     account: PortfolioSnapshot
-    quotes: list[MarketQuote] = Field(min_length=1, max_length=60)
+    quotes: list[MarketQuote] = Field(min_length=1, max_length=100)
     recent_order_summary: list[str] = Field(default_factory=list, max_length=50)
     realized_pnl_summary: str = Field(default="", max_length=2_000)
     decision: WeeklyDecision

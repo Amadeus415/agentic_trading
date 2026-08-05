@@ -115,6 +115,19 @@ def test_mandate_validates_weights_universe_and_timezone():
         mandate(timezone="Mars/Olympus")
 
 
+def test_mandate_accepts_large_stock_and_crypto_equity_universe():
+    symbols = [f"S{index:03d}" for index in range(200)]
+    symbols[0] = "IBIT"
+    symbols[1] = "ETHA"
+    symbols[2] = "MSTR"
+    item = mandate(
+        universe=symbols,
+        strategic_weights={"IBIT": "0.40", "ETHA": "0.30", "MSTR": "0.30"},
+    )
+    assert len(item.universe) == 200
+    assert {"IBIT", "ETHA", "MSTR"}.issubset(set(item.universe))
+
+
 def test_cycle_due_and_key_use_mandate_timezone():
     before = datetime(2026, 7, 20, 13, 59, tzinfo=UTC)
     after = datetime(2026, 7, 20, 14, 1, tzinfo=UTC)
