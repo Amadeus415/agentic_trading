@@ -69,3 +69,22 @@ broker order identifiers; none were found. Dependency vulnerability scanning
 reported no known vulnerabilities in the locked runtime set. Static analysis
 reported no high-severity findings. These are point-in-time checks and must be
 rerun immediately before the repository changes visibility.
+
+Re-checked on August 5, 2026 before confirming public readiness:
+
+- GitHub visibility is already **public** (`Amadeus415/agentic_trading`).
+- Tracked tree ignores and excludes local `state/`, `.env*`, databases, caches,
+  logs, and broker exports; no live armed mandate is tracked.
+- Example live mandate remains `enabled=false`; shadow default remains the
+  operational example path.
+- History still contains a previously removed live *policy limit* JSON under
+  `state/mandates/` (symbols and notional caps only). No credentials, tokens,
+  account numbers, or OAuth material were found in that blob or in a fresh
+  secret-pattern scan of the current tree.
+- GitHub secret scanning + push protection are enabled; open secret-scanning
+  alerts: **0**. Private vulnerability reporting is enabled. Dependabot security
+  updates are enabled.
+- Bandit (`make security` static pass) reported no high-severity findings on
+  `src` and `scripts`. Full `pip-audit` could not complete in that environment
+  due to an upstream TLS/certificate time error and should be rerun on a machine
+  with healthy package-index access.
