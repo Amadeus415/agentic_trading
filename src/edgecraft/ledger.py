@@ -24,6 +24,17 @@ class DuplicateProposalError(RuntimeError):
     pass
 
 
+def _json_dumps(payload: Any, **kwargs: Any) -> str:
+    """Serialize ledger payloads; money fields are Decimal and must stay exact as strings."""
+
+    def default(value: Any) -> Any:
+        if isinstance(value, Decimal):
+            return str(value)
+        raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+    return json.dumps(payload, default=default, **kwargs)
+
+
 class AuditLedger:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
@@ -227,7 +238,7 @@ class AuditLedger:
                 """,
                 (
                     reference,
-                    json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                    _json_dumps(payload, sort_keys=True, separators=(",", ":")),
                     row["proposal_id"],
                 ),
             )
@@ -241,7 +252,7 @@ class AuditLedger:
             if safe != constraints:
                 connection.execute(
                     "UPDATE permits SET constraints = ? WHERE token_hash = ?",
-                    (json.dumps(safe, sort_keys=True), row["token_hash"]),
+                    (_json_dumps(safe, sort_keys=True), row["token_hash"]),
                 )
 
     def upsert_mandate(self, mandate: Mandate, *, now: datetime | None = None) -> None:
@@ -336,7 +347,7 @@ class AuditLedger:
                 (
                     status,
                     detail,
-                    json.dumps(payload or {}, sort_keys=True),
+                    _json_dumps(payload or {}, sort_keys=True),
                     timestamp.isoformat(),
                     run_id,
                 ),
@@ -488,7 +499,7 @@ class AuditLedger:
                 """,
                 (
                     detail,
-                    json.dumps(payload, sort_keys=True),
+                    _json_dumps(payload, sort_keys=True),
                     timestamp.isoformat(),
                     run_id,
                 ),
@@ -534,7 +545,7 @@ class AuditLedger:
                 """,
                 (
                     "terminal broker state independently reconciled after execution incident",
-                    json.dumps(payload, sort_keys=True),
+                    _json_dumps(payload, sort_keys=True),
                     timestamp.isoformat(),
                     run_id,
                 ),
@@ -894,7 +905,7 @@ class AuditLedger:
     def _packet_integrity(packet: dict[str, Any] | None) -> dict[str, Any] | None:
         if packet is None:
             return None
-        canonical = json.dumps(packet["payload"], sort_keys=True, separators=(",", ":"))
+        canonical = _json_dumps(packet["payload"], sort_keys=True, separators=(",", ":"))
         actual_digest = hashlib.sha256(canonical.encode()).hexdigest()
         return {
             "verified": secrets.compare_digest(actual_digest, packet["payload_sha256"]),
@@ -962,7 +973,7 @@ class AuditLedger:
             packet.model_dump(mode="json"),
             account_reference,
         )
-        payload = json.dumps(safe_payload, sort_keys=True, separators=(",", ":"))
+        payload = _json_dumps(safe_payload, sort_keys=True, separators=(",", ":"))
         payload_sha256 = hashlib.sha256(payload.encode()).hexdigest()
         packet_id = "decision_" + payload_sha256[:24]
         try:
@@ -1041,10 +1052,10 @@ class AuditLedger:
     ) -> str:
         if observation.mandate_id != state.mandate_id:
             raise ValueError("evaluation observation and state mandate do not match")
-        observation_payload = json.dumps(
+        observation_payload = _json_dumps(
             observation.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
         )
-        state_payload = json.dumps(
+        state_payload = _json_dumps(
             state.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
         )
         digest = hashlib.sha256(observation_payload.encode()).hexdigest()
@@ -1214,7 +1225,7 @@ class AuditLedger:
                     run_id,
                     event_type,
                     timestamp.isoformat(),
-                    json.dumps(payload, sort_keys=True),
+                    _json_dumps(payload, sort_keys=True),
                 ),
             )
 
@@ -1265,7 +1276,7 @@ class AuditLedger:
                     proposal_id,
                     order_key,
                     allowed_tool,
-                    json.dumps(_permit_constraints(constraints or {}), sort_keys=True),
+                    _json_dumps(_permit_constraints(constraints or {}), sort_keys=True),
                     timestamp.isoformat(),
                     (timestamp + timedelta(seconds=ttl_seconds)).isoformat(),
                 ),
@@ -1310,7 +1321,7 @@ class AuditLedger:
             ).fetchone()
         return row is not None
 
-    def cycle_placed_notional(self, mandate_id: str, cycle_key: str) -> float:
+    def cycle_placed_notional(self, mandate_id: str, cycle_key: str) -> Decimal:
         with self._connection() as connection:
             rows = connection.execute(
                 """
@@ -1322,7 +1333,10 @@ class AuditLedger:
                 """,
                 (mandate_id, cycle_key),
             ).fetchall()
-        return sum(float(json.loads(row["payload"]).get("notional", 0)) for row in rows)
+        return sum(
+            (Decimal(str(json.loads(row["payload"]).get("notional", 0))) for row in rows),
+            Decimal("0"),
+        )
 
     def recent_cycle_placed_notionals(
         self,
@@ -1427,7 +1441,7 @@ class AuditLedger:
 
     def add_proposal(self, proposal: TradeProposal) -> None:
         account_reference = _account_reference(proposal.account_id)
-        payload = json.dumps(
+        payload = _json_dumps(
             _redact_account_fields(proposal.model_dump(mode="json"), account_reference),
             sort_keys=True,
             separators=(",", ":"),
@@ -1479,7 +1493,7 @@ class AuditLedger:
             raise ValueError(f"unsupported event_type: {event_type}")
         if not payload.get("order_key"):
             raise ValueError("event payload must contain order_key")
-        if event_type == "placed" and float(payload.get("notional", 0)) <= 0:
+        if event_type == "placed" and Decimal(str(payload.get("notional", 0))) <= 0:
             raise ValueError("placed event payload must contain positive notional")
         event_payload = dict(payload)
         with self._connection() as connection:
@@ -1512,14 +1526,14 @@ class AuditLedger:
                         event_type,
                         key,
                         timestamp.isoformat(),
-                        json.dumps(event_payload, sort_keys=True),
+                        _json_dumps(event_payload, sort_keys=True),
                     ),
                 )
             except sqlite3.IntegrityError as exc:
                 raise DuplicateProposalError(f"event idempotency key {key} already exists") from exc
         return key
 
-    def daily_placed_notional(self, day: date | None = None) -> float:
+    def daily_placed_notional(self, day: date | None = None) -> Decimal:
         target = day or datetime.now(UTC).date()
         with self._connection() as connection:
             rows = connection.execute(
@@ -1529,10 +1543,10 @@ class AuditLedger:
                 """,
                 (target.isoformat(),),
             ).fetchall()
-        total = 0.0
+        total = Decimal("0")
         for row in rows:
             payload = json.loads(row["payload"])
-            total += float(payload.get("notional", 0.0))
+            total += Decimal(str(payload.get("notional", 0)))
         return total
 
     def daily_placed_order_count(self, day: date | None = None) -> int:
@@ -1552,7 +1566,7 @@ class AuditLedger:
         *,
         since: datetime,
         before: datetime | None = None,
-    ) -> float:
+    ) -> Decimal:
         start = _aware(since).isoformat()
         end = _aware(before or datetime.now(UTC)).isoformat()
         with self._connection() as connection:
@@ -1565,9 +1579,12 @@ class AuditLedger:
                 """,
                 (start, end),
             ).fetchall()
-        return sum(float(json.loads(row["payload"]).get("notional", 0.0)) for row in rows)
+        return sum(
+            (Decimal(str(json.loads(row["payload"]).get("notional", 0))) for row in rows),
+            Decimal("0"),
+        )
 
-    def portfolio_high_watermark(self, mandate_id: str) -> float | None:
+    def portfolio_high_watermark(self, mandate_id: str) -> Decimal | None:
         with self._connection() as connection:
             rows = connection.execute(
                 """
@@ -1579,7 +1596,7 @@ class AuditLedger:
                 (mandate_id,),
             ).fetchall()
         values = [
-            float(payload["portfolio_value"])
+            Decimal(str(payload["portfolio_value"]))
             for row in rows
             if (payload := json.loads(row["payload"])).get("portfolio_value") is not None
         ]
@@ -1640,6 +1657,94 @@ class AuditLedger:
                 unresolved.discard(key)
         return sorted(unresolved)
 
+    def unresolved_order_contexts(self) -> list[dict[str, Any]]:
+        """Return ledger context needed to re-reconcile each unresolved order."""
+        keys = self.unresolved_order_keys()
+        if not keys:
+            return []
+        contexts: list[dict[str, Any]] = []
+        with self._connection() as connection:
+            for order_key in keys:
+                proposal_row, proposal_payload, order = self._find_audit_order(
+                    connection, order_key
+                )
+                event_rows = connection.execute(
+                    """
+                    SELECT event_type, occurred_at, payload FROM events
+                    WHERE proposal_id = ? ORDER BY occurred_at, id
+                    """,
+                    (proposal_row["proposal_id"],),
+                ).fetchall()
+                placed_payload: dict[str, Any] | None = None
+                placed_at: str | None = None
+                for row in event_rows:
+                    payload = json.loads(row["payload"])
+                    if payload.get("order_key") != order_key:
+                        continue
+                    if row["event_type"] in {"placed", "partially_filled"}:
+                        placed_payload = payload
+                        placed_at = row["occurred_at"]
+                if placed_payload is None:
+                    continue
+                permit = connection.execute(
+                    """
+                    SELECT issued_at, claimed_at, status FROM permits
+                    WHERE run_id = ? AND order_key = ?
+                    ORDER BY issued_at DESC LIMIT 1
+                    """,
+                    (proposal_row["run_id"], order_key),
+                ).fetchone()
+                contexts.append(
+                    {
+                        "order_key": order_key,
+                        "proposal_id": proposal_row["proposal_id"],
+                        "run_id": proposal_row["run_id"],
+                        "mandate_id": proposal_row["mandate_id"],
+                        "proposal": proposal_payload,
+                        "order": order,
+                        "placed_event": placed_payload,
+                        "placed_at": placed_at,
+                        "permit_issued_at": permit["issued_at"] if permit else None,
+                        "permit_status": permit["status"] if permit else None,
+                    }
+                )
+        return contexts
+
+    def claim_permit(self, token: str, *, now: datetime | None = None) -> bool:
+        """Atomically claim an issued, unexpired permit. Returns True if claimed."""
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        timestamp = now or datetime.now(UTC)
+        with self._connection() as connection:
+            halt = connection.execute(
+                "SELECT value FROM controls WHERE name = 'trading_halted'"
+            ).fetchone()
+            if halt is not None and halt["value"] == "true":
+                return False
+            row = connection.execute(
+                "SELECT status, expires_at FROM permits WHERE token_hash = ?",
+                (token_hash,),
+            ).fetchone()
+            if row is None or row["status"] != "issued":
+                return False
+            expires_at = datetime.fromisoformat(row["expires_at"])
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=UTC)
+            if timestamp.astimezone(UTC) >= expires_at.astimezone(UTC):
+                connection.execute(
+                    "UPDATE permits SET status = 'expired' WHERE token_hash = ? AND status = 'issued'",
+                    (token_hash,),
+                )
+                return False
+            cursor = connection.execute(
+                """
+                UPDATE permits
+                SET status = 'claimed', claimed_at = ?
+                WHERE token_hash = ? AND status = 'issued'
+                """,
+                (timestamp.isoformat(), token_hash),
+            )
+            return cursor.rowcount == 1
+
 
 def _order_reasoning(proposal: dict[str, Any], order_key: str) -> dict[str, Any]:
     order = next(
@@ -1660,7 +1765,7 @@ def _order_reasoning(proposal: dict[str, Any], order_key: str) -> dict[str, Any]
 
 
 def _event_key(proposal_id: str, event_type: str, payload: dict[str, Any]) -> str:
-    raw = json.dumps(
+    raw = _json_dumps(
         {"proposal_id": proposal_id, "event_type": event_type, "payload": payload},
         sort_keys=True,
         separators=(",", ":"),
