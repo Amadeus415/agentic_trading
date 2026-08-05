@@ -1,6 +1,8 @@
+import json
 import sqlite3
 from datetime import UTC, datetime, time
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
@@ -126,6 +128,23 @@ def test_mandate_accepts_large_stock_and_crypto_equity_universe():
     )
     assert len(item.universe) == 200
     assert {"IBIT", "ETHA", "MSTR"}.issubset(set(item.universe))
+
+
+def test_example_mandate_uses_broad_stock_and_crypto_catalog():
+    catalog = json.loads(Path("examples/universe.broad-equity-crypto.json").read_text())
+    item = Mandate.model_validate(json.loads(Path("examples/mandate.index-dca.json").read_text()))
+    policy = RiskPolicy.model_validate(
+        json.loads(Path("examples/policy.autonomous-shadow.json").read_text())
+    )
+
+    assert catalog["symbol_count"] >= 200
+    assert catalog["crypto_vehicle_count"] >= 20
+    assert len(item.universe) == catalog["symbol_count"]
+    assert set(item.universe) == set(catalog["symbols"])
+    assert set(item.universe).issubset(set(policy.allowed_symbols))
+    assert {"IBIT", "ETHA", "COIN", "MSTR", "AAPL", "NVDA", "SPY"}.issubset(set(item.universe))
+    # Native coin symbols must not appear on the equities-only whitelist.
+    assert not {"BTC-USD", "ETH-USD", "BTCUSD", "ETHUSD"} & set(item.universe)
 
 
 def test_cycle_due_and_key_use_mandate_timezone():

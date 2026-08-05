@@ -1,7 +1,7 @@
 # Autonomous portfolio operations
 
-Edgecraft can run a weekly, long-only index-fund mandate without routine human
-approval. Autonomy is split across two trust domains:
+Edgecraft can run a weekly, long-only equity-and-crypto-equity mandate without
+routine human approval. Autonomy is split across two trust domains:
 
 ```text
 Codex Scheduled wakeup
@@ -53,12 +53,21 @@ The supplied mandate is:
 
 - shadow-only;
 - $10 per ISO week;
-- long-only VTI/VXUS/BND;
-- 60/25/15 strategic weights;
+- long-only selection across ~250 liquid stocks, sector/theme ETFs, and
+  crypto-equity vehicles (spot crypto ETFs such as IBIT/ETHA plus crypto-related
+  equities such as COIN/MSTR/MARA)—see
+  `examples/universe.broad-equity-crypto.json`;
+- strategic baseline weights that include core index sleeves plus crypto ETF
+  sleeves (not equal-weight across the full opportunity set);
 - balanced risk, allowing at most a 15 percentage-point tactical tilt;
 - Monday at 10:00 America/New_York;
 - free to invest less than $10 or hold all cash;
-- unable to sell, use leverage, trade options, or leave the whitelist.
+- unable to sell, use leverage, trade options, place native coin orders, or leave
+  the whitelist.
+
+Native cryptocurrency coins are outside Robinhood Agentic equity placement.
+Crypto exposure is only through equity-listed vehicles the owner put on the
+whitelist.
 
 ## Unattended scheduling
 
@@ -113,8 +122,10 @@ remain mandatory.
 
 1. Run repeated real-data shadow cycles and inspect proposals, holds, rejected
    decisions, quote freshness, and subsequent market prices.
-2. Keep the universe broad, liquid, fractionally tradable ETFs. Set the first
-   live budget and daily notional to the same tiny amount.
+2. Keep the universe broad, liquid, and fractionally tradable. The default
+   catalog mixes equities, sector/theme ETFs, and crypto-equity vehicles (see
+   `examples/universe.broad-equity-crypto.json`). Set the first live budget and
+   daily notional to the same tiny amount.
 3. Copy `examples/mandate.index-dca-live.example.json` and
    `examples/policy.autonomous-live.example.json`.
 4. Review both files. Set the live mandate's `enabled` to `true` only after the
