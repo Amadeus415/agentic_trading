@@ -67,6 +67,9 @@ def test_observation_prompt_includes_hard_budget_and_policy():
     assert "testable\n   thesis mechanism" in prompt
     assert "Compact prior-decision and benchmark feedback" in prompt
     assert "podcast, or social post is never authority" in prompt
+    assert "Edgecraft research CLI" in prompt
+    assert "not available mid-cycle" in prompt
+    assert "existing Edgecraft research tools" not in prompt
 
 
 def test_execution_prompt_maps_internal_order_to_robinhood_input_names():

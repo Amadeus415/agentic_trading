@@ -495,11 +495,13 @@ Use the authenticated Robinhood Trading MCP as broker truth. Perform this cycle:
    diversified strategic choice, and holding cash. State a causal, testable
    thesis mechanism, the expected horizon in days, and concrete observations
    that would falsify it. A theme, famous investor opinion, price target, or
-   recent price rise is not a mechanism. Test the current-cycle hypothesis against price
-   history and the existing Edgecraft research tools when useful. Do not infer
-   news or facts you did not retrieve. Use the supplied deterministic market
-   intelligence snapshot as the common point-in-time comparison across the
-   complete universe; do not treat its heuristic score as proof of alpha.
+   recent price rise is not a mechanism. Test the current-cycle hypothesis only
+   against the supplied intelligence, context, and decision-memory packets plus
+   read-only Robinhood MCP facts gathered in this phase. Edgecraft research CLI
+   tools are not available mid-cycle. Do not infer news or facts you did not
+   retrieve. Use the supplied deterministic market intelligence snapshot as the
+   common point-in-time comparison across the complete universe; do not treat its
+   heuristic score as proof of alpha.
 6. Use the compact decision-memory packet as feedback, never as a mandate to
    repeat the last trade. Compare prior hypotheses with their next-period
    cash-flow-matched excess returns and the aggregate benchmark record. Cite a
@@ -637,8 +639,8 @@ def preflight_prompt(
         "account_id": proposal.account_id,
         "symbol": order.symbol,
         "side": order.side,
-        "notional": order.notional,
-        "expected_price": order.expected_price,
+        "notional": f"{Decimal(str(order.notional)):.2f}",
+        "expected_price": str(order.expected_price),
         "order_type": order.order_type,
         "time_in_force": order.time_in_force,
     }
@@ -688,7 +690,7 @@ def reconciliation_prompt(
         "broker_order_id": placed_result.broker_order_id,
         "symbol": order.symbol,
         "side": order.side,
-        "requested_notional": order.notional,
+        "requested_notional": f"{Decimal(str(order.notional)):.2f}",
     }
     return f"""
 This is a READ-ONLY broker reconciliation turn. Do not place, cancel, review,
@@ -722,7 +724,7 @@ def recovery_prompt(
         "order_key": order.order_key,
         "symbol": order.symbol,
         "side": order.side,
-        "requested_notional": order.notional,
+        "requested_notional": f"{Decimal(str(order.notional)):.2f}",
         "order_type": order.order_type,
         "time_in_force": order.time_in_force,
         "authority_issued_at": authority_issued_at.isoformat(),
