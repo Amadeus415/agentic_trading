@@ -7,18 +7,15 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.11,<3.15"
 dependencies = [
-  "fastapi>=0.116,<1",
   "numpy>=2.2,<3",
   "pandas>=2.2,<4",
   "pydantic>=2.11,<3",
   "scipy>=1.15,<2",
-  "uvicorn>=0.35,<1",
   "yfinance>=0.2.65,<2",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "httpx2>=2.7,<3",
   "pytest>=8.4,<10",
   "pytest-cov>=6.2,<8",
   "ruff>=0.12,<1",
