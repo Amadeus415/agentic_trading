@@ -12,6 +12,7 @@ htmlcov/
 data/cache/
 state/
 artifacts/
+dist/
 *.db
 *.db-journal
 *.db-shm
@@ -25,5 +26,3 @@ artifacts/
 *.pfx
 broker_exports/
 exports/private/
-frontend/node_modules/
-frontend/dist/
