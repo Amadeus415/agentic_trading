@@ -469,7 +469,10 @@ Use the authenticated Robinhood Trading MCP as broker truth. Perform this cycle:
 2. Refresh its portfolio, equity positions, equity order history/open orders,
    realized P&L, and trade-by-trade P&L.
 3. Use the supplied deterministic market-intelligence snapshot to compare the
-   complete universe. Fetch current quotes and tradability only for the mandate
+   complete mandate universe, which may be a large multi-sector equity set that
+   includes liquid crypto-equity vehicles (spot crypto ETFs and crypto-related
+   stocks). Native non-equity crypto coins are outside Robinhood Agentic equity
+   placement. Fetch current quotes and tradability only for the mandate
    benchmark, every held symbol, and at most three finalists that could receive
    this cycle's allocation. Preserve bid/ask and the current market session. Use
    completed daily historical bars to calculate 20-session average daily dollar
