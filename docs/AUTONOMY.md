@@ -78,14 +78,24 @@ before the configured time return `not_due`; repeated wakeups return the same
 idempotent run without invoking the model again.
 
 The Mac must be on, the user session available, Codex authenticated, and
-Robinhood MCP OAuth current. A side-effect-free transient failure may retry up
-to three times after the initial attempt. An operator may authorize up to four
-additional audited attempts with `--retry-side-effect-free "reason"`, but only
-when the ledger proves there was no broker side effect, the kill switch is
-inactive, no order is unresolved, and no order was placed that day. A permit
+Robinhood MCP OAuth current. Schedule only `./scripts/run_scheduled_cycle.sh`
+(or `make scheduled-cycle`); default args point at the shadow example mandate.
+
+A side-effect-free transient failure retries in-process on the same wake up to
+the existing attempt budget (initial attempt plus three automatic retries). Any
+permit issuance or placement aborts further auto-retry. An operator may authorize
+up to four additional audited attempts with `--retry-side-effect-free "reason"`,
+but only when the ledger proves there was no broker side effect, the kill switch
+is inactive, no order is unresolved, and no order was placed that day. A permit
 that was claimed or could have reached the broker is never retryable. A permit
 that was revoked before claim is retryable only when a matching terminal
 rejection records zero fill and no broker order identity.
+
+On each live `cycle`, if the ledger still has unresolved placed-order keys from
+a prior run, Edgecraft re-reconciles or recovers each order before new
+observe/proposal work. Proven filled/rejected/canceled events clear those keys;
+non-terminal state keeps the halt, blocks new risk approval, and records audit
+events.
 
 Each retry receives new proposal and order identities while retaining the same
 idempotent daily run. The first immutable performance observation for that run
@@ -162,7 +172,7 @@ edgecraft autonomy-health --ledger state/edgecraft.db
 edgecraft metrics --ledger state/edgecraft.db --format prometheus
 ```
 
-FastAPI also exposes `GET /api/autonomy/health` and `GET /metrics`. Telemetry
+CLI surfaces are `edgecraft autonomy-health` and `edgecraft metrics`. Telemetry
 contains run IDs, statuses, counts, symbols, and notional summaries but not
 account IDs, account numbers, tokens, or raw broker/model payloads.
 
@@ -201,9 +211,17 @@ edgecraft halt \
 ```
 
 Halting revokes every unclaimed permit. Edgecraft also halts automatically
-after a partial fill, unknown broker state, execution identity mismatch, or an
-exception after live authority was issued. Before resuming, reconcile
-Robinhood orders, positions, buying power, and the Edgecraft ledger:
+after a non-terminal `placed` order, partial fill, unknown broker state,
+execution identity mismatch, or an exception after live authority was issued.
+A run that only reaches `placed` is marked `failed` (never `completed`) and
+leaves `unresolved_order_keys` until a true terminal broker event is recorded.
+The next live cycle re-reconciles those keys autonomously; when every unresolved
+order reaches a terminal broker state, the automatic halt is cleared. Manual
+`incident-reconcile` remains for ambiguous recovery where the operator records
+terminal events independently. `incident-reconcile` accepts only failed runs
+whose every order already has a coherent terminal event. Before a manual resume
+when the monitor cannot clear state, reconcile Robinhood orders, positions,
+buying power, and the Edgecraft ledger:
 
 ```bash
 edgecraft incident-reconcile \

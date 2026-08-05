@@ -11,7 +11,7 @@ Researches the market. Forms a thesis. Tests the downside. Places only permitted
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-0b1220.svg)](LICENSE)
 [![Mode: shadow first](https://img.shields.io/badge/default-shadow%20first-22c55e)](docs/AUTONOMY.md)
 
-**[Fund thesis](docs/FIRST_PRINCIPLES_FUND.md)** · **[How it works](docs/HOW_EDGECRAFT_WORKS.md)** · **[Autonomy runbook](docs/AUTONOMY.md)** · **[Decision data](docs/DECISION_DATA_MODEL.md)** · **[Performance](docs/PERFORMANCE_EVALUATION.md)** · **[Security](SECURITY.md)**
+**[How it works](docs/HOW_EDGECRAFT_WORKS.md)** · **[Autonomy runbook](docs/AUTONOMY.md)** · **[Scheduled Codex task](docs/CODEX_SCHEDULED_TASK.md)** · **[Decision data](docs/DECISION_DATA_MODEL.md)** · **[Performance](docs/PERFORMANCE_EVALUATION.md)** · **[Security](SECURITY.md)**
 
 </div>
 
@@ -58,61 +58,22 @@ flowchart LR
 - Shadow and explicitly armed live paths; new examples remain shadow-first.
 - A second read-only broker preflight, a policy-fingerprint re-check, exact Robinhood input mapping, and an expiring single-use permit before placement.
 - A kill switch, overlap lock, attempt-scoped order IDs, bounded side-effect-free retries, unresolved-order blocking, and post-order reconciliation.
-- An append-only SQLite audit ledger, structured logs, metrics, health/readiness checks, and a local operator dashboard.
+- An append-only SQLite audit ledger, structured logs, metrics, and CLI health/readiness checks.
 - Cash-flow-matched agent, SPY benchmark, and strategic-baseline books for honest performance comparison.
-
-## Interactive operator dashboard
-
-[![Synthetic preview of the Edgecraft interactive operator dashboard](docs/assets/edgecraft-theory.svg)](http://127.0.0.1:8000/)
-
-The colorful preview uses synthetic values; the running dashboard reads your local audit ledger. It gives you an interactive overview of portfolio state, autonomy health, agent runs, policy decisions, and recent broker orders without exposing credentials or account identifiers.
-
-After `make dev`, **[open the dashboard](http://127.0.0.1:8000/)** or jump directly to **[recent trades](http://127.0.0.1:8000/#/trades)**. Select an order to inspect its reasoning, evidence, policy result, broker events, and reconciliation status.
-
-<!-- edgecraft-console:start -->
-### Daily operations snapshot
-
-> **READY** · aggregate ledger snapshot for **2026-07-22 UTC**<br>
-> Control-plane warnings: **0**. Details remain in the private ledger.
-
-| Control | Current reading |
-|:--|:--|
-| Mandate mode | `live` |
-| Latest cycle | `HELD` · 2026-07-22 18:33 UTC |
-| Last successful cycle | 2026-07-22 18:33 UTC |
-| Kill switch | `INACTIVE` |
-| Unresolved broker orders | `0` |
-
-| Audited lifecycle | Count | What it means |
-|:--|--:|:--|
-| Autonomous cycles | **3** | Idempotent runs persisted |
-| Approved proposals | **3** | Passed deterministic review gates |
-| Held / rejected proposals | **5** | Cash preserved or policy blocked action |
-| Orders placed | **1** | Broker placement events recorded |
-| Fills recorded | **1** | Filled lifecycle events recorded |
-
-<sub>Generated from privacy-safe aggregate ledger fields. Account identifiers, symbols, positions, order sizes, broker payloads, credentials, and model prompts are never written here. A test, proposal, or permit is not counted as a fill.</sub>
-<!-- edgecraft-console:end -->
 
 Want the mental model rather than the feature list? **[Walk through the codebase and one complete trade →](docs/HOW_EDGECRAFT_WORKS.md)**
 
 ## Run Edgecraft locally
 
-Requirements: Python 3.11–3.14, [uv](https://docs.astral.sh/uv/), and Node.js for the frontend syntax check.
+Requirements: Python 3.11–3.14 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 make install
 make validate
-make dev
-```
-
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000). For a terminal-only synthetic demo, run:
-
-```bash
 make demo
 ```
 
-Useful operator checks:
+Useful operator checks (CLI is the control surface):
 
 ```bash
 uv run edgecraft health
@@ -121,9 +82,18 @@ uv run edgecraft readiness \
   --mandate examples/mandate.index-dca.json \
   --ledger state/edgecraft.db
 uv run edgecraft runs --ledger state/edgecraft.db --limit 10
+uv run edgecraft metrics --ledger state/edgecraft.db
 ```
 
-The checked-in mandate is shadow-only. Read the [autonomy runbook](docs/AUTONOMY.md) before creating a separately versioned live mandate.
+Scheduled unattended wake (shadow default, fail-closed):
+
+```bash
+./scripts/run_scheduled_cycle.sh
+# or: make scheduled-cycle
+# live only when explicitly armed: MANDATE=path/to/armed-live.json ./scripts/run_scheduled_cycle.sh
+```
+
+`health` exits nonzero when not ready. Codex should run only that script. The checked-in mandate is shadow-only. Read the [autonomy runbook](docs/AUTONOMY.md) before creating a separately versioned live mandate. For the Codex prompt, use the [scheduled Codex task guide](docs/CODEX_SCHEDULED_TASK.md).
 
 ## Repository map
 
@@ -140,28 +110,27 @@ src/edgecraft/
 ├── decision_memory.py      # bounded prior-thesis and benchmark feedback
 └── cli.py                  # the operational entrypoint
 
-frontend/                   # dependency-free local control plane
 examples/                   # synthetic and shadow-first configurations
 tests/                      # math, policy, integration, and failure paths
 docs/                       # concepts, operations, data contracts, and security
+scripts/                    # trade guard and operational helpers
 ```
 
 ## Safety boundary
 
-Edgecraft does not store Robinhood credentials. The local API binds to `127.0.0.1`; ledgers, caches, logs, mandates, and generated account artifacts stay out of Git. Live execution must be explicitly armed for one account and mandate, and the reasoning agent cannot bypass the hard policy gates.
+Edgecraft does not store Robinhood credentials. Ledgers, caches, logs, mandates, and generated account artifacts stay out of Git. Live execution must be explicitly armed for one account and mandate, and the reasoning agent cannot bypass the hard policy gates.
 
-Never commit account exports, OAuth material, tax records, raw broker responses, or screenshots with personal information. Start with the [open-source checklist](docs/OPEN_SOURCE.md) and report vulnerabilities through [SECURITY.md](SECURITY.md).
+Never commit account exports, OAuth material, tax records, raw broker responses, or screenshots with personal information. Report vulnerabilities through [SECURITY.md](SECURITY.md).
 
 ## Explore further
 
 | Guide | Use it when you want to… |
 |:--|:--|
-| [First-principles fund thesis](docs/FIRST_PRINCIPLES_FUND.md) | See which real-world investment lessons transfer, the evidence hierarchy, and the build order |
 | [How Edgecraft works](docs/HOW_EDGECRAFT_WORKS.md) | Build a mental model, follow the code, and trace a trade step by step |
 | [Autonomous operations](docs/AUTONOMY.md) | Configure shadow/live mandates, scheduling, monitoring, and incidents |
+| [Scheduled Codex task](docs/CODEX_SCHEDULED_TASK.md) | Run the fail-closed daily autonomy wake path |
 | [Decision data model](docs/DECISION_DATA_MODEL.md) | See what evidence and reasoning are retained for every decision |
 | [Performance evaluation](docs/PERFORMANCE_EVALUATION.md) | Compare the agent with SPY and the strategic baseline fairly |
-| [Production readiness](docs/PRODUCTION_READINESS.md) | Review controls, gaps, and the path toward dependable operation |
 | [External context](docs/EXTERNAL_CONTEXT.md) | Configure current web, SEC, and social inputs |
 
 Contributions are welcome; start with [CONTRIBUTING.md](CONTRIBUTING.md). Edgecraft is released under the [Apache License 2.0](LICENSE).

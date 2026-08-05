@@ -1,10 +1,11 @@
-.PHONY: install dev test lint security demo health readme-dashboard validate
+.PHONY: install test lint security demo health scheduled-cycle validate
+
+# Shadow-default schedule entrypoint (fail-closed health → readiness → cycle).
+LEDGER ?= state/edgecraft.db
+MANDATE ?= examples/mandate.index-dca.json
 
 install:
 	uv sync --extra dev
-
-dev:
-	uv run uvicorn edgecraft.api:app --reload --host 127.0.0.1 --port 8000
 
 test:
 	uv run pytest
@@ -12,7 +13,6 @@ test:
 lint:
 	uv run ruff check src tests scripts/guard_robinhood_tool.py
 	uv run ruff format --check src tests scripts/guard_robinhood_tool.py
-	node --check frontend/app.js
 
 security:
 	uv export --frozen --no-dev --no-emit-project --format requirements-txt | uvx --python 3.13 --from pip-audit==2.10.1 pip-audit -r /dev/stdin --disable-pip
@@ -25,10 +25,9 @@ demo:
 health:
 	uv run edgecraft health
 
-readme-dashboard:
-	uv run python -m edgecraft.readme_dashboard \
-		--ledger state/edgecraft.db \
-		--readme README.md
+# Single wake path for Codex scheduled tasks. Override MANDATE for an armed live path.
+scheduled-cycle:
+	LEDGER=$(LEDGER) MANDATE=$(MANDATE) ./scripts/run_scheduled_cycle.sh
 
 validate: test lint
 	uv run edgecraft mandate-validate --config examples/mandate.index-dca.json
