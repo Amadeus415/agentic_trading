@@ -99,15 +99,30 @@ class YahooMarketIntelligenceCollector:
         )
         end = current.date()
         start = end - timedelta(days=self.lookback_days)
-        data = self.data_provider.load(
-            clean_symbols,
-            start.isoformat(),
-            end.isoformat(),
-        )
+        data: dict[str, pd.DataFrame] = {}
+        load_warnings: list[str] = []
+        # Load one symbol at a time so a single missing ticker cannot abort the
+        # complete opportunity set used by the scheduled decision cycle.
+        for symbol in clean_symbols:
+            try:
+                loaded = self.data_provider.load(
+                    [symbol],
+                    start.isoformat(),
+                    end.isoformat(),
+                )
+                data[symbol] = loaded[symbol]
+            except Exception as exc:  # keep large universes operable
+                message = f"{symbol}: {exc}"
+                if symbol == clean_benchmark:
+                    raise
+                load_warnings.append(message)
+        if clean_benchmark not in data:
+            raise ValueError(f"benchmark {clean_benchmark} market data unavailable")
         return build_market_intelligence(
             data,
             benchmark=clean_benchmark,
             collected_at=current,
+            warnings=load_warnings,
         )
 
 
@@ -116,14 +131,42 @@ def build_market_intelligence(
     *,
     benchmark: str,
     collected_at: datetime,
+    warnings: list[str] | None = None,
 ) -> MarketIntelligenceSnapshot:
     if benchmark not in data:
         raise ValueError(f"benchmark {benchmark} is missing from market intelligence data")
-    closes = pd.DataFrame({symbol: frame["close"] for symbol, frame in data.items()}).dropna()
-    volumes = pd.DataFrame({symbol: frame["volume"] for symbol, frame in data.items()}).loc[
-        closes.index
-    ]
-    if len(closes) < 252:
+    notes = list(warnings or [])
+    min_sessions = 252
+    # Use a shared recent benchmark calendar so short-history names can be dropped
+    # without collapsing the opportunity set for every other symbol.
+    benchmark_frame = data[benchmark].sort_index()
+    spine = benchmark_frame.index
+    if len(spine) < min_sessions:
+        raise ValueError("market intelligence requires at least 252 common sessions")
+    window = min(len(spine), max(min_sessions, 500))
+    window_index = spine[-window:]
+    close_map: dict[str, pd.Series] = {}
+    volume_map: dict[str, pd.Series] = {}
+    for symbol, frame in data.items():
+        close = frame["close"].reindex(window_index)
+        volume = frame["volume"].reindex(window_index)
+        missing = int(close.isna().sum())
+        if missing or bool((close.fillna(0) <= 0).any()):
+            message = (
+                f"{symbol}: incomplete history on benchmark calendar "
+                f"({missing} missing sessions in {window}-session window)"
+            )
+            if symbol == benchmark:
+                raise ValueError("market intelligence requires at least 252 common sessions")
+            notes.append(message)
+            continue
+        close_map[symbol] = close
+        volume_map[symbol] = volume.fillna(0.0)
+    if benchmark not in close_map:
+        raise ValueError("market intelligence requires at least 252 common sessions")
+    closes = pd.DataFrame(close_map)
+    volumes = pd.DataFrame(volume_map)
+    if len(closes) < min_sessions:
         raise ValueError("market intelligence requires at least 252 common sessions")
     returns = closes.pct_change(fill_method=None)
     benchmark_returns = returns[benchmark]
@@ -230,6 +273,7 @@ def build_market_intelligence(
             ),
         ),
         assets=assets,
+        warnings=sorted(set(notes)),
     )
 
 
