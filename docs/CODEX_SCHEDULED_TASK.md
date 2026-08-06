@@ -1,68 +1,51 @@
-# Codex scheduled operation
+# Daily Codex task
 
-Use a Codex scheduled task as the wake-up mechanism and Edgecraft as the
-authority. Run the task in the local project, not a worktree: the append-only
-ledger, runtime artifacts, authenticated Robinhood MCP session, and kill switch
-must remain in the persistent checkout.
+Codex is the research and decision layer. `paper_fund.py` is the accounting and risk authority. The scheduled task runs every day without routine human approval and can choose any supported stock, crypto, or prediction instrument, but every action remains simulated.
 
-The machine must be powered on, the ChatGPT desktop app must be running, and
-Codex and Robinhood authentication must be current. Scheduled tasks run
-unattended, so use the narrowest permission profile that still permits the
-network and local state access required by the broker/context providers.
+## Daily operating loop
 
-## Daily paper mandate
+1. Initialize or reopen the immutable $1,000 paper fund.
+2. Read the current state and machine-readable input schema.
+3. Mark every open position with a fresh public quote.
+4. Research material changes, alternatives, and new opportunities.
+5. Produce one structured buy/sell/short/cover/hold decision with cited evidence.
+6. Save the complete packet under `state/fund-inputs/`.
+7. Run the fixed apply script once.
+8. Verify and report the resulting book.
 
-The schedule is fixed to the checked-in market-day shadow mandate. It allocates
-up to `$25` to the simulated portfolio each market weekday, records approved
-orders as `paper_trade_recorded` runtime events, and never creates Robinhood
-orders. The scheduled entrypoint intentionally has no live-mandate override.
+## Durable scheduled-task prompt
 
-## Single fail-closed wake path
+> Operate only in `/Users/colenba/02_pink_dolphin/01_Shipping/agentic_trading`. Manage Edgecraft's autonomous $1,000 fake-money fund end to end. Never call a broker review, placement, cancel, transfer, wallet, or other mutating tool. Never edit tracked source, tests, prompts, or `examples/fund.mandate.json`. Generated cycle inputs may be written only under the gitignored `state/fund-inputs/` directory.
+>
+> Run `make fund-init`, then `make fund-context`. If `cycle_count` is zero, follow `docs/FUND_STARTING_PROMPT.md`; otherwise continue with this daily loop. Treat fund context as authoritative. Research current public market data and relevant primary information across stocks, native crypto, and prediction markets. Mark every existing position with a fresh quote even when holding. Re-evaluate the thesis, exit or hedge stale ideas, compare new opportunities, and consider cash. You may buy, sell, short, cover, or hold without human approval. Do not trade merely to be active and do not force exposure to every market.
+>
+> Build one schema-valid JSON packet with top-level `decision` and `quotes`. Use fund ID `edgecraft-1k`, cycle key `YYYY-MM-DD` for today's UTC date, and a current UTC `as_of`. Preserve direct source URLs, source/observation timestamps, concise claims, relevant instrument IDs, alternatives, and risks. Every order must cite embedded evidence. Quotes must cover every open position and every ordered instrument. A resolved prediction contract must use a sourced `settled` quote of exactly `0` or `1`; never guess a resolution.
+>
+> Save the exact packet to `state/fund-inputs/YYYY-MM-DD.json`, then run `./scripts/run_scheduled_cycle.sh` exactly once. On any failure, stop and report the exact error. Never alter prices, timestamps, evidence, quantities, policy, or cycle identity just to pass a gate, and never retry a changed request under the same cycle key. Finally run `make fund-status` and report the thesis, simulated actions or hold, fees, cash, NAV, P&L, gross/net/short exposure, and hash-chain/accounting verification. Always describe fills as simulated.
 
-Codex should run **only** the scheduled entrypoint (one shell command). Do not
-chain post-cycle performance or execution-quality reports on the critical path;
-inspect those later from the CLI when needed.
+## Fixed apply path
 
 ```bash
 ./scripts/run_scheduled_cycle.sh
 ```
 
-Or via Make (same script, shadow default):
+The script uses only:
 
-```bash
-make scheduled-cycle
+```text
+examples/fund.mandate.json
+state/fund-inputs/YYYY-MM-DD.json
+state/edgecraft-fund.db
 ```
 
-The script runs `health` → `readiness --require-ready` → `cycle` with the fixed
-daily paper mandate (`examples/mandate.index-dca.json`).
+It capitalizes only an empty fund, verifies the ledger, requires today's UTC input, applies one atomic fake-money cycle, and verifies the full history again. It does not invoke the older broker-aware autonomy service.
 
-`health` exits nonzero when `ok` is false. `readiness --require-ready` exits
-nonzero when any deterministic check fails. The script never starts a cycle
-after a failed gate. A `cycle` result with `ok=false` also exits nonzero;
-accepted outcomes such as `not_due`, `held`, `risk_rejected`, and
-`shadow_complete` exit zero.
+## On-demand runs
 
-## Durable task prompt
+When the owner asks Codex to “run the hedge fund,” follow the same loop. If a scheduled cycle already used today's `YYYY-MM-DD` key, use a clearly labeled unique manual key such as `manual-YYYY-MM-DDTHHMMSSZ` and a separate input filename. Run `uv run edgecraft fund-run` directly for that packet, then verify. Never overwrite or reinterpret the scheduled cycle.
 
-> Operate only in this Edgecraft project. Do not edit source files, policies,
-> mandates, hooks, or credentials. Run exactly:
-> `./scripts/run_scheduled_cycle.sh`
-> If any step fails, stop and report the exact JSON/reasons. Never bypass a
-> failed check, retry a run that issued a permit, change capital limits, or place
-> any order outside the exact enabled mandate. The scheduled script is
-> paper-only and must never be redirected to another mandate.
+## Valid outcomes
 
-Run it daily after `10:00 America/New_York`. Weekend wakeups return `not_due`
-without model work; they still verify health. Weekday approved proposals update
-the paper portfolio, while weak or unsafe opportunities are truthfully recorded
-as holds or rejections rather than fabricated trades. Edgecraft's cycle key and
-ledger lock make repeated wakeups idempotent. Review the first several runs in
-the Codex Scheduled inbox.
-
-After a wake, optional operator inspection (not on the critical path):
-
-```bash
-uv run edgecraft autonomy-health --ledger state/edgecraft-paper.db
-uv run edgecraft runs --ledger state/edgecraft-paper.db --limit 1
-uv run edgecraft performance --ledger state/edgecraft-paper.db --mandate-id index_dca
-```
+- `hold`: evidence did not justify a change; marks and reasoning are still audited.
+- `trade`: all proposed fake fills passed accounting and risk checks.
+- rejection: the ledger was unchanged; report the actual validation reason.
+- replay: the exact cycle was already applied; there are no duplicate fills.

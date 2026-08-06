@@ -1,40 +1,33 @@
 # Security policy
 
-Edgecraft can sit next to a real brokerage account, so security reports are
-taken seriously.
+## Active product boundary
 
-## Reporting a vulnerability
+The active Edgecraft paper fund is fake-money-only by construction:
 
-Please do not open a public issue for a suspected vulnerability. When this
-repository becomes public, use GitHub’s private vulnerability-reporting form in
-the repository’s **Security** tab. Until that is enabled, contact
-[@Amadeus415](https://github.com/Amadeus415) with only a short description and a
-request to arrange a private channel. Do not include credentials, account
-numbers, live permit tokens, or another person’s data in the first message.
+- `FundMandate` has no live mode.
+- `paper_fund.py` imports no broker client or execution adapter.
+- The scheduled script invokes only `fund-init`, `fund-verify`, and `fund-run`.
+- Generated ledgers and decision inputs are gitignored.
+- SQLite cycles and events are append-only and hash-chained.
 
-Include the affected version or commit, the impact, reproduction steps using
-fake or shadow data, and any suggested mitigation. You should receive an
-acknowledgement within seven days.
+The repository retains older broker-aware autonomy modules for backward compatibility and tests, but they are not part of the checked-in schedule or the $1,000 fund. Do not add a broker call to the fund domain or scheduled prompt.
 
-## Supported versions
+## Sensitive data
 
-Security fixes are applied to the latest commit on `main`. The project has not
-made a stable release yet.
+Never commit or retain:
 
-## Safety boundary
+- credentials, OAuth tokens, cookies, or API keys;
+- account numbers, broker exports, tax records, or private balances;
+- unnecessary personal information;
+- raw private messages or form contents;
+- generated SQLite ledgers or state packets.
 
-- New mandates and examples are shadow-only.
-- Live execution requires an explicitly enabled live mandate, deterministic
-  policy approval, Robinhood review, and an exact expiring single-use permit.
-- The broker connection is provided by the host’s authenticated MCP session;
-  credentials are not stored in this repository.
-- Scoped agent subprocesses receive an allowlisted environment instead of
-  inheriting arbitrary shell tokens or application secrets.
-- The web app is a local operator surface bound to `127.0.0.1`. It has no
-  internet-facing authentication or rate limiting and must not be exposed
-  directly to a network.
-- Local ledgers and runtime output may contain sensitive financial information.
-  They belong in ignored local storage, never in an issue, fixture, or commit.
+Public evidence packets should contain concise claims and direct source URLs, not copied articles or secrets.
 
-These controls reduce risk; they are not a warranty that the software is safe
-for unattended trading or that a strategy will perform as expected.
+## Dependency and source checks
+
+Run `make validate` and `make security` before release. CI runs tests and static checks; the repository also uses dependency updates and secret scanning.
+
+## Reporting
+
+Report suspected vulnerabilities privately through GitHub's security advisory flow. Include affected version, reproduction, impact, and a proposed mitigation if available. Do not open a public issue for an unpatched secret or execution-boundary problem.

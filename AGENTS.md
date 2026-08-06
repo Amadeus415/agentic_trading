@@ -28,8 +28,12 @@ unneeded complexity.
   agent cannot bypass. Keep these pretty light and don't overdo them
 - Keep scheduled mandates and development workflows in shadow/paper mode. Never
   add a live mandate to the scheduled entrypoint.
-- Treat the daily simulated contribution as a hard ceiling, not a target that
-  justifies poor trades. A hold is valid when evidence is weak.
+- Capitalize the simulated fund with exactly $1,000 once. Never inject a daily
+  contribution or silently reset losses. A hold is valid when evidence is weak.
+- The paper fund may propose buys, sells, shorts, and covers across public
+  stocks, native crypto, and prediction markets without routine approval. Its
+  freedom is bounded by deterministic accounting, exposure, turnover,
+  concentration, drawdown, freshness, and evidence checks.
 - Separate probabilistic reasoning from deterministic controls. Models may
   propose; typed policy and risk engines authorize.
 - Optimize for repeatable decision quality, costs, taxes, diversification, and
