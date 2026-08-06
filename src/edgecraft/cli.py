@@ -30,6 +30,8 @@ from edgecraft.research import run_research
 from edgecraft.strategies import STRATEGY_SCHEMAS
 from edgecraft.walkforward import walk_forward_validate
 
+DEFAULT_LEDGER = "state/edgecraft-paper.db"
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -49,7 +51,7 @@ def _add_research_commands(commands: Any) -> None:
         "--real-data-symbol",
         help="Also download and validate one year of market data for this symbol.",
     )
-    health.add_argument("--ledger", default="state/edgecraft.db")
+    health.add_argument("--ledger", default=DEFAULT_LEDGER)
 
     commands.add_parser("strategies", help="Print the machine-readable strategy catalog.")
     context = commands.add_parser(
@@ -126,7 +128,7 @@ def _add_research_commands(commands: Any) -> None:
 
 def _add_operation_commands(commands: Any) -> None:
     ledger = commands.add_parser("ledger", help="Show audit-ledger status.")
-    ledger.add_argument("--path", default="state/edgecraft.db")
+    ledger.add_argument("--path", default=DEFAULT_LEDGER)
 
     mandate_validate = commands.add_parser(
         "mandate-validate", help="Validate and normalize an autonomous mandate."
@@ -137,16 +139,16 @@ def _add_operation_commands(commands: Any) -> None:
         "mandate-register", help="Persist a validated autonomous mandate."
     )
     mandate_register.add_argument("--config", required=True, type=Path)
-    mandate_register.add_argument("--ledger", default="state/edgecraft.db")
+    mandate_register.add_argument("--ledger", default=DEFAULT_LEDGER)
 
     mandates = commands.add_parser("mandates", help="List persisted autonomous mandates.")
-    mandates.add_argument("--ledger", default="state/edgecraft.db")
+    mandates.add_argument("--ledger", default=DEFAULT_LEDGER)
 
     cycle = commands.add_parser(
         "cycle", help="Run one idempotent autonomous portfolio-management cycle."
     )
     cycle.add_argument("--mandate", required=True, type=Path)
-    cycle.add_argument("--ledger", default="state/edgecraft.db")
+    cycle.add_argument("--ledger", default=DEFAULT_LEDGER)
     cycle.add_argument(
         "--observation",
         type=Path,
@@ -158,6 +160,11 @@ def _add_operation_commands(commands: Any) -> None:
         help="Ignore schedule timing; never bypass budget, policy, risk, or permits.",
     )
     cycle.add_argument(
+        "--paper-only",
+        action="store_true",
+        help="Reject any mandate or policy capable of live broker mutation.",
+    )
+    cycle.add_argument(
         "--retry-side-effect-free",
         metavar="REASON",
         help=(
@@ -167,62 +174,62 @@ def _add_operation_commands(commands: Any) -> None:
     )
 
     runs = commands.add_parser("runs", help="List recent autonomous runs.")
-    runs.add_argument("--ledger", default="state/edgecraft.db")
+    runs.add_argument("--ledger", default=DEFAULT_LEDGER)
     runs.add_argument("--limit", type=int, default=20)
 
     decision = commands.add_parser(
         "decision", help="Show immutable decision packets for one autonomous run."
     )
-    decision.add_argument("--ledger", default="state/edgecraft.db")
+    decision.add_argument("--ledger", default=DEFAULT_LEDGER)
     decision.add_argument("--run-id", required=True)
 
     performance = commands.add_parser(
         "performance",
         help="Report the cash-flow-matched agent, benchmark, and strategic shadow books.",
     )
-    performance.add_argument("--ledger", default="state/edgecraft.db")
+    performance.add_argument("--ledger", default=DEFAULT_LEDGER)
     performance.add_argument("--mandate-id", required=True)
 
     execution_quality = commands.add_parser(
         "execution-quality",
         help="Report decision-to-fill slippage, fill notional, and broker fees.",
     )
-    execution_quality.add_argument("--ledger", default="state/edgecraft.db")
+    execution_quality.add_argument("--ledger", default=DEFAULT_LEDGER)
     execution_quality.add_argument("--mandate-id", required=True)
 
     incident_reconcile = commands.add_parser(
         "incident-reconcile",
         help="Close a failed run after independently verified terminal broker events.",
     )
-    incident_reconcile.add_argument("--ledger", default="state/edgecraft.db")
+    incident_reconcile.add_argument("--ledger", default=DEFAULT_LEDGER)
     incident_reconcile.add_argument("--run-id", required=True)
     incident_reconcile.add_argument("--reason", required=True)
 
     halt = commands.add_parser("halt", help="Activate the global trading kill switch.")
-    halt.add_argument("--ledger", default="state/edgecraft.db")
+    halt.add_argument("--ledger", default=DEFAULT_LEDGER)
     halt.add_argument("--reason", required=True)
 
     resume = commands.add_parser("resume", help="Clear the global trading kill switch.")
-    resume.add_argument("--ledger", default="state/edgecraft.db")
+    resume.add_argument("--ledger", default=DEFAULT_LEDGER)
     resume.add_argument("--reason", required=True)
 
     metrics = commands.add_parser(
         "metrics", help="Emit autonomous operations metrics without account data."
     )
-    metrics.add_argument("--ledger", default="state/edgecraft.db")
+    metrics.add_argument("--ledger", default=DEFAULT_LEDGER)
     metrics.add_argument("--format", choices=["json", "prometheus"], default="json")
 
     autonomous_health = commands.add_parser(
         "autonomy-health", help="Report autonomous control-plane readiness."
     )
-    autonomous_health.add_argument("--ledger", default="state/edgecraft.db")
+    autonomous_health.add_argument("--ledger", default=DEFAULT_LEDGER)
 
     readiness = commands.add_parser(
         "readiness",
         help="Fail-closed operational readiness review for one scheduled mandate.",
     )
     readiness.add_argument("--mandate", required=True, type=Path)
-    readiness.add_argument("--ledger", default="state/edgecraft.db")
+    readiness.add_argument("--ledger", default=DEFAULT_LEDGER)
     readiness.add_argument(
         "--require-ready",
         action="store_true",
@@ -253,8 +260,14 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def _should_exit_nonzero(command: str, payload: Any) -> bool:
-    """Hard-fail schedule gates when a health payload reports not ok."""
-    if command != "health":
+    """Hard-fail schedule gates when health/cycle payloads report not ok.
+
+    Successful cycle outcomes (not_due, held, risk_rejected, shadow_complete,
+    completed, in_progress) carry top-level ok=true and exit zero. Only explicit
+    ok=false (e.g. unresolved_orders, failed replay) fails the scheduled wake.
+    Readiness continues to use --require-ready / exception exit code 2.
+    """
+    if command not in {"health", "cycle"}:
         return False
     return isinstance(payload, dict) and payload.get("ok") is False
 
@@ -339,6 +352,12 @@ def _toggle_halt(args: argparse.Namespace) -> dict[str, Any]:
 
 def _run_cycle(args: argparse.Namespace) -> dict[str, Any]:
     mandate = Mandate.model_validate(_read_json(args.mandate))
+    if getattr(args, "paper_only", False):
+        if mandate.mode != "shadow":
+            raise ValueError("paper-only cycles require a shadow mandate")
+        policy = RiskPolicy.model_validate(_read_json(Path(mandate.policy_path)))
+        if policy.trading_enabled:
+            raise ValueError("paper-only cycles require trading_enabled=false")
     ledger = AuditLedger(args.ledger)
     if args.observation:
         if mandate.mode != "shadow":
