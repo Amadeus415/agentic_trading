@@ -139,10 +139,28 @@ def test_example_mandate_uses_broad_stock_and_crypto_catalog():
 
     assert catalog["symbol_count"] >= 200
     assert catalog["crypto_vehicle_count"] >= 20
-    assert len(item.universe) == catalog["symbol_count"]
-    assert set(item.universe) == set(catalog["symbols"])
+    assert 35 <= len(item.universe) <= 60
+    assert set(item.universe).issubset(set(catalog["symbols"]))
     assert set(item.universe).issubset(set(policy.allowed_symbols))
-    assert {"IBIT", "ETHA", "COIN", "MSTR", "AAPL", "NVDA", "SPY"}.issubset(set(item.universe))
+    assert {
+        "IBIT",
+        "ETHA",
+        "COIN",
+        "MSTR",
+        "AAPL",
+        "NVDA",
+        "JPM",
+        "XOM",
+        "LLY",
+        "SPY",
+    }.issubset(set(item.universe))
+    assert item.mode == "shadow"
+    assert item.cycle_frequency == "market_day"
+    assert item.daily_budget == Decimal("2.00")
+    assert item.weekly_budget is None
+    assert item.max_rollover_weeks == 0
+    assert not policy.trading_enabled
+    assert policy.max_daily_notional == Decimal("2")
     # Native coin symbols must not appear on the equities-only whitelist.
     assert not {"BTC-USD", "ETH-USD", "BTCUSD", "ETHUSD"} & set(item.universe)
 
