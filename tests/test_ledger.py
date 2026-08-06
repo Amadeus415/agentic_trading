@@ -82,6 +82,27 @@ def _hold_lock(path: str, mandate_id: str, key: str, ready: Queue, release: Queu
         release.get()
 
 
+def test_runtime_event_once_is_idempotent_per_run_and_type(tmp_path):
+    ledger = AuditLedger(tmp_path / "state.db")
+    mandate = _mandate()
+    run_id = ledger.start_run(mandate, cycle_key(mandate, NOW), now=NOW)
+
+    assert ledger.record_runtime_event_once(
+        run_id, "paper_trade_recorded", {"proposal_id": "first"}, now=NOW
+    )
+    assert not ledger.record_runtime_event_once(
+        run_id, "paper_trade_recorded", {"proposal_id": "retry"}, now=NOW + timedelta(seconds=1)
+    )
+
+    events = [
+        event
+        for event in ledger.observability_feed()["runtime_events"]
+        if event["event_type"] == "paper_trade_recorded"
+    ]
+    assert len(events) == 1
+    assert events[0]["payload"]["proposal_id"] == "first"
+
+
 def test_cycle_lock_contention(tmp_path):
     ledger = AuditLedger(tmp_path / "state.db")
     mandate = _mandate()

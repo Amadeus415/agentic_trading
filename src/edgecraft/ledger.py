@@ -1229,6 +1229,35 @@ class AuditLedger:
                 ),
             )
 
+    def record_runtime_event_once(
+        self,
+        run_id: str,
+        event_type: str,
+        payload: dict[str, Any],
+        *,
+        now: datetime | None = None,
+    ) -> bool:
+        timestamp = now or datetime.now(UTC)
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO runtime_events (run_id, event_type, occurred_at, payload)
+                SELECT ?, ?, ?, ?
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM runtime_events WHERE run_id = ? AND event_type = ?
+                )
+                """,
+                (
+                    run_id,
+                    event_type,
+                    timestamp.isoformat(),
+                    _json_dumps(payload, sort_keys=True),
+                    run_id,
+                    event_type,
+                ),
+            )
+            return cursor.rowcount == 1
+
     def issue_permit(
         self,
         run_id: str,
