@@ -10,6 +10,7 @@ import yfinance as yf
 
 REQUIRED_COLUMNS = ("open", "high", "low", "close", "volume")
 DOWNLOAD_RETRY_DELAYS_SECONDS = (0.5, 1.5, 3.0)
+DOWNLOAD_TIMEOUT_SECONDS = 20.0
 
 
 class MarketDataError(RuntimeError):
@@ -19,8 +20,16 @@ class MarketDataError(RuntimeError):
 class MarketDataProvider:
     """Adjusted daily OHLCV with an on-disk cache and strict validation."""
 
-    def __init__(self, cache_dir: str | Path = "data/cache") -> None:
+    def __init__(
+        self,
+        cache_dir: str | Path = "data/cache",
+        *,
+        retry_delays_seconds: tuple[float, ...] = DOWNLOAD_RETRY_DELAYS_SECONDS,
+        download_timeout: float = DOWNLOAD_TIMEOUT_SECONDS,
+    ) -> None:
         self.cache_dir = Path(cache_dir)
+        self.retry_delays_seconds = tuple(retry_delays_seconds)
+        self.download_timeout = float(download_timeout)
 
     def load(
         self, symbols: list[str], start: str, end: str, *, refresh: bool = False
@@ -48,7 +57,8 @@ class MarketDataProvider:
 
         frame: pd.DataFrame | None = None
         last_error: MarketDataError | None = None
-        for attempt in range(len(DOWNLOAD_RETRY_DELAYS_SECONDS) + 1):
+        retry_delays = self.retry_delays_seconds
+        for attempt in range(len(retry_delays) + 1):
             raw = yf.download(
                 symbol,
                 start=start,
@@ -57,12 +67,12 @@ class MarketDataProvider:
                 actions=False,
                 progress=False,
                 threads=False,
-                timeout=20,
+                timeout=self.download_timeout,
             )
             if raw.empty:
                 last_error = MarketDataError("no market data returned")
-                if attempt < len(DOWNLOAD_RETRY_DELAYS_SECONDS):
-                    time.sleep(DOWNLOAD_RETRY_DELAYS_SECONDS[attempt])
+                if attempt < len(retry_delays):
+                    time.sleep(retry_delays[attempt])
                 continue
             if isinstance(raw.columns, pd.MultiIndex):
                 raw.columns = raw.columns.get_level_values(0)
@@ -76,8 +86,8 @@ class MarketDataProvider:
                 # Yahoo occasionally returns a transient malformed adjusted bar.
                 # Retry the complete request rather than caching or silently repairing it.
                 last_error = exc
-                if attempt < len(DOWNLOAD_RETRY_DELAYS_SECONDS):
-                    time.sleep(DOWNLOAD_RETRY_DELAYS_SECONDS[attempt])
+                if attempt < len(retry_delays):
+                    time.sleep(retry_delays[attempt])
         if frame is None:
             raise last_error or MarketDataError("market data download failed")
         self.cache_dir.mkdir(parents=True, exist_ok=True)
