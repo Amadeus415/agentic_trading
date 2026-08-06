@@ -1,8 +1,7 @@
 .PHONY: install test lint security demo health scheduled-cycle validate
 
-# Shadow-default schedule entrypoint (fail-closed health → readiness → cycle).
-LEDGER ?= state/edgecraft.db
-MANDATE ?= examples/mandate.index-dca.json
+# Paper-only schedule entrypoint (fail-closed health → readiness → cycle).
+LEDGER ?= state/edgecraft-paper.db
 
 install:
 	uv sync --extra dev
@@ -25,9 +24,9 @@ demo:
 health:
 	uv run edgecraft health
 
-# Single wake path for Codex scheduled tasks. Override MANDATE for an armed live path.
+# Single paper-only wake path for Codex scheduled tasks.
 scheduled-cycle:
-	LEDGER=$(LEDGER) MANDATE=$(MANDATE) ./scripts/run_scheduled_cycle.sh
+	LEDGER=$(LEDGER) ./scripts/run_scheduled_cycle.sh
 
 validate: test lint
 	uv run edgecraft mandate-validate --config examples/mandate.index-dca.json
