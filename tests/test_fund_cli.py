@@ -28,6 +28,9 @@ def test_fund_cli_initializes_runs_reports_and_verifies(tmp_path, capsys) -> Non
     status = _run(["fund-status", *common], capsys)
     performance = _run(["fund-performance", *common], capsys)
     verification = _run(["fund-verify", *common], capsys)
+    cycle_key = cycle["result"]["cycle_key"]
+    cycle_detail = _run(["fund-cycle", *common, "--cycle-key", cycle_key], capsys)
+    audit = _run(["fund-audit", *common, "--cycle-key", cycle_key], capsys)
 
     assert first["initialized"] is True
     assert second["initialized"] is False
@@ -35,6 +38,9 @@ def test_fund_cli_initializes_runs_reports_and_verifies(tmp_path, capsys) -> Non
     assert "decision_schema" in context["input_contract"]
     assert cycle["paper_only"] is True
     assert cycle["result"]["state"]["cycle_count"] == 1
+    assert cycle["result"]["audit"]["risk"]["approved"] is True
+    assert cycle["result"]["audit"]["runtime"]["input_sha256"]
+    assert cycle["audit"]["request_digest"] == cycle["result"]["request_digest"]
     assert {fill["asset_class"] for fill in cycle["result"]["fills"]} == {
         "stock",
         "crypto",
@@ -45,6 +51,10 @@ def test_fund_cli_initializes_runs_reports_and_verifies(tmp_path, capsys) -> Non
     assert performance["simulated_fill_count"] == 3
     assert performance["history"][0]["cycle_key"] == "example-start-2026-08-06"
     assert verification["ok"] is True
+    assert cycle_detail["cycle"]["decision"]["cycle_key"] == cycle_key
+    assert audit["audit_gaps"] == []
+    assert audit["reconciliation"]["ledger_ok"] is True
+    assert audit["events"]
 
 
 def test_fund_cli_rejects_noncurrent_scheduled_input(tmp_path, capsys) -> None:

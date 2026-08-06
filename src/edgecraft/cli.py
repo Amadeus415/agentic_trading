@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -24,13 +25,16 @@ from edgecraft.execution_models import PortfolioSnapshot, RiskPolicy
 from edgecraft.intelligence import YahooMarketIntelligenceCollector
 from edgecraft.ledger import AuditLedger
 from edgecraft.models import BacktestRequest, CostModel
-from edgecraft.observability import autonomy_health, prometheus_metrics
+from edgecraft.observability import autonomy_health, log_event, prometheus_metrics
 from edgecraft.paper_fund import (
+    CycleRuntimeMetadata,
     FundDecision,
     FundMandate,
     FundQuote,
     PaperFundLedger,
     PaperFundValidationError,
+    mandate_digest,
+    request_digest,
 )
 from edgecraft.portfolio import analyze_portfolio
 from edgecraft.promotion import build_research_evidence
@@ -106,6 +110,22 @@ def _add_fund_commands(commands: Any) -> None:
     events.add_argument("--config", required=True, type=Path)
     events.add_argument("--ledger", default=DEFAULT_FUND_LEDGER)
     events.add_argument("--limit", type=int, default=20)
+
+    cycle_detail = commands.add_parser(
+        "fund-cycle",
+        help="Show the full immutable decision/quotes/fills/audit packet for one cycle.",
+    )
+    cycle_detail.add_argument("--config", required=True, type=Path)
+    cycle_detail.add_argument("--ledger", default=DEFAULT_FUND_LEDGER)
+    cycle_detail.add_argument("--cycle-key", required=True)
+
+    audit = commands.add_parser(
+        "fund-audit",
+        help="Join decision, risk, quotes, fills, events, and verification for one cycle.",
+    )
+    audit.add_argument("--config", required=True, type=Path)
+    audit.add_argument("--ledger", default=DEFAULT_FUND_LEDGER)
+    audit.add_argument("--cycle-key", required=True)
 
     verify = commands.add_parser(
         "fund-verify", help="Verify the paper-fund hash chain and accounting replay."
@@ -417,6 +437,14 @@ def _fund_init(args: argparse.Namespace) -> dict[str, Any]:
         initialized = _ensure_fund_initialized(ledger, fund_id, mandate)
         state = ledger.get_state(fund_id)
         verification = ledger.verify(fund_id)
+    log_event(
+        "fund_init",
+        fund_id=fund_id,
+        initialized=initialized,
+        mandate_digest=mandate_digest(mandate),
+        verification_ok=verification.ok,
+        edgecraft_version=__version__,
+    )
     return {
         "ok": True,
         "paper_only": True,
@@ -449,7 +477,19 @@ def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
         },
         "recent_cycles": cycles,
         "input_contract": {
-            "shape": {"decision": "FundDecision", "quotes": ["FundQuote"]},
+            "shape": {
+                "decision": "FundDecision",
+                "quotes": ["FundQuote"],
+                "runtime": {
+                    "optional": True,
+                    "fields": ["prompt_version", "model", "reasoning_effort"],
+                    "note": (
+                        "Optional provenance retained in the append-only audit trail. "
+                        "edgecraft_version, mandate_digest, and input_sha256 are added "
+                        "by fund-run."
+                    ),
+                },
+            },
             "decision_schema": FundDecision.model_json_schema(mode="validation"),
             "quote_schema": FundQuote.model_json_schema(mode="validation"),
             "rules": [
@@ -458,18 +498,60 @@ def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
                 "Include fresh quotes for every open position and every ordered instrument.",
                 "Cite every order to evidence embedded in the decision.",
                 "Use only public market data; never call a broker mutation tool.",
+                "Every accepted cycle stores decision, evidence, quotes, risk checks, "
+                "fills, fees, mandate digest, and runtime provenance in the hash-chained ledger.",
             ],
         },
     }
 
 
+def _fund_runtime_from_input(
+    raw: dict[str, Any],
+    *,
+    mandate: FundMandate,
+    input_path: Path,
+    input_sha256: str,
+) -> CycleRuntimeMetadata:
+    """Build apply-step provenance from optional input.runtime and process metadata."""
+    runtime_raw = raw.get("runtime")
+    if runtime_raw is None:
+        runtime_raw = {}
+    if not isinstance(runtime_raw, dict):
+        raise ValueError("fund cycle input runtime must be a JSON object when present")
+    return CycleRuntimeMetadata(
+        edgecraft_version=__version__,
+        mandate_digest=mandate_digest(mandate),
+        prompt_version=(
+            str(runtime_raw["prompt_version"]) if runtime_raw.get("prompt_version") else None
+        ),
+        model=str(runtime_raw["model"]) if runtime_raw.get("model") else None,
+        reasoning_effort=(
+            str(runtime_raw["reasoning_effort"])
+            if runtime_raw.get("reasoning_effort")
+            else None
+        ),
+        input_path=str(input_path),
+        input_sha256=input_sha256,
+        recorded_at=datetime.now(UTC),
+    )
+
+
 def _fund_run(args: argparse.Namespace) -> dict[str, Any]:
     fund_id, mandate = _load_fund_config(args.config)
-    raw = _read_json(args.input)
+    input_path = Path(args.input)
+    raw_text = input_path.read_text(encoding="utf-8")
+    input_sha256 = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
+    raw = json.loads(raw_text)
     if not isinstance(raw, dict):
         raise ValueError("fund cycle input must be a JSON object")
     decision = FundDecision.model_validate(raw.get("decision"))
     quotes = [FundQuote.model_validate(item) for item in raw.get("quotes", [])]
+    runtime = _fund_runtime_from_input(
+        raw,
+        mandate=mandate,
+        input_path=input_path.resolve(),
+        input_sha256=input_sha256,
+    )
     if decision.fund_id != fund_id:
         raise ValueError("decision fund_id does not match the checked-in fund config")
     if args.require_as_of_today and decision.as_of.date() != datetime.now(UTC).date():
@@ -490,16 +572,68 @@ def _fund_run(args: argparse.Namespace) -> dict[str, Any]:
             f"scheduled cycle key {decision.cycle_key!r} does not match "
             f"required key {args.require_cycle_key!r}"
         )
-    with PaperFundLedger(args.ledger) as ledger:
-        initialized = _ensure_fund_initialized(ledger, fund_id, mandate)
-        result = ledger.execute_cycle(decision, quotes)
-        verification = ledger.verify(fund_id)
+    digest = request_digest(decision, quotes)
+    log_event(
+        "fund_run_started",
+        fund_id=fund_id,
+        cycle_key=decision.cycle_key,
+        decision_id=decision.decision_id,
+        action=decision.action.value,
+        request_digest=digest,
+        input_path=str(input_path.resolve()),
+        input_sha256=input_sha256,
+        prompt_version=runtime.prompt_version,
+        model=runtime.model,
+        edgecraft_version=__version__,
+    )
+    try:
+        with PaperFundLedger(args.ledger) as ledger:
+            initialized = _ensure_fund_initialized(ledger, fund_id, mandate)
+            result = ledger.execute_cycle(decision, quotes, runtime=runtime)
+            verification = ledger.verify(fund_id)
+    except Exception as exc:
+        log_event(
+            "fund_run_failed",
+            fund_id=fund_id,
+            cycle_key=decision.cycle_key,
+            decision_id=decision.decision_id,
+            request_digest=digest,
+            error_type=type(exc).__name__,
+            detail=str(exc),
+            input_sha256=input_sha256,
+        )
+        raise
+    log_event(
+        "fund_run_completed",
+        fund_id=fund_id,
+        cycle_key=result.cycle_key,
+        decision_id=result.decision_id,
+        action=result.action.value,
+        request_digest=result.request_digest,
+        replayed=result.replayed,
+        fill_count=len(result.fills),
+        settlement_count=len(result.settlements),
+        nav=str(result.state.nav),
+        cash=str(result.state.cash),
+        risk_approved=result.audit.risk.approved if result.audit else None,
+        fee_total=str(result.audit.fee_total) if result.audit else None,
+        verification_ok=verification.ok,
+        event_sequence=result.event_sequence,
+        input_sha256=input_sha256,
+    )
     return {
         "ok": True,
         "paper_only": True,
         "initialized": initialized,
         "result": result.model_dump(mode="json"),
         "verification": verification.model_dump(mode="json"),
+        "audit": {
+            "request_digest": result.request_digest,
+            "input_sha256": input_sha256,
+            "input_path": str(input_path.resolve()),
+            "runtime": runtime.model_dump(mode="json"),
+            "risk": result.audit.risk.model_dump(mode="json") if result.audit else None,
+        },
     }
 
 
@@ -568,10 +702,47 @@ def _fund_events(args: argparse.Namespace) -> list[dict[str, Any]]:
     return [event.model_dump(mode="json") for event in events]
 
 
+def _fund_cycle(args: argparse.Namespace) -> dict[str, Any]:
+    fund_id, _mandate = _load_fund_config(args.config)
+    with PaperFundLedger(args.ledger) as ledger:
+        cycle = ledger.get_cycle(fund_id, args.cycle_key)
+    log_event(
+        "fund_cycle_retrieved",
+        fund_id=fund_id,
+        cycle_key=args.cycle_key,
+        request_digest=cycle["request_digest"],
+    )
+    return {"ok": True, "paper_only": True, "cycle": cycle}
+
+
+def _fund_audit(args: argparse.Namespace) -> dict[str, Any]:
+    fund_id, _mandate = _load_fund_config(args.config)
+    with PaperFundLedger(args.ledger) as ledger:
+        audit = ledger.cycle_audit(fund_id, args.cycle_key)
+    log_event(
+        "fund_audit_retrieved",
+        fund_id=fund_id,
+        cycle_key=args.cycle_key,
+        audit_gaps=audit.get("audit_gaps", []),
+        ledger_ok=audit.get("reconciliation", {}).get("ledger_ok"),
+    )
+    return {"ok": True, "paper_only": True, **audit}
+
+
 def _fund_verify(args: argparse.Namespace) -> dict[str, Any]:
     fund_id, _mandate = _load_fund_config(args.config)
     with PaperFundLedger(args.ledger) as ledger:
-        return ledger.verify(fund_id).model_dump(mode="json")
+        report = ledger.verify(fund_id).model_dump(mode="json")
+    log_event(
+        "fund_verify",
+        fund_id=fund_id,
+        ok=report["ok"],
+        chain_ok=report["chain_ok"],
+        accounting_ok=report["accounting_ok"],
+        event_count=report["event_count"],
+        cycle_count=report["cycle_count"],
+    )
+    return report
 
 
 def _register_mandate(args: argparse.Namespace) -> dict[str, Any]:
@@ -733,6 +904,8 @@ COMMAND_HANDLERS: dict[str, CommandHandler] = {
     "fund-status": _fund_status,
     "fund-performance": _fund_performance,
     "fund-events": _fund_events,
+    "fund-cycle": _fund_cycle,
+    "fund-audit": _fund_audit,
     "fund-verify": _fund_verify,
     "ledger": lambda args: AuditLedger(args.path).status(),
     "mandate-validate": lambda args: Mandate.model_validate(_read_json(args.config)).model_dump(

@@ -44,6 +44,10 @@ BUSY_TIMEOUT_MS = 30_000
 class PaperFundError(Exception):
     """Base error for the paper fund domain."""
 
+    def __init__(self, message: str, *, audit: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.audit = audit or {}
+
 
 class PaperFundValidationError(PaperFundError, ValueError):
     """Raised when a request fails validation or risk policy."""
@@ -465,6 +469,122 @@ class FundState(BaseModel):
         return _ensure_utc(value, "as_of")
 
 
+class RiskCheck(BaseModel):
+    """One deterministic risk or policy check with the observed value and limit."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=100)
+    passed: bool
+    observed: str = Field(min_length=1, max_length=200)
+    limit: str | None = Field(default=None, max_length=200)
+    detail: str = Field(default="", max_length=2000)
+
+
+class RiskEvaluation(BaseModel):
+    """Policy/risk engine outcome retained for audit and replay."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    approved: bool
+    checks: tuple[RiskCheck, ...] = ()
+    order_count: int = Field(ge=0)
+    turnover: Decimal = ZERO
+    pre_nav: Decimal
+    post_nav: Decimal
+    post_gross_exposure: Decimal
+    post_net_exposure: Decimal
+    post_short_exposure: Decimal
+    post_drawdown: Decimal
+    prediction_short_reserve: Decimal = ZERO
+
+    @field_validator(
+        "turnover",
+        "pre_nav",
+        "post_nav",
+        "post_gross_exposure",
+        "post_net_exposure",
+        "post_short_exposure",
+        "post_drawdown",
+        "prediction_short_reserve",
+        mode="before",
+    )
+    @classmethod
+    def _dec(cls, value: Any) -> Decimal:
+        return _as_decimal(value)
+
+
+class QuoteFreshnessRecord(BaseModel):
+    """Source and observation freshness for one quote used in a cycle."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    instrument_id: str
+    quote_id: str
+    asset_class: AssetClass
+    status: QuoteStatus
+    price: Decimal
+    observed_at: datetime
+    source_timestamp: datetime
+    observation_age_seconds: int = Field(ge=0)
+    source_age_seconds: int = Field(ge=0)
+    max_observation_age_seconds: int = Field(ge=0)
+    max_source_age_seconds: int = Field(ge=0)
+    source_name: str
+    source_url: str
+
+    @field_validator("price", mode="before")
+    @classmethod
+    def _price_dec(cls, value: Any) -> Decimal:
+        return _as_decimal(value)
+
+    @field_validator("observed_at", "source_timestamp")
+    @classmethod
+    def _obs_utc(cls, value: datetime) -> datetime:
+        return _ensure_utc(value, "observed_at")
+
+
+class CycleRuntimeMetadata(BaseModel):
+    """Process provenance for the cycle apply step (not agent-writable state)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    edgecraft_version: str = Field(min_length=1, max_length=50)
+    mandate_digest: str = Field(min_length=1, max_length=128)
+    prompt_version: str | None = Field(default=None, max_length=200)
+    model: str | None = Field(default=None, max_length=200)
+    reasoning_effort: str | None = Field(default=None, max_length=50)
+    input_path: str | None = Field(default=None, max_length=2000)
+    input_sha256: str | None = Field(default=None, max_length=128)
+    recorded_at: datetime | None = None
+
+    @field_validator("recorded_at")
+    @classmethod
+    def _recorded_utc(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        return _ensure_utc(value, "recorded_at")
+
+
+class CycleAuditRecord(BaseModel):
+    """Immutable risk + provenance sidecar stored with every completed cycle."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = "edgecraft.fund-cycle-audit.v1"
+    runtime: CycleRuntimeMetadata
+    risk: RiskEvaluation
+    quote_freshness: tuple[QuoteFreshnessRecord, ...] = ()
+    fee_total: Decimal = ZERO
+    fill_count: int = Field(ge=0, default=0)
+    settlement_count: int = Field(ge=0, default=0)
+
+    @field_validator("fee_total", mode="before")
+    @classmethod
+    def _fee_dec(cls, value: Any) -> Decimal:
+        return _as_decimal(value)
+
+
 class CycleResult(BaseModel):
     """Result of one atomic cycle execution or idempotent replay."""
 
@@ -481,6 +601,7 @@ class CycleResult(BaseModel):
     request_digest: str
     replayed: bool = False
     event_sequence: int
+    audit: CycleAuditRecord | None = None
 
 
 class VerificationReport(BaseModel):
@@ -508,6 +629,18 @@ class AuditEvent(BaseModel):
     payload: dict[str, Any]
     prev_hash: str
     event_hash: str
+
+
+class AccountingOutcome(BaseModel):
+    """Pure accounting result including the deterministic risk evaluation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    fills: tuple[FundFill, ...] = ()
+    settlements: tuple[FundFill, ...] = ()
+    state: FundState
+    risk: RiskEvaluation
+    quote_freshness: tuple[QuoteFreshnessRecord, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -892,7 +1025,46 @@ def _cycle_turnover(fills: Sequence[FundFill]) -> Decimal:
     return sum((f.gross_notional for f in fills if not f.is_settlement), ZERO)
 
 
-def _check_risk(
+def mandate_digest(mandate: FundMandate) -> str:
+    """Canonical SHA-256 of the immutable mandate payload used for a cycle."""
+    return _sha256_hex(_canonical_json(json.loads(mandate.model_dump_json())))
+
+
+def _quote_freshness_records(
+    *,
+    mandate: FundMandate,
+    as_of: datetime,
+    quotes: Sequence[FundQuote],
+) -> tuple[QuoteFreshnessRecord, ...]:
+    records: list[QuoteFreshnessRecord] = []
+    for quote in quotes:
+        max_obs = mandate.freshness_for(quote.asset_class)
+        max_src = mandate.source_age_for(quote.asset_class)
+        records.append(
+            QuoteFreshnessRecord(
+                instrument_id=quote.instrument_id,
+                quote_id=quote.quote_id,
+                asset_class=quote.asset_class,
+                status=quote.status,
+                price=quote.price,
+                observed_at=quote.observed_at,
+                source_timestamp=quote.source_timestamp,
+                observation_age_seconds=max(
+                    0, int((as_of - quote.observed_at).total_seconds())
+                ),
+                source_age_seconds=max(
+                    0, int((as_of - quote.source_timestamp).total_seconds())
+                ),
+                max_observation_age_seconds=int(max_obs.total_seconds()),
+                max_source_age_seconds=int(max_src.total_seconds()),
+                source_name=quote.source_name,
+                source_url=quote.source_url,
+            )
+        )
+    return tuple(records)
+
+
+def evaluate_risk(
     *,
     mandate: FundMandate,
     pre_state: FundState,
@@ -900,59 +1072,157 @@ def _check_risk(
     post_positions: Sequence[FundPosition],
     fills: Sequence[FundFill],
     order_count: int,
-) -> None:
-    if order_count > mandate.max_order_count:
-        raise PaperFundValidationError(
-            f"order count {order_count} exceeds max_order_count {mandate.max_order_count}"
-        )
+) -> RiskEvaluation:
+    """Evaluate every mandate risk rule and return a durable audit record.
 
+    Raises PaperFundValidationError when any hard limit fails, after the full
+    checklist is assembled so rejections remain explainable.
+    """
     turnover = _cycle_turnover(fills)
-    if turnover > mandate.max_cycle_turnover:
-        raise PaperFundValidationError(
-            f"cycle turnover {turnover} exceeds max_cycle_turnover {mandate.max_cycle_turnover}"
-        )
-
     nav, gross, net, short = _compute_exposures(post_cash, post_positions)
-    if nav <= ZERO:
-        raise PaperFundValidationError(f"post-trade NAV must be positive: {nav}")
-
     prediction_reserve = _prediction_short_reserve(post_positions)
-    if post_cash < prediction_reserve:
-        raise PaperFundValidationError(
-            f"cash {post_cash} is below prediction-short settlement reserve {prediction_reserve}"
-        )
+    peak = max(pre_state.peak_nav, nav)
+    post_dd = (peak - nav) / peak if peak > ZERO else ZERO
 
-    if gross > mandate.max_gross_exposure:
-        raise PaperFundValidationError(
-            f"gross exposure {gross} exceeds max {mandate.max_gross_exposure}"
-        )
-    if abs(net) > mandate.max_absolute_net_exposure:
-        raise PaperFundValidationError(
-            f"absolute net exposure {abs(net)} exceeds max {mandate.max_absolute_net_exposure}"
-        )
-    if short > mandate.max_short_exposure:
-        raise PaperFundValidationError(
-            f"short exposure {short} exceeds max {mandate.max_short_exposure}"
-        )
+    checks: list[RiskCheck] = [
+        RiskCheck(
+            name="order_count",
+            passed=order_count <= mandate.max_order_count,
+            observed=str(order_count),
+            limit=str(mandate.max_order_count),
+            detail=(
+                f"order count {order_count} exceeds max_order_count {mandate.max_order_count}"
+                if order_count > mandate.max_order_count
+                else ""
+            ),
+        ),
+        RiskCheck(
+            name="cycle_turnover",
+            passed=turnover <= mandate.max_cycle_turnover,
+            observed=str(turnover),
+            limit=str(mandate.max_cycle_turnover),
+            detail=(
+                f"cycle turnover {turnover} exceeds max_cycle_turnover {mandate.max_cycle_turnover}"
+                if turnover > mandate.max_cycle_turnover
+                else ""
+            ),
+        ),
+        RiskCheck(
+            name="post_nav_positive",
+            passed=nav > ZERO,
+            observed=str(nav),
+            limit="> 0",
+            detail=f"post-trade NAV must be positive: {nav}" if nav <= ZERO else "",
+        ),
+        RiskCheck(
+            name="prediction_short_reserve",
+            passed=post_cash >= prediction_reserve,
+            observed=str(post_cash),
+            limit=str(prediction_reserve),
+            detail=(
+                f"cash {post_cash} is below prediction-short settlement reserve {prediction_reserve}"
+                if post_cash < prediction_reserve
+                else "cash covers worst-case binary short settlement liability"
+            ),
+        ),
+        RiskCheck(
+            name="gross_exposure",
+            passed=gross <= mandate.max_gross_exposure,
+            observed=str(gross),
+            limit=str(mandate.max_gross_exposure),
+            detail=(
+                f"gross exposure {gross} exceeds max {mandate.max_gross_exposure}"
+                if gross > mandate.max_gross_exposure
+                else ""
+            ),
+        ),
+        RiskCheck(
+            name="absolute_net_exposure",
+            passed=abs(net) <= mandate.max_absolute_net_exposure,
+            observed=str(abs(net)),
+            limit=str(mandate.max_absolute_net_exposure),
+            detail=(
+                f"absolute net exposure {abs(net)} exceeds max {mandate.max_absolute_net_exposure}"
+                if abs(net) > mandate.max_absolute_net_exposure
+                else ""
+            ),
+        ),
+        RiskCheck(
+            name="short_exposure",
+            passed=short <= mandate.max_short_exposure,
+            observed=str(short),
+            limit=str(mandate.max_short_exposure),
+            detail=(
+                f"short exposure {short} exceeds max {mandate.max_short_exposure}"
+                if short > mandate.max_short_exposure
+                else ""
+            ),
+        ),
+    ]
 
     if nav > ZERO:
         for pos in post_positions:
             weight = abs(pos.market_value or ZERO) / nav
-            if weight > mandate.max_single_position_weight:
-                raise PaperFundValidationError(
-                    f"position weight {weight} for {pos.instrument_id} exceeds "
-                    f"max_single_position_weight {mandate.max_single_position_weight}"
+            checks.append(
+                RiskCheck(
+                    name=f"position_weight:{pos.instrument_id}",
+                    passed=weight <= mandate.max_single_position_weight,
+                    observed=str(weight),
+                    limit=str(mandate.max_single_position_weight),
+                    detail=(
+                        f"position weight {weight} for {pos.instrument_id} exceeds "
+                        f"max_single_position_weight {mandate.max_single_position_weight}"
+                        if weight > mandate.max_single_position_weight
+                        else ""
+                    ),
                 )
+            )
 
     # Drawdown gate: if pre-trade drawdown already beyond threshold, refuse
     # risk-increasing cycles (post gross > pre gross).
-    if pre_state.drawdown > mandate.max_drawdown:
-        pre_gross = pre_state.gross_exposure
-        if gross > pre_gross:
-            raise PaperFundValidationError(
+    pre_gross = pre_state.gross_exposure
+    drawdown_breach = pre_state.drawdown > mandate.max_drawdown
+    risk_increasing = gross > pre_gross
+    checks.append(
+        RiskCheck(
+            name="drawdown_risk_increase",
+            passed=not (drawdown_breach and risk_increasing),
+            observed=str(pre_state.drawdown),
+            limit=str(mandate.max_drawdown),
+            detail=(
                 f"drawdown {pre_state.drawdown} exceeds max_drawdown {mandate.max_drawdown}; "
                 f"refusing risk-increasing cycle (gross {pre_gross} -> {gross})"
-            )
+                if drawdown_breach and risk_increasing
+                else ""
+            ),
+        )
+    )
+
+    failures = [check for check in checks if not check.passed]
+    evaluation = RiskEvaluation(
+        approved=not failures,
+        checks=tuple(checks),
+        order_count=order_count,
+        turnover=turnover,
+        pre_nav=pre_state.nav,
+        post_nav=nav,
+        post_gross_exposure=gross,
+        post_net_exposure=net,
+        post_short_exposure=short,
+        post_drawdown=post_dd,
+        prediction_short_reserve=prediction_reserve,
+    )
+    if failures:
+        primary = failures[0]
+        raise PaperFundValidationError(
+            primary.detail
+            or (
+                f"{primary.name} failed: observed {primary.observed}"
+                + (f" limit {primary.limit}" if primary.limit is not None else "")
+            ),
+            audit={"risk": evaluation.model_dump(mode="json")},
+        )
+    return evaluation
 
 
 def run_cycle_accounting(
@@ -961,7 +1231,7 @@ def run_cycle_accounting(
     prior_state: FundState,
     decision: FundDecision,
     quotes: Sequence[FundQuote],
-) -> tuple[list[FundFill], list[FundFill], FundState]:
+) -> AccountingOutcome:
     """Pure cycle accounting: settlements, orders, marks, risk. No I/O."""
     if decision.fund_id != prior_state.fund_id:
         raise PaperFundValidationError("decision fund_id does not match fund state")
@@ -977,6 +1247,9 @@ def run_cycle_accounting(
         quotes=quotes,
         open_positions=open_positions,
         orders=decision.orders,
+    )
+    quote_freshness = _quote_freshness_records(
+        mandate=mandate, as_of=decision.as_of, quotes=quotes
     )
 
     cash = prior_state.cash
@@ -1094,7 +1367,7 @@ def run_cycle_accounting(
     )
 
     all_fills = settlements + fills
-    _check_risk(
+    risk = evaluate_risk(
         mandate=mandate,
         pre_state=pre_state,
         post_cash=cash,
@@ -1122,7 +1395,13 @@ def run_cycle_accounting(
         cycle_count=prior_state.cycle_count + 1,
         last_cycle_key=decision.cycle_key,
     )
-    return fills, settlements, new_state
+    return AccountingOutcome(
+        fills=tuple(fills),
+        settlements=tuple(settlements),
+        state=new_state,
+        risk=risk,
+        quote_freshness=quote_freshness,
+    )
 
 
 def request_digest(
@@ -1439,6 +1718,87 @@ class PaperFundLedger:
         ).fetchall()
         return [dict(row) for row in rows]
 
+    def get_cycle(self, fund_id: str, cycle_key: str) -> dict[str, Any]:
+        """Return the full immutable cycle row used for audit and replay."""
+        row = self.connection.execute(
+            """
+            SELECT fund_id, cycle_key, decision_id, as_of, action, request_digest,
+                   decision_json, quotes_json, fills_json, settlements_json,
+                   state_json, result_json, created_at
+            FROM cycles WHERE fund_id = ? AND cycle_key = ?
+            """,
+            (fund_id, cycle_key),
+        ).fetchone()
+        if row is None:
+            raise PaperFundValidationError(
+                f"cycle {cycle_key!r} not found for fund {fund_id}"
+            )
+        result = CycleResult.model_validate_json(row["result_json"])
+        return {
+            "fund_id": row["fund_id"],
+            "cycle_key": row["cycle_key"],
+            "decision_id": row["decision_id"],
+            "as_of": row["as_of"],
+            "action": row["action"],
+            "request_digest": row["request_digest"],
+            "created_at": row["created_at"],
+            "decision": json.loads(row["decision_json"]),
+            "quotes": json.loads(row["quotes_json"]),
+            "fills": json.loads(row["fills_json"]),
+            "settlements": json.loads(row["settlements_json"]),
+            "state": json.loads(row["state_json"]),
+            "result": result.model_dump(mode="json"),
+            "audit": (
+                result.audit.model_dump(mode="json") if result.audit is not None else None
+            ),
+        }
+
+    def cycle_audit(self, fund_id: str, cycle_key: str) -> dict[str, Any]:
+        """Join decision, quotes, risk, fills, events, and verification for one cycle."""
+        cycle = self.get_cycle(fund_id, cycle_key)
+        related = [
+            event.model_dump(mode="json")
+            for event in self.list_events(fund_id)
+            if event.payload.get("cycle_key") == cycle_key
+        ]
+        verification = self.verify(fund_id, raise_on_error=False)
+        audit = cycle.get("audit") or {}
+        gaps: list[str] = []
+        if not audit:
+            gaps.append("No structured audit sidecar recorded for this cycle")
+        else:
+            if audit.get("risk") is None:
+                gaps.append("No structured risk evaluation recorded for this cycle")
+            runtime = audit.get("runtime") or {}
+            if not runtime.get("edgecraft_version"):
+                gaps.append("Runtime provenance is missing edgecraft_version")
+            if not runtime.get("mandate_digest"):
+                gaps.append("Runtime provenance is missing mandate_digest")
+        if not related:
+            gaps.append("No hash-chained event references this cycle_key")
+        return {
+            "schema_version": "edgecraft.fund-cycle-audit-view.v1",
+            "generated_at": _utc_now().isoformat().replace("+00:00", "Z"),
+            "fund_id": fund_id,
+            "cycle_key": cycle_key,
+            "cycle": cycle,
+            "decision": cycle["decision"],
+            "quotes": cycle["quotes"],
+            "fills": cycle["fills"],
+            "settlements": cycle["settlements"],
+            "state": cycle["state"],
+            "audit": audit,
+            "events": related,
+            "verification": verification.model_dump(mode="json"),
+            "audit_gaps": gaps,
+            "reconciliation": {
+                "request_digest": cycle["request_digest"],
+                "chain_ok": verification.chain_ok,
+                "accounting_ok": verification.accounting_ok,
+                "ledger_ok": verification.ok,
+            },
+        }
+
     def state_history(self, fund_id: str) -> list[dict[str, Any]]:
         """Return the immutable NAV/exposure path recorded after every cycle."""
         rows = self.connection.execute(
@@ -1499,12 +1859,14 @@ class PaperFundLedger:
         self,
         decision: FundDecision,
         quotes: Sequence[FundQuote],
+        *,
+        runtime: CycleRuntimeMetadata | None = None,
     ) -> CycleResult:
         """Execute atomically and retain rejected normalized requests in the audit chain."""
         try:
-            return self._execute_cycle(decision, quotes)
+            return self._execute_cycle(decision, quotes, runtime=runtime)
         except (PaperFundValidationError, PaperFundIdempotencyError) as exc:
-            self._record_rejection(decision, quotes, exc)
+            self._record_rejection(decision, quotes, exc, runtime=runtime)
             raise
 
     def _record_rejection(
@@ -1512,6 +1874,8 @@ class PaperFundLedger:
         decision: FundDecision,
         quotes: Sequence[FundQuote],
         error: PaperFundError,
+        *,
+        runtime: CycleRuntimeMetadata | None = None,
     ) -> None:
         digest = request_digest(decision, quotes)
         with self._transaction() as conn:
@@ -1520,26 +1884,64 @@ class PaperFundLedger:
             ).fetchone()
             if exists is None:
                 return
+            mandate = self._load_mandate(conn, decision.fund_id)
+            runtime_payload = self._runtime_for_cycle(mandate, runtime)
+            payload: dict[str, Any] = {
+                "fund_id": decision.fund_id,
+                "cycle_key": decision.cycle_key,
+                "decision_id": decision.decision_id,
+                "request_digest": digest,
+                "error_type": type(error).__name__,
+                "reason": str(error),
+                "decision": decision.model_dump(mode="json"),
+                "quotes": [quote.model_dump(mode="json") for quote in quotes],
+                "thesis": decision.thesis,
+                "alternatives": decision.alternatives,
+                "risks": decision.risks,
+                "runtime": runtime_payload.model_dump(mode="json"),
+                "quote_freshness": [
+                    item.model_dump(mode="json")
+                    for item in _quote_freshness_records(
+                        mandate=mandate, as_of=decision.as_of, quotes=quotes
+                    )
+                ],
+            }
+            if isinstance(error, PaperFundError) and error.audit:
+                payload.update(error.audit)
             self._append_event(
                 conn,
                 fund_id=decision.fund_id,
                 event_type="cycle_rejected",
-                payload={
-                    "fund_id": decision.fund_id,
-                    "cycle_key": decision.cycle_key,
-                    "decision_id": decision.decision_id,
-                    "request_digest": digest,
-                    "error_type": type(error).__name__,
-                    "reason": str(error),
-                    "decision": decision.model_dump(mode="json"),
-                    "quotes": [quote.model_dump(mode="json") for quote in quotes],
-                },
+                payload=payload,
             )
+
+    @staticmethod
+    def _runtime_for_cycle(
+        mandate: FundMandate,
+        runtime: CycleRuntimeMetadata | None,
+    ) -> CycleRuntimeMetadata:
+        from edgecraft import __version__
+
+        if runtime is None:
+            return CycleRuntimeMetadata(
+                edgecraft_version=__version__,
+                mandate_digest=mandate_digest(mandate),
+                recorded_at=_utc_now(),
+            )
+        return runtime.model_copy(
+            update={
+                "edgecraft_version": runtime.edgecraft_version or __version__,
+                "mandate_digest": runtime.mandate_digest or mandate_digest(mandate),
+                "recorded_at": runtime.recorded_at or _utc_now(),
+            }
+        )
 
     def _execute_cycle(
         self,
         decision: FundDecision,
         quotes: Sequence[FundQuote],
+        *,
+        runtime: CycleRuntimeMetadata | None = None,
     ) -> CycleResult:
         """Execute one atomic cycle, or replay if the exact request was stored."""
         digest = request_digest(decision, quotes)
@@ -1562,11 +1964,24 @@ class PaperFundLedger:
                 return result.model_copy(update={"replayed": True})
 
             prior = self._load_latest_state(conn, decision.fund_id)
-            fills, settlements, new_state = run_cycle_accounting(
+            outcome = run_cycle_accounting(
                 mandate=mandate,
                 prior_state=prior,
                 decision=decision,
                 quotes=quotes,
+            )
+            fills = list(outcome.fills)
+            settlements = list(outcome.settlements)
+            new_state = outcome.state
+            runtime_payload = self._runtime_for_cycle(mandate, runtime)
+            fee_total = sum((fill.fee for fill in fills + settlements), ZERO)
+            audit = CycleAuditRecord(
+                runtime=runtime_payload,
+                risk=outcome.risk,
+                quote_freshness=outcome.quote_freshness,
+                fee_total=fee_total,
+                fill_count=len(fills),
+                settlement_count=len(settlements),
             )
 
             result = CycleResult(
@@ -1581,6 +1996,7 @@ class PaperFundLedger:
                 request_digest=digest,
                 replayed=False,
                 event_sequence=0,  # filled after event insert
+                audit=audit,
             )
 
             created = _utc_now()
@@ -1598,6 +2014,18 @@ class PaperFundLedger:
                     "settlement_count": len(settlements),
                     "nav": str(new_state.nav),
                     "cash": str(new_state.cash),
+                    "thesis": decision.thesis,
+                    "alternatives": decision.alternatives,
+                    "risks": decision.risks,
+                    "decision": decision.model_dump(mode="json"),
+                    "quotes": [quote.model_dump(mode="json") for quote in quotes],
+                    "fills": [fill.model_dump(mode="json") for fill in fills],
+                    "settlements": [
+                        settlement.model_dump(mode="json") for settlement in settlements
+                    ],
+                    "state": new_state.model_dump(mode="json"),
+                    "audit": audit.model_dump(mode="json"),
+                    "fee_total": str(fee_total),
                 },
                 occurred_at=decision.as_of,
             )
@@ -1731,12 +2159,13 @@ class PaperFundLedger:
                     accounting_ok = False
                     details.append(f"request digest mismatch for cycle {decision.cycle_key}")
                 try:
-                    _, _, state = run_cycle_accounting(
+                    outcome = run_cycle_accounting(
                         mandate=mandate,
                         prior_state=state,
                         decision=decision,
                         quotes=quotes,
                     )
+                    state = outcome.state
                 except PaperFundError as exc:
                     accounting_ok = False
                     details.append(f"replay failed for {decision.cycle_key}: {exc}")

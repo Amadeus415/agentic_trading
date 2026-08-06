@@ -9,8 +9,10 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from edgecraft import __version__
 from edgecraft.paper_fund import (
     AssetClass,
+    CycleRuntimeMetadata,
     DecisionAction,
     FundDecision,
     FundEvidence,
@@ -23,6 +25,7 @@ from edgecraft.paper_fund import (
     PaperFundLedger,
     PaperFundValidationError,
     QuoteStatus,
+    mandate_digest,
 )
 
 AS_OF = datetime(2026, 8, 6, 15, 0, tzinfo=UTC)
@@ -1315,3 +1318,91 @@ def test_default_mandate_is_paper_thousand() -> None:
     assert AssetClass.STOCK in m.supported_asset_classes
     assert AssetClass.CRYPTO in m.supported_asset_classes
     assert AssetClass.PREDICTION in m.supported_asset_classes
+
+
+# ---------------------------------------------------------------------------
+# Full audit trail: risk, provenance, hash-chained payloads, retrieval
+# ---------------------------------------------------------------------------
+
+
+def test_completed_cycle_is_fully_auditable(tmp_path: Path) -> None:
+    mandate = _mandate(fee_bps=Decimal("0"), slippage_bps=Decimal("0"))
+    with _ledger(tmp_path) as ledger:
+        ledger.initialize(FUND_ID, mandate)
+        evidence = _ev("spy-e", instruments=("SPY",))
+        decision = _decision(
+            "audit-trade",
+            orders=(_buy("SPY", "1", AssetClass.STOCK, evidence_ids=("spy-e",)),),
+            evidence=(evidence,),
+            thesis="Buy a unit of SPY after fresh sourced evidence.",
+            as_of=AS_OF,
+        )
+        quotes = [_quote("SPY", "100", AssetClass.STOCK)]
+        runtime = CycleRuntimeMetadata(
+            edgecraft_version=__version__,
+            mandate_digest=mandate_digest(mandate),
+            prompt_version="edgecraft.prompts.test",
+            model="test-model",
+            input_path="/tmp/input.json",
+            input_sha256="a" * 64,
+            recorded_at=AS_OF,
+        )
+        result = ledger.execute_cycle(decision, quotes, runtime=runtime)
+
+        assert result.audit is not None
+        assert result.audit.risk.approved is True
+        assert result.audit.risk.checks
+        assert all(check.passed for check in result.audit.risk.checks)
+        assert result.audit.runtime.prompt_version == "edgecraft.prompts.test"
+        assert result.audit.runtime.model == "test-model"
+        assert result.audit.runtime.input_sha256 == "a" * 64
+        assert result.audit.quote_freshness[0].instrument_id == "SPY"
+        assert result.audit.fill_count == 1
+
+        completed = next(
+            event
+            for event in ledger.list_events(FUND_ID)
+            if event.event_type == "cycle_completed"
+        )
+        assert completed.payload["decision"]["thesis"] == decision.thesis
+        assert completed.payload["quotes"][0]["instrument_id"] == "SPY"
+        assert completed.payload["fills"][0]["side"] == "buy"
+        assert completed.payload["audit"]["risk"]["approved"] is True
+        assert completed.payload["audit"]["runtime"]["model"] == "test-model"
+
+        cycle = ledger.get_cycle(FUND_ID, "audit-trade")
+        assert cycle["decision"]["decision_id"] == decision.decision_id
+        assert cycle["audit"]["runtime"]["prompt_version"] == "edgecraft.prompts.test"
+
+        audit = ledger.cycle_audit(FUND_ID, "audit-trade")
+        assert audit["audit_gaps"] == []
+        assert audit["reconciliation"]["ledger_ok"] is True
+        assert audit["events"][0]["event_type"] == "cycle_completed"
+        assert audit["fills"][0]["fee"] == "0"
+        assert ledger.verify(FUND_ID).ok is True
+
+
+def test_risk_rejection_records_structured_risk_audit(tmp_path: Path) -> None:
+    mandate = _mandate(max_order_count=0, fee_bps=Decimal("0"), slippage_bps=Decimal("0"))
+    with _ledger(tmp_path) as ledger:
+        ledger.initialize(FUND_ID, mandate)
+        with pytest.raises(PaperFundValidationError, match="order count"):
+            ledger.execute_cycle(
+                _decision(
+                    "too-many",
+                    orders=(_buy("SPY", "1", AssetClass.STOCK),),
+                    evidence=(_ev("e1", instruments=("SPY",)),),
+                ),
+                quotes=[_quote("SPY", "100", AssetClass.STOCK)],
+            )
+        rejection = ledger.list_events(FUND_ID)[-1]
+        assert rejection.event_type == "cycle_rejected"
+        assert rejection.payload["risk"]["approved"] is False
+        assert any(
+            check["name"] == "order_count" and check["passed"] is False
+            for check in rejection.payload["risk"]["checks"]
+        )
+        assert rejection.payload["decision"]["cycle_key"] == "too-many"
+        assert rejection.payload["runtime"]["edgecraft_version"] == __version__
+        assert "mandate_digest" in rejection.payload["runtime"]
+        assert ledger.verify(FUND_ID).ok is True
