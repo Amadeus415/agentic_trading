@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
-# Single paper-only, fail-closed scheduled wake path for Codex / cron.
-# health (hard fail) → readiness --require-ready → cycle
+# Single fake-money scheduled apply path. Codex researches and writes today's
+# structured input; this script only validates and applies deterministic paper accounting.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-LEDGER="${LEDGER:-state/edgecraft-paper.db}"
-# Fixed shadow mandate: scheduled operation cannot be redirected to live trading.
-MANDATE="examples/mandate.index-dca.json"
-REAL_DATA_SYMBOL="${REAL_DATA_SYMBOL:-SPY}"
+CONFIG="examples/fund.mandate.json"
+LEDGER="state/edgecraft-fund.db"
+TODAY_UTC="$(date -u +%F)"
+INPUT="${FUND_INPUT:-state/fund-inputs/${TODAY_UTC}.json}"
+
+if [[ ! -f "$INPUT" ]]; then
+  echo "{\"ok\":false,\"error\":\"missing_fund_input\",\"detail\":\"$INPUT\"}" >&2
+  exit 2
+fi
 
 if command -v uv >/dev/null 2>&1; then
   # Scheduled runs must not resolve dependencies or require package-network access.
@@ -24,6 +29,8 @@ else
   fi
 fi
 
-"${RUN[@]}" health --real-data-symbol "$REAL_DATA_SYMBOL" --ledger "$LEDGER"
-"${RUN[@]}" readiness --mandate "$MANDATE" --ledger "$LEDGER" --require-ready
-"${RUN[@]}" cycle --mandate "$MANDATE" --ledger "$LEDGER" --paper-only
+"${RUN[@]}" fund-init --config "$CONFIG" --ledger "$LEDGER"
+"${RUN[@]}" fund-verify --config "$CONFIG" --ledger "$LEDGER"
+"${RUN[@]}" fund-run --config "$CONFIG" --input "$INPUT" --ledger "$LEDGER" \
+  --require-as-of-today --max-decision-age-seconds 1800 --require-cycle-key "$TODAY_UTC"
+"${RUN[@]}" fund-verify --config "$CONFIG" --ledger "$LEDGER"
