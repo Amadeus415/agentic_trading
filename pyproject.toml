@@ -1,7 +1,7 @@
 [project]
 name = "edgecraft"
-version = "0.6.0"
-description = "Autonomous daily paper trading and causal market research"
+version = "0.7.0"
+description = "An autonomous $1,000 multi-market paper fund with an append-only ledger"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]

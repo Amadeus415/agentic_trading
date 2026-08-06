@@ -7,6 +7,7 @@ import subprocess
 import sys
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,13 @@ from edgecraft.intelligence import YahooMarketIntelligenceCollector
 from edgecraft.ledger import AuditLedger
 from edgecraft.models import BacktestRequest, CostModel
 from edgecraft.observability import autonomy_health, prometheus_metrics
+from edgecraft.paper_fund import (
+    FundDecision,
+    FundMandate,
+    FundQuote,
+    PaperFundLedger,
+    PaperFundValidationError,
+)
 from edgecraft.portfolio import analyze_portfolio
 from edgecraft.promotion import build_research_evidence
 from edgecraft.research import run_research
@@ -31,6 +39,7 @@ from edgecraft.strategies import STRATEGY_SCHEMAS
 from edgecraft.walkforward import walk_forward_validate
 
 DEFAULT_LEDGER = "state/edgecraft-paper.db"
+DEFAULT_FUND_LEDGER = "state/edgecraft-fund.db"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -41,8 +50,68 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
     _add_research_commands(commands)
+    _add_fund_commands(commands)
     _add_operation_commands(commands)
     return parser
+
+
+def _add_fund_commands(commands: Any) -> None:
+    validate = commands.add_parser(
+        "fund-validate", help="Validate the persistent paper-fund mandate."
+    )
+    validate.add_argument("--config", required=True, type=Path)
+
+    initialize = commands.add_parser("fund-init", help="Capitalize the paper fund exactly once.")
+    initialize.add_argument("--config", required=True, type=Path)
+    initialize.add_argument("--ledger", default=DEFAULT_FUND_LEDGER)
+
+    context = commands.add_parser(
+        "fund-context", help="Print the authoritative state and decision contract for Codex."
+    )
+    context.add_argument("--config", required=True, type=Path)
+    context.add_argument("--ledger", default=DEFAULT_FUND_LEDGER)
+
+    run = commands.add_parser(
+        "fund-run", help="Apply one researched decision to the simulated paper fund."
+    )
+    run.add_argument("--config", required=True, type=Path)
+    run.add_argument("--input", required=True, type=Path)
+    run.add_argument("--ledger", default=DEFAULT_FUND_LEDGER)
+    run.add_argument(
+        "--require-as-of-today",
+        action="store_true",
+        help="Reject a scheduled input whose UTC as_of date is not today.",
+    )
+    run.add_argument(
+        "--max-decision-age-seconds",
+        type=int,
+        help="Reject a scheduled decision older than this many seconds.",
+    )
+    run.add_argument(
+        "--require-cycle-key",
+        help="Require this exact cycle key for a scheduled run.",
+    )
+
+    status = commands.add_parser("fund-status", help="Show the current paper-fund book.")
+    status.add_argument("--config", required=True, type=Path)
+    status.add_argument("--ledger", default=DEFAULT_FUND_LEDGER)
+
+    performance = commands.add_parser(
+        "fund-performance", help="Report bankroll return and the immutable NAV history."
+    )
+    performance.add_argument("--config", required=True, type=Path)
+    performance.add_argument("--ledger", default=DEFAULT_FUND_LEDGER)
+
+    events = commands.add_parser("fund-events", help="List append-only paper-fund events.")
+    events.add_argument("--config", required=True, type=Path)
+    events.add_argument("--ledger", default=DEFAULT_FUND_LEDGER)
+    events.add_argument("--limit", type=int, default=20)
+
+    verify = commands.add_parser(
+        "fund-verify", help="Verify the paper-fund hash chain and accounting replay."
+    )
+    verify.add_argument("--config", required=True, type=Path)
+    verify.add_argument("--ledger", default=DEFAULT_FUND_LEDGER)
 
 
 def _add_research_commands(commands: Any) -> None:
@@ -301,6 +370,210 @@ def _market_diagnostics(args: argparse.Namespace) -> dict[str, Any]:
     return market_diagnostics(data, benchmark=args.benchmark.upper())
 
 
+def _load_fund_config(path: Path) -> tuple[str, FundMandate]:
+    raw = _read_json(path)
+    if not isinstance(raw, dict):
+        raise ValueError("fund config must be a JSON object")
+    fund_id = str(raw.get("fund_id", "")).strip()
+    if not fund_id:
+        raise ValueError("fund config requires fund_id")
+    mandate = FundMandate.model_validate(raw.get("mandate"))
+    return fund_id, mandate
+
+
+def _ensure_fund_initialized(
+    ledger: PaperFundLedger,
+    fund_id: str,
+    mandate: FundMandate,
+) -> bool:
+    try:
+        existing = ledger.get_mandate(fund_id)
+    except PaperFundValidationError as exc:
+        if "is not initialized" not in str(exc):
+            raise
+        ledger.initialize(fund_id, mandate)
+        return True
+    if existing != mandate:
+        raise ValueError(
+            "checked-in fund mandate differs from the immutable initialized mandate; "
+            "start a new fund ID instead of rewriting history"
+        )
+    return False
+
+
+def _fund_validate(args: argparse.Namespace) -> dict[str, Any]:
+    fund_id, mandate = _load_fund_config(args.config)
+    return {
+        "ok": True,
+        "paper_only": True,
+        "fund_id": fund_id,
+        "mandate": mandate.model_dump(mode="json"),
+    }
+
+
+def _fund_init(args: argparse.Namespace) -> dict[str, Any]:
+    fund_id, mandate = _load_fund_config(args.config)
+    with PaperFundLedger(args.ledger) as ledger:
+        initialized = _ensure_fund_initialized(ledger, fund_id, mandate)
+        state = ledger.get_state(fund_id)
+        verification = ledger.verify(fund_id)
+    return {
+        "ok": True,
+        "paper_only": True,
+        "initialized": initialized,
+        "state": state.model_dump(mode="json"),
+        "verification": verification.model_dump(mode="json"),
+    }
+
+
+def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
+    fund_id, mandate = _load_fund_config(args.config)
+    with PaperFundLedger(args.ledger) as ledger:
+        state = ledger.get_state(fund_id)
+        cycles = ledger.list_cycles(fund_id)[-10:]
+    initial = mandate.initial_cash
+    return {
+        "ok": True,
+        "paper_only": True,
+        "one_sentence": (
+            "Codex proposes a daily portfolio decision; deterministic code applies it "
+            "to an append-only $1,000 fake-money ledger."
+        ),
+        "fund_id": fund_id,
+        "mandate": mandate.model_dump(mode="json"),
+        "state": state.model_dump(mode="json"),
+        "performance": {
+            "initial_cash": str(initial),
+            "profit_and_loss": str(state.nav - initial),
+            "return_on_initial_cash": str((state.nav / initial) - 1),
+        },
+        "recent_cycles": cycles,
+        "input_contract": {
+            "shape": {"decision": "FundDecision", "quotes": ["FundQuote"]},
+            "decision_schema": FundDecision.model_json_schema(mode="validation"),
+            "quote_schema": FundQuote.model_json_schema(mode="validation"),
+            "rules": [
+                "Use action=hold with no orders when evidence is weak.",
+                "Use explicit buy, sell, short, or cover sides and positive quantities.",
+                "Include fresh quotes for every open position and every ordered instrument.",
+                "Cite every order to evidence embedded in the decision.",
+                "Use only public market data; never call a broker mutation tool.",
+            ],
+        },
+    }
+
+
+def _fund_run(args: argparse.Namespace) -> dict[str, Any]:
+    fund_id, mandate = _load_fund_config(args.config)
+    raw = _read_json(args.input)
+    if not isinstance(raw, dict):
+        raise ValueError("fund cycle input must be a JSON object")
+    decision = FundDecision.model_validate(raw.get("decision"))
+    quotes = [FundQuote.model_validate(item) for item in raw.get("quotes", [])]
+    if decision.fund_id != fund_id:
+        raise ValueError("decision fund_id does not match the checked-in fund config")
+    if args.require_as_of_today and decision.as_of.date() != datetime.now(UTC).date():
+        raise ValueError(
+            f"scheduled decision as_of date {decision.as_of.date()} is not today's UTC date"
+        )
+    if args.max_decision_age_seconds is not None:
+        if args.max_decision_age_seconds < 1:
+            raise ValueError("max decision age must be positive")
+        age = (datetime.now(UTC) - decision.as_of).total_seconds()
+        if age < -60 or age > args.max_decision_age_seconds:
+            raise ValueError(
+                f"scheduled decision age {int(age)}s is outside the allowed "
+                f"window of {args.max_decision_age_seconds}s"
+            )
+    if args.require_cycle_key and decision.cycle_key != args.require_cycle_key:
+        raise ValueError(
+            f"scheduled cycle key {decision.cycle_key!r} does not match "
+            f"required key {args.require_cycle_key!r}"
+        )
+    with PaperFundLedger(args.ledger) as ledger:
+        initialized = _ensure_fund_initialized(ledger, fund_id, mandate)
+        result = ledger.execute_cycle(decision, quotes)
+        verification = ledger.verify(fund_id)
+    return {
+        "ok": True,
+        "paper_only": True,
+        "initialized": initialized,
+        "result": result.model_dump(mode="json"),
+        "verification": verification.model_dump(mode="json"),
+    }
+
+
+def _fund_status(args: argparse.Namespace) -> dict[str, Any]:
+    fund_id, mandate = _load_fund_config(args.config)
+    with PaperFundLedger(args.ledger) as ledger:
+        state = ledger.get_state(fund_id)
+        cycles = ledger.list_cycles(fund_id)
+        verification = ledger.verify(fund_id)
+    return {
+        "ok": True,
+        "paper_only": True,
+        "fund_id": fund_id,
+        "state": state.model_dump(mode="json"),
+        "performance": {
+            "initial_cash": str(mandate.initial_cash),
+            "profit_and_loss": str(state.nav - mandate.initial_cash),
+            "return_on_initial_cash": str((state.nav / mandate.initial_cash) - 1),
+        },
+        "cycle_count": len(cycles),
+        "verification": verification.model_dump(mode="json"),
+    }
+
+
+def _fund_performance(args: argparse.Namespace) -> dict[str, Any]:
+    fund_id, mandate = _load_fund_config(args.config)
+    with PaperFundLedger(args.ledger) as ledger:
+        state = ledger.get_state(fund_id)
+        history = ledger.state_history(fund_id)
+    initial = mandate.initial_cash
+    navs = [initial, *(Decimal(item["nav"]) for item in history)]
+    cycle_returns = [
+        (current / previous) - 1
+        for previous, current in zip(navs, navs[1:], strict=False)
+        if previous != 0
+    ]
+    return {
+        "ok": True,
+        "paper_only": True,
+        "fund_id": fund_id,
+        "status": "measuring" if len(history) < 20 else "active",
+        "initial_cash": str(initial),
+        "current_nav": str(state.nav),
+        "profit_and_loss": str(state.nav - initial),
+        "total_return": str((state.nav / initial) - 1),
+        "max_drawdown": str(max((Decimal(item["drawdown"]) for item in history), default=0)),
+        "positive_cycle_count": sum(item > 0 for item in cycle_returns),
+        "negative_cycle_count": sum(item < 0 for item in cycle_returns),
+        "hold_count": sum(item["action"] == "hold" for item in history),
+        "trade_count": sum(item["action"] == "trade" for item in history),
+        "simulated_fill_count": sum(item["fill_count"] for item in history),
+        "history": history,
+        "interpretation": (
+            "Raw bankroll performance only; use a longer frozen history and a market "
+            "benchmark before drawing conclusions about skill."
+        ),
+    }
+
+
+def _fund_events(args: argparse.Namespace) -> list[dict[str, Any]]:
+    if args.limit < 1:
+        raise ValueError("limit must be positive")
+    fund_id, _mandate = _load_fund_config(args.config)
+    with PaperFundLedger(args.ledger) as ledger:
+        events = ledger.list_events(fund_id)[-args.limit :]
+    return [event.model_dump(mode="json") for event in events]
+
+
+def _fund_verify(args: argparse.Namespace) -> dict[str, Any]:
+    fund_id, _mandate = _load_fund_config(args.config)
+    with PaperFundLedger(args.ledger) as ledger:
+        return ledger.verify(fund_id).model_dump(mode="json")
+
+
 def _register_mandate(args: argparse.Namespace) -> dict[str, Any]:
     mandate = Mandate.model_validate(_read_json(args.config))
     ledger = AuditLedger(args.ledger)
@@ -358,6 +631,10 @@ def _run_cycle(args: argparse.Namespace) -> dict[str, Any]:
         policy = RiskPolicy.model_validate(_read_json(Path(mandate.policy_path)))
         if policy.trading_enabled:
             raise ValueError("paper-only cycles require trading_enabled=false")
+    elif mandate.mode != "shadow":
+        raise ValueError(
+            "live execution is disabled in Edgecraft 0.7; use the $1,000 paper-fund commands"
+        )
     ledger = AuditLedger(args.ledger)
     if args.observation:
         if mandate.mode != "shadow":
@@ -449,6 +726,14 @@ COMMAND_HANDLERS: dict[str, CommandHandler] = {
     ),
     "portfolio-risk": _portfolio_risk,
     "evidence": _evidence,
+    "fund-validate": _fund_validate,
+    "fund-init": _fund_init,
+    "fund-context": _fund_context,
+    "fund-run": _fund_run,
+    "fund-status": _fund_status,
+    "fund-performance": _fund_performance,
+    "fund-events": _fund_events,
+    "fund-verify": _fund_verify,
     "ledger": lambda args: AuditLedger(args.path).status(),
     "mandate-validate": lambda args: Mandate.model_validate(_read_json(args.config)).model_dump(
         mode="json"

@@ -1,7 +1,7 @@
-.PHONY: install test lint security demo health scheduled-cycle validate
+.PHONY: install test lint security demo health fund-init fund-context fund-status fund-performance scheduled-cycle validate
 
-# Paper-only schedule entrypoint (fail-closed health → readiness → cycle).
-LEDGER ?= state/edgecraft-paper.db
+FUND_CONFIG := examples/fund.mandate.json
+FUND_LEDGER := state/edgecraft-fund.db
 
 install:
 	uv sync --extra dev
@@ -24,12 +24,23 @@ demo:
 health:
 	uv run edgecraft health
 
-# Single paper-only wake path for Codex scheduled tasks.
+fund-init:
+	uv run edgecraft fund-init --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
+
+fund-context:
+	uv run edgecraft fund-context --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
+
+fund-status:
+	uv run edgecraft fund-status --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
+
+fund-performance:
+	uv run edgecraft fund-performance --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
+
+# Codex writes today's researched input; this applies fake-money accounting only.
 scheduled-cycle:
-	LEDGER=$(LEDGER) ./scripts/run_scheduled_cycle.sh
+	./scripts/run_scheduled_cycle.sh
 
 validate: test lint
-	uv run edgecraft mandate-validate --config examples/mandate.index-dca.json
-	uv run edgecraft mandate-validate --config examples/mandate.index-dca-live.example.json
+	uv run edgecraft fund-validate --config $(FUND_CONFIG)
 	uv run edgecraft backtest --config examples/research.json --data-source synthetic --output artifacts/smoke-backtest.json
 	uv run edgecraft walk-forward --config examples/research.json --data-source synthetic --train-sessions 504 --test-sessions 126 --output artifacts/smoke-walk-forward.json

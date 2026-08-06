@@ -237,6 +237,40 @@ def test_paper_only_cycle_rejects_live_mandate_before_runtime(tmp_path, capsys):
     assert "paper-only cycles require a shadow mandate" in capsys.readouterr().err
 
 
+def test_legacy_cycle_rejects_live_execution_without_paper_flag(tmp_path, capsys):
+    policy = tmp_path / "policy.json"
+    policy.write_text(
+        json.dumps(
+            {
+                "policy_name": "live",
+                "trading_enabled": True,
+                "allowed_symbols": ["SPY"],
+            }
+        )
+    )
+    mandate = tmp_path / "mandate.json"
+    mandate.write_text(
+        json.dumps(
+            {
+                "mandate_id": "live",
+                "goal": "Must be rejected because the rebuilt product is fake-money-only.",
+                "mode": "live",
+                "weekly_budget": "1",
+                "universe": ["SPY"],
+                "strategic_weights": {"SPY": "1"},
+                "policy_path": str(policy),
+                "external_context_path": "context.json",
+            }
+        )
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(["cycle", "--mandate", str(mandate)])
+
+    assert excinfo.value.code == 2
+    assert "live execution is disabled" in capsys.readouterr().err
+
+
 def test_paper_only_cycle_rejects_trading_enabled_policy(tmp_path, capsys):
     policy = tmp_path / "policy.json"
     policy.write_text(
