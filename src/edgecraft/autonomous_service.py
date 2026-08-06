@@ -368,7 +368,7 @@ class AutonomousService:
         existing = self.ledger.get_run_for_cycle(mandate.mandate_id, key)
         if existing is not None:
             operator_retry = retry_side_effect_free_reason is not None
-            retryable_status = existing["status"] == "failed" or (
+            retryable_status = existing["status"] in {"started", "observing", "failed"} or (
                 operator_retry and existing["status"] == "risk_rejected"
             )
             retry_is_safe = self.ledger.run_is_safe_to_retry(
@@ -703,10 +703,31 @@ class AutonomousService:
             )
             return self._summary(run_id)
         if mandate.mode == "shadow":
+            # Invest + risk-approved only (hold/reject return above). Audit as
+            # simulated paper fills; never broker events or the execution path.
+            self.ledger.record_runtime_event_once(
+                run_id,
+                "paper_trade_recorded",
+                {
+                    "simulated": True,
+                    "paper": True,
+                    "broker_mutation": False,
+                    "proposal_id": proposal.proposal_id,
+                    "orders": [
+                        {
+                            "symbol": order.symbol,
+                            "notional": str(order.notional),
+                            "reference_quote_price": str(order.expected_price),
+                        }
+                        for order in proposal.orders
+                    ],
+                },
+                now=observation.observed_at,
+            )
             self.ledger.update_run(
                 run_id,
                 "shadow_complete",
-                detail="proposal validated; no broker mutation attempted",
+                detail="paper portfolio updated; no broker mutation occurred",
                 payload=proposal_summary,
             )
             return self._summary(run_id)

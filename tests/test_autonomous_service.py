@@ -216,6 +216,7 @@ def test_shadow_cycle_is_idempotent_and_audited(tmp_path):
     first = service.run_cycle(mandate, now=NOW)
     assert first["ok"]
     assert first["run"]["status"] == "shadow_complete"
+    assert first["run"]["detail"] == "paper portfolio updated; no broker mutation occurred"
     assert Decimal(str(first["run"]["payload"]["gross_notional"])) == Decimal("10")
     assert ledger.status()["proposals"] == 1
     assert ledger.status()["decision_packets"] == 1
@@ -243,7 +244,8 @@ def test_shadow_cycle_is_idempotent_and_audited(tmp_path):
     )
     canonical = json.dumps(packet["payload"], sort_keys=True, separators=(",", ":"))
     assert hashlib.sha256(canonical.encode()).hexdigest() == packet["payload_sha256"]
-    proposal = ledger.observability_feed()["proposals"][0]["payload"]
+    feed = ledger.observability_feed()
+    proposal = feed["proposals"][0]["payload"]
     assert proposal["decision_reasoning"]["hypothesis"] == (
         "Follow the diversified strategic DCA allocation this week."
     )
@@ -251,11 +253,51 @@ def test_shadow_cycle_is_idempotent_and_audited(tmp_path):
     assert proposal["decision_reasoning"]["allocation_rationales"]["VTI"] == (
         "Maintain the diversified US core."
     )
+    paper_events = [
+        event for event in feed["runtime_events"] if event["event_type"] == "paper_trade_recorded"
+    ]
+    assert len(paper_events) == 1
+    paper_payload = paper_events[0]["payload"]
+    assert paper_payload["simulated"] is True
+    assert paper_payload["paper"] is True
+    assert paper_payload["broker_mutation"] is False
+    assert paper_payload["proposal_id"] == proposal["proposal_id"]
+    orders_by_symbol = {item["symbol"]: item for item in paper_payload["orders"]}
+    assert set(orders_by_symbol) == {"VTI", "VXUS"}
+    assert Decimal(orders_by_symbol["VTI"]["notional"]) == Decimal("6")
+    assert Decimal(orders_by_symbol["VTI"]["reference_quote_price"]) == Decimal("330")
+    assert Decimal(orders_by_symbol["VXUS"]["notional"]) == Decimal("4")
+    assert Decimal(orders_by_symbol["VXUS"]["reference_quote_price"]) == Decimal("75")
+    order_event_types = {event["event_type"] for event in feed["order_events"]}
+    assert "placed" not in order_event_types
+    assert "filled" not in order_event_types
 
     replay = service.run_cycle(mandate, now=NOW)
     assert replay["idempotent_replay"]
     assert replay["run"]["run_id"] == first["run"]["run_id"]
     assert ledger.status()["proposals"] == 1
+
+
+def test_shadow_cycle_recovers_interrupted_observation_after_restart(tmp_path):
+    policy = _write_policy(tmp_path)
+    mandate = _mandate(str(policy))
+    ledger = AuditLedger(tmp_path / "state.db")
+    run_id = ledger.start_run(mandate, "service_test:2026-W30", now=NOW)
+    ledger.update_run(run_id, "observing", detail="process stopped before a decision", now=NOW)
+    service = AutonomousService(tmp_path, ledger, StaticObservationRuntime(_payload()))
+
+    result = service.run_cycle(mandate, now=NOW)
+
+    assert result["ok"]
+    assert result["run"]["run_id"] == run_id
+    assert result["run"]["status"] == "shadow_complete"
+    assert ledger.run_attempt_count(run_id) == 2
+    paper_events = [
+        event
+        for event in ledger.observability_feed()["runtime_events"]
+        if event["event_type"] == "paper_trade_recorded"
+    ]
+    assert len(paper_events) == 1
 
 
 def test_external_context_focuses_on_ranked_candidates(tmp_path):
@@ -480,6 +522,13 @@ def test_hold_is_a_successful_terminal_decision(tmp_path):
     assert result["ok"]
     assert result["run"]["status"] == "held"
     assert result["run"]["payload"]["approved_for_review"] is False
+    runtime_types = {event["event_type"] for event in ledger.observability_feed()["runtime_events"]}
+    assert "paper_trade_recorded" not in runtime_types
+    order_event_types = {
+        event["event_type"] for event in ledger.observability_feed()["order_events"]
+    }
+    assert "placed" not in order_event_types
+    assert "filled" not in order_event_types
 
 
 def test_investment_without_structured_evidence_is_rejected_before_proposal(tmp_path):
@@ -507,6 +556,40 @@ def test_investment_without_structured_evidence_is_rejected_before_proposal(tmp_
 
     assert ledger.status()["decision_packets"] == 0
     assert ledger.status()["proposals"] == 0
+
+
+def test_risk_rejected_shadow_does_not_record_paper_trade(tmp_path):
+    policy = tmp_path / "policy.json"
+    policy.write_text(
+        json.dumps(
+            {
+                "policy_name": "service-shadow-reject",
+                "allowed_symbols": ["VTI", "VXUS"],
+                "managed_capital_limit": 1000,
+                "max_order_notional": 1,
+                "max_daily_notional": 1,
+                "max_orders_per_day": 2,
+                "max_position_weight": 0.75,
+                "min_cash_reserve": 0,
+                "require_research_evidence": False,
+            }
+        )
+    )
+    mandate = _mandate(str(policy))
+    ledger = AuditLedger(tmp_path / "state.db")
+    service = AutonomousService(tmp_path, ledger, StaticObservationRuntime(_payload()))
+
+    result = service.run_cycle(mandate, now=NOW)
+
+    assert result["run"]["status"] == "risk_rejected"
+    assert result["run"]["payload"]["approved_for_review"] is False
+    runtime_types = {event["event_type"] for event in ledger.observability_feed()["runtime_events"]}
+    assert "paper_trade_recorded" not in runtime_types
+    order_event_types = {
+        event["event_type"] for event in ledger.observability_feed()["order_events"]
+    }
+    assert "placed" not in order_event_types
+    assert "filled" not in order_event_types
 
 
 def test_investment_cannot_reference_unknown_evidence(tmp_path):
