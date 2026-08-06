@@ -1,10 +1,10 @@
 {
   "mandate_id": "index_dca",
-  "goal": "Paper trade up to $2 each market weekday in the strongest evidence-backed long-only opportunity across a curated owner-approved universe of liquid stocks, ETFs, and crypto-equity vehicles. Prefer attractive relative entry prices without abandoning diversification, risk controls, or the option to hold simulated cash when data is stale or the evidence is weak. Never place a real broker order.",
+  "goal": "Paper trade up to $25 each market weekday in the strongest evidence-backed long-only opportunity across a curated owner-approved universe of liquid stocks, ETFs, and crypto-equity vehicles. Prefer attractive relative entry prices without abandoning diversification, risk controls, or the option to hold simulated cash when data is stale or the evidence is weak. Never place a real broker order.",
   "enabled": true,
   "mode": "shadow",
   "cycle_frequency": "market_day",
-  "daily_budget": "2.00",
+  "daily_budget": "25.00",
   "max_rollover_weeks": 0,
   "risk_level": "balanced",
   "universe": [

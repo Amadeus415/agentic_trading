@@ -156,11 +156,12 @@ def test_example_mandate_uses_broad_stock_and_crypto_catalog():
     }.issubset(set(item.universe))
     assert item.mode == "shadow"
     assert item.cycle_frequency == "market_day"
-    assert item.daily_budget == Decimal("2.00")
+    assert item.daily_budget == Decimal("25.00")
     assert item.weekly_budget is None
     assert item.max_rollover_weeks == 0
     assert not policy.trading_enabled
-    assert policy.max_daily_notional == Decimal("2")
+    assert policy.max_daily_notional == Decimal("25")
+    assert policy.max_order_notional == Decimal("25")
     # Native coin symbols must not appear on the equities-only whitelist.
     assert not {"BTC-USD", "ETH-USD", "BTCUSD", "ETHUSD"} & set(item.universe)
 

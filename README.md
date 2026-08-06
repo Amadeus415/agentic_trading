@@ -53,7 +53,7 @@ flowchart LR
 - A typed mandate that scopes capital, cadence, symbols, benchmark, strategy tilt, and live authority.
 - Completed-session intelligence across the full universe, focused web/SEC/social research for ranked candidates, and final fresh broker reads for selected symbols.
 - A market-weekday autonomous loop powered by Codex, with deterministic paper-trade approval outside the model.
-- A `$2` daily simulated portfolio contribution, with explicit `paper_trade_recorded` audit events and no broker mutation.
+- A `$25` daily simulated portfolio contribution, with explicit `paper_trade_recorded` audit events and no broker mutation.
 - A second read-only broker preflight, a policy-fingerprint re-check, exact Robinhood input mapping, and an expiring single-use permit before placement.
 - A kill switch, overlap lock, attempt-scoped order IDs, bounded side-effect-free retries, unresolved-order blocking, and post-order reconciliation.
 - An append-only SQLite audit ledger, structured logs, metrics, and CLI health/readiness checks.

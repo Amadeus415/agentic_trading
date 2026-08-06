@@ -30,7 +30,7 @@ freshness requirements, and the untrusted-content boundary.
 See [the decision data model](DECISION_DATA_MODEL.md) for the exact immutable
 record written for every valid decision attempt.
 
-## Start with the supplied $2 daily paper mandate
+## Start with the supplied $25 daily paper mandate
 
 ```bash
 uv sync --extra dev
@@ -53,7 +53,7 @@ review, permit, or kill-switch checks.
 The supplied mandate is:
 
 - shadow-only;
-- $2 per market weekday, with no rollover;
+- $25 per market weekday, with no rollover;
 - long-only selection across a curated daily set of liquid stocks, ETFs, and
   crypto-equity vehicles such as IBIT, ETHA, COIN, and MSTR, drawn from
   `examples/universe.broad-equity-crypto.json`;
@@ -61,7 +61,7 @@ The supplied mandate is:
   sleeves (not equal-weight across the full opportunity set);
 - balanced risk, allowing at most a 15 percentage-point tactical tilt;
 - every weekday at 10:00 America/New_York;
-- free to paper trade less than $2 or hold all simulated cash;
+- free to paper trade less than $25 or hold all simulated cash;
 - unable to sell, use leverage, trade options, place native coin orders, or leave
   the whitelist.
 

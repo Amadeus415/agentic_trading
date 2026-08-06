@@ -13,7 +13,7 @@ network and local state access required by the broker/context providers.
 ## Daily paper mandate
 
 The schedule is fixed to the checked-in market-day shadow mandate. It allocates
-up to `$2` to the simulated portfolio each market weekday, records approved
+up to `$25` to the simulated portfolio each market weekday, records approved
 orders as `paper_trade_recorded` runtime events, and never creates Robinhood
 orders. The scheduled entrypoint intentionally has no live-mandate override.
 
