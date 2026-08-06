@@ -1,0 +1,30 @@
+{
+  "fund_id": "edgecraft-1k",
+  "mandate": {
+    "initial_cash": "1000.00",
+    "supported_asset_classes": [
+      "stock",
+      "crypto",
+      "prediction"
+    ],
+    "fee_bps": "5",
+    "slippage_bps": "10",
+    "quote_freshness": {
+      "stock": 1800,
+      "crypto": 600,
+      "prediction": 1800
+    },
+    "max_source_age": {
+      "stock": 345600,
+      "crypto": 600,
+      "prediction": 1800
+    },
+    "max_gross_exposure": "1500.00",
+    "max_absolute_net_exposure": "1000.00",
+    "max_short_exposure": "500.00",
+    "max_single_position_weight": "0.35",
+    "max_cycle_turnover": "1000.00",
+    "max_order_count": 12,
+    "max_drawdown": "0.25"
+  }
+}

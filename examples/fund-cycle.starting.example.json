@@ -1,0 +1,108 @@
+{
+  "decision": {
+    "decision_id": "example-start-2026-08-06",
+    "fund_id": "edgecraft-1k",
+    "cycle_key": "example-start-2026-08-06",
+    "as_of": "2026-08-06T20:00:00Z",
+    "action": "trade",
+    "thesis": "Example only: diversify the opening paper book across three independently priced markets while retaining most cash.",
+    "alternatives": "Hold all cash; use only a broad stock index; omit the prediction contract.",
+    "risks": "This fixture is static test data, not a current recommendation or a scheduled input.",
+    "evidence": [
+      {
+        "evidence_id": "example-stock",
+        "observed_at": "2026-08-06T19:55:00Z",
+        "source_timestamp": "2026-08-06T19:54:00Z",
+        "source_name": "Example stock source",
+        "source_url": "https://example.com/stock",
+        "claim": "Static stock evidence for the executable example.",
+        "summary": "Replace with current public evidence in a real cycle.",
+        "instrument_ids": ["SPY"],
+        "content": "Example fixture content."
+      },
+      {
+        "evidence_id": "example-crypto",
+        "observed_at": "2026-08-06T19:56:00Z",
+        "source_timestamp": "2026-08-06T19:55:00Z",
+        "source_name": "Example crypto source",
+        "source_url": "https://example.com/crypto",
+        "claim": "Static crypto evidence for the executable example.",
+        "summary": "Replace with current public evidence in a real cycle.",
+        "instrument_ids": ["BTC-USD"],
+        "content": "Example fixture content."
+      },
+      {
+        "evidence_id": "example-prediction",
+        "observed_at": "2026-08-06T19:57:00Z",
+        "source_timestamp": "2026-08-06T19:56:00Z",
+        "source_name": "Example prediction source",
+        "source_url": "https://example.com/prediction",
+        "claim": "Static prediction-market evidence for the executable example.",
+        "summary": "Replace with a current contract and resolution rules in a real cycle.",
+        "instrument_ids": ["polymarket:example:YES"],
+        "content": "Example fixture content."
+      }
+    ],
+    "orders": [
+      {
+        "instrument_id": "SPY",
+        "asset_class": "stock",
+        "side": "buy",
+        "quantity": "0.5",
+        "rationale": "Example diversified equity exposure.",
+        "evidence_ids": ["example-stock"]
+      },
+      {
+        "instrument_id": "BTC-USD",
+        "asset_class": "crypto",
+        "side": "buy",
+        "quantity": "0.002",
+        "rationale": "Example small native-crypto exposure.",
+        "evidence_ids": ["example-crypto"]
+      },
+      {
+        "instrument_id": "polymarket:example:YES",
+        "asset_class": "prediction",
+        "side": "buy",
+        "quantity": "100",
+        "rationale": "Example bounded binary-contract exposure.",
+        "evidence_ids": ["example-prediction"]
+      }
+    ]
+  },
+  "quotes": [
+    {
+      "quote_id": "example-quote-stock",
+      "instrument_id": "SPY",
+      "asset_class": "stock",
+      "price": "500.00",
+      "observed_at": "2026-08-06T19:59:00Z",
+      "source_timestamp": "2026-08-06T19:58:00Z",
+      "source_name": "Example stock source",
+      "source_url": "https://example.com/stock",
+      "status": "open"
+    },
+    {
+      "quote_id": "example-quote-crypto",
+      "instrument_id": "BTC-USD",
+      "asset_class": "crypto",
+      "price": "100000.00",
+      "observed_at": "2026-08-06T19:59:00Z",
+      "source_timestamp": "2026-08-06T19:58:00Z",
+      "source_name": "Example crypto source",
+      "source_url": "https://example.com/crypto",
+      "status": "open"
+    },
+    {
+      "quote_id": "example-quote-prediction",
+      "instrument_id": "polymarket:example:YES",
+      "asset_class": "prediction",
+      "price": "0.50",
+      "observed_at": "2026-08-06T19:59:00Z",
+      "source_timestamp": "2026-08-06T19:58:00Z",
+      "source_name": "Example prediction source",
+      "source_url": "https://example.com/prediction",
+      "status": "open"
+    }
+  ]
+}
