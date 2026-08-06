@@ -75,6 +75,13 @@ class MarketIntelligenceCollector(Protocol):
     ) -> MarketIntelligenceSnapshot: ...
 
 
+# Scheduled intelligence loads many tickers one-by-one. Prefer a single short
+# attempt over the general provider's multi-retry backoff so unavailable names
+# fail fast without stalling the decision cycle.
+INTELLIGENCE_DOWNLOAD_TIMEOUT_SECONDS = 8.0
+INTELLIGENCE_RETRY_DELAYS_SECONDS: tuple[float, ...] = ()
+
+
 class YahooMarketIntelligenceCollector:
     def __init__(
         self,
@@ -82,7 +89,10 @@ class YahooMarketIntelligenceCollector:
         data_provider: MarketDataProvider | None = None,
         lookback_days: int = 1_100,
     ) -> None:
-        self.data_provider = data_provider or MarketDataProvider()
+        self.data_provider = data_provider or MarketDataProvider(
+            retry_delays_seconds=INTELLIGENCE_RETRY_DELAYS_SECONDS,
+            download_timeout=INTELLIGENCE_DOWNLOAD_TIMEOUT_SECONDS,
+        )
         self.lookback_days = lookback_days
 
     def collect(
