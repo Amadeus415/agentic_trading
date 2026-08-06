@@ -19,7 +19,7 @@ comparison independent of unrelated Robinhood deposits.
 
 ```bash
 edgecraft performance \
-  --ledger state/edgecraft.db \
+  --ledger state/edgecraft-paper.db \
   --mandate-id aggressive_market_day_live
 ```
 
@@ -33,7 +33,7 @@ Broker execution is measured separately from strategy performance:
 
 ```bash
 edgecraft execution-quality \
-  --ledger state/edgecraft.db \
+  --ledger state/edgecraft-paper.db \
   --mandate-id aggressive_market_day_live
 ```
 

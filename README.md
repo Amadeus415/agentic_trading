@@ -2,9 +2,9 @@
 
 # EDGECRAFT
 
-### An autonomous, policy-gated trading system with a flight recorder
+### An autonomous daily paper-trading system with a flight recorder
 
-Researches the market. Forms a thesis. Tests the downside. Places only permitted trades. Then independently checks what the broker actually did.
+Researches the market. Forms a thesis. Tests the downside. Records only simulated paper trades. Never places a real order from the scheduled task.
 
 [![CI](https://github.com/Amadeus415/agentic_trading/actions/workflows/ci.yml/badge.svg)](https://github.com/Amadeus415/agentic_trading/actions/workflows/ci.yml)
 [![Python 3.11–3.14](https://img.shields.io/badge/python-3.11%E2%80%933.14-0b1220?logo=python&logoColor=white)](pyproject.toml)
@@ -25,12 +25,12 @@ Researches the market. Forms a thesis. Tests the downside. Places only permitted
 | **Research** | Search current context, compare opportunities, form hypotheses | Point-in-time data, causal fills, cost assumptions, promotion evidence |
 | **Decision** | Rank alternatives and choose invest or hold | Typed schema, fixed universe, budget ceiling, idempotent cycle |
 | **Risk** | Explain tradeoffs | Cash, concentration, liquidity, spread, drawdown, turnover, freshness, market-hours gates |
-| **Execution** | Prepare a broker review and recover from ambiguity | Policy fingerprint, preflight, expiring one-use permit, kill switch |
-| **Proof** | Summarize the outcome | Append-only events and independent broker reconciliation |
+| **Execution** | Build a simulated allocation | Fixed shadow mode, paper prices, no broker mutation |
+| **Proof** | Summarize the outcome | Append-only paper events and cash-flow-matched evaluation books |
 
 The governing rule is simple:
 
-> **The model proposes. Typed policy authorizes. The broker executes. Reconciliation proves.**
+> **The model proposes. Typed policy authorizes. The paper portfolio simulates. The ledger proves.**
 
 ```mermaid
 flowchart LR
@@ -41,11 +41,9 @@ flowchart LR
     D -->|"Hold"| A["Audit the reason"]
     D -->|"Trade idea"| G{"Deterministic gates"}
     G -->|"Fail"| A
-    G -->|"Pass"| P["Fresh preflight + one-use permit"]
-    P --> B["Robinhood MCP"]
-    B --> X{"Independent reconciliation"}
-    X -->|"Known terminal state"| A
-    X -->|"Missing or inconsistent"| H["Fail closed + halt"]
+    G -->|"Pass"| P["Record simulated paper trade"]
+    P --> X["Update paper portfolio"]
+    X --> A
 ```
 
 ## What is real today
@@ -54,8 +52,8 @@ flowchart LR
 - Walk-forward evaluation, cost stress, block-bootstrap intervals, Deflated Sharpe Ratio, and PBO/CSCV overfitting checks.
 - A typed mandate that scopes capital, cadence, symbols, benchmark, strategy tilt, and live authority.
 - Completed-session intelligence across the full universe, focused web/SEC/social research for ranked candidates, and final fresh broker reads for selected symbols.
-- A market-day autonomous loop powered by Codex, with deterministic trade approval outside the model.
-- Shadow and explicitly armed live paths; new examples remain shadow-first.
+- A market-weekday autonomous loop powered by Codex, with deterministic paper-trade approval outside the model.
+- A `$2` daily simulated portfolio contribution, with explicit `paper_trade_recorded` audit events and no broker mutation.
 - A second read-only broker preflight, a policy-fingerprint re-check, exact Robinhood input mapping, and an expiring single-use permit before placement.
 - A kill switch, overlap lock, attempt-scoped order IDs, bounded side-effect-free retries, unresolved-order blocking, and post-order reconciliation.
 - An append-only SQLite audit ledger, structured logs, metrics, and CLI health/readiness checks.
@@ -77,23 +75,22 @@ Useful operator checks (CLI is the control surface):
 
 ```bash
 uv run edgecraft health
-uv run edgecraft autonomy-health --ledger state/edgecraft.db
+uv run edgecraft autonomy-health --ledger state/edgecraft-paper.db
 uv run edgecraft readiness \
   --mandate examples/mandate.index-dca.json \
-  --ledger state/edgecraft.db
-uv run edgecraft runs --ledger state/edgecraft.db --limit 10
-uv run edgecraft metrics --ledger state/edgecraft.db
+  --ledger state/edgecraft-paper.db
+uv run edgecraft runs --ledger state/edgecraft-paper.db --limit 10
+uv run edgecraft metrics --ledger state/edgecraft-paper.db
 ```
 
-Scheduled unattended wake (shadow default, fail-closed):
+Scheduled unattended wake (paper-only, fail-closed):
 
 ```bash
 ./scripts/run_scheduled_cycle.sh
 # or: make scheduled-cycle
-# live only when explicitly armed: MANDATE=path/to/armed-live.json ./scripts/run_scheduled_cycle.sh
 ```
 
-`health` exits nonzero when not ready. Codex should run only that script. The checked-in mandate is shadow-only. Read the [autonomy runbook](docs/AUTONOMY.md) before creating a separately versioned live mandate. For the Codex prompt, use the [scheduled Codex task guide](docs/CODEX_SCHEDULED_TASK.md).
+`health` and unsuccessful `cycle` results exit nonzero. Codex should run only that script. The script fixes the mandate to the checked-in daily shadow configuration and does not accept a live-mandate override. Approved proposals update simulated evaluation books and an explicit paper-trade audit event; they do not create broker `placed` or `filled` events. For the Codex prompt, use the [scheduled Codex task guide](docs/CODEX_SCHEDULED_TASK.md).
 
 ## Repository map
 

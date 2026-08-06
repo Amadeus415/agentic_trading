@@ -80,9 +80,9 @@ capture state transitions:
 ## Inspecting one decision
 
 ```bash
-edgecraft runs --ledger state/edgecraft.db
+edgecraft runs --ledger state/edgecraft-paper.db
 edgecraft decision \
-  --ledger state/edgecraft.db \
+  --ledger state/edgecraft-paper.db \
   --run-id RUN_ID
 ```
 

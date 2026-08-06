@@ -1,6 +1,6 @@
 # Autonomous portfolio operations
 
-Edgecraft can run a weekly, long-only equity-and-crypto-equity mandate without
+Edgecraft runs a market-weekday, long-only equity-and-crypto-equity paper mandate without
 routine human approval. Autonomy is split across two trust domains:
 
 ```text
@@ -10,8 +10,9 @@ Codex Scheduled wakeup
   → focused Browserbase + public-source context for ranked candidates
   → Codex read-only Robinhood observation, final quote refresh, and structured recommendation
   → Edgecraft policy + freshness + cash + concentration + tilt gate
-  → shadow complete
-     or, only for an explicitly live mandate:
+   → paper portfolio update + paper_trade_recorded audit event
+   → shadow complete
+      (manual live operation remains outside the scheduled path):
   → Codex read-only execution preflight + Robinhood review
   → Edgecraft market-session + spread + liquidity + drawdown + turnover gate
   → policy fingerprint re-check
@@ -22,14 +23,14 @@ Codex Scheduled wakeup
 ```
 
 Codex owns reasoning and the authenticated MCP session. Edgecraft owns
-authority. A model cannot make the weekly budget larger, add a symbol, weaken a
+authority. A model cannot make the daily paper budget larger, add a symbol, weaken a
 limit, disable review, mint a permit, reuse a permit, or clear the kill switch.
 See [the external-context guide](EXTERNAL_CONTEXT.md) for provider setup,
 freshness requirements, and the untrusted-content boundary.
 See [the decision data model](DECISION_DATA_MODEL.md) for the exact immutable
 record written for every valid decision attempt.
 
-## Start with the supplied $10 shadow mandate
+## Start with the supplied $2 daily paper mandate
 
 ```bash
 uv sync --extra dev
@@ -41,27 +42,26 @@ edgecraft mandate-validate --config examples/mandate.index-dca.json
 
 edgecraft cycle \
   --mandate examples/mandate.index-dca.json \
-  --ledger state/edgecraft.db \
+  --ledger state/edgecraft-paper.db \
   --force
 ```
 
-`--force` bypasses schedule timing only. It does not bypass the weekly budget,
+`--force` bypasses schedule timing only. It does not bypass the daily budget,
 policy, account eligibility, quote freshness, open-order, cash, concentration,
 review, permit, or kill-switch checks.
 
 The supplied mandate is:
 
 - shadow-only;
-- $10 per ISO week;
-- long-only selection across ~250 liquid stocks, sector/theme ETFs, and
-  crypto-equity vehicles (spot crypto ETFs such as IBIT/ETHA plus crypto-related
-  equities such as COIN/MSTR/MARA)—see
+- $2 per market weekday, with no rollover;
+- long-only selection across a curated daily set of liquid stocks, ETFs, and
+  crypto-equity vehicles such as IBIT, ETHA, COIN, and MSTR, drawn from
   `examples/universe.broad-equity-crypto.json`;
 - strategic baseline weights that include core index sleeves plus crypto ETF
   sleeves (not equal-weight across the full opportunity set);
 - balanced risk, allowing at most a 15 percentage-point tactical tilt;
-- Monday at 10:00 America/New_York;
-- free to invest less than $10 or hold all cash;
+- every weekday at 10:00 America/New_York;
+- free to paper trade less than $2 or hold all simulated cash;
 - unable to sell, use leverage, trade options, place native coin orders, or leave
   the whitelist.
 
@@ -78,8 +78,10 @@ before the configured time return `not_due`; repeated wakeups return the same
 idempotent run without invoking the model again.
 
 The Mac must be on, the user session available, Codex authenticated, and
-Robinhood MCP OAuth current. Schedule only `./scripts/run_scheduled_cycle.sh`
-(or `make scheduled-cycle`); default args point at the shadow example mandate.
+Robinhood MCP OAuth current for read-only account observations. Schedule only
+`./scripts/run_scheduled_cycle.sh` (or `make scheduled-cycle`); the script is
+fixed to the daily shadow mandate and dedicated `state/edgecraft-paper.db`
+ledger, and cannot be redirected to live trading.
 
 A side-effect-free transient failure retries in-process on the same wake up to
 the existing attempt budget (initial attempt plus three automatic retries). Any
@@ -146,10 +148,10 @@ remain mandatory.
 edgecraft mandate-validate --config path/to/live-mandate.json
 edgecraft mandate-register \
   --config path/to/live-mandate.json \
-  --ledger state/edgecraft.db
+  --ledger state/edgecraft-paper.db
 edgecraft cycle \
   --mandate path/to/live-mandate.json \
-  --ledger state/edgecraft.db \
+  --ledger state/edgecraft-paper.db \
   --force
 ```
 
@@ -166,10 +168,10 @@ order type, time in force, and market-hours scope match the permit exactly.
 ## Monitoring and incident response
 
 ```bash
-edgecraft runs --ledger state/edgecraft.db
-edgecraft ledger --path state/edgecraft.db
-edgecraft autonomy-health --ledger state/edgecraft.db
-edgecraft metrics --ledger state/edgecraft.db --format prometheus
+edgecraft runs --ledger state/edgecraft-paper.db
+edgecraft ledger --path state/edgecraft-paper.db
+edgecraft autonomy-health --ledger state/edgecraft-paper.db
+edgecraft metrics --ledger state/edgecraft-paper.db --format prometheus
 ```
 
 CLI surfaces are `edgecraft autonomy-health` and `edgecraft metrics`. Telemetry
@@ -192,7 +194,7 @@ Browserbase/SEC/social context, completed-session market intelligence, broker
 portfolio snapshot, quotes, material
 evidence inventory, and structured model judgment. Every decision needs recorded
 evidence, and invest decisions fail closed unless each allocation cites it. Inspect a packet with
-`edgecraft decision --ledger state/edgecraft.db --run-id RUN_ID`.
+`edgecraft decision --ledger state/edgecraft-paper.db --run-id RUN_ID`.
 
 If the execution agent reaches the broker but returns malformed or otherwise
 invalid structured output, Edgecraft performs one read-only recovery lookup for
@@ -206,7 +208,7 @@ Emergency stop:
 
 ```bash
 edgecraft halt \
-  --ledger state/edgecraft.db \
+  --ledger state/edgecraft-paper.db \
   --reason "unexpected order or reconciliation mismatch"
 ```
 
@@ -225,11 +227,11 @@ buying power, and the Edgecraft ledger:
 
 ```bash
 edgecraft incident-reconcile \
-  --ledger state/edgecraft.db \
+  --ledger state/edgecraft-paper.db \
   --run-id RUN_ID \
   --reason "exact broker order, position, and cash independently verified"
 edgecraft resume \
-  --ledger state/edgecraft.db \
+  --ledger state/edgecraft-paper.db \
   --reason "broker state reconciled and incident resolved"
 ```
 
@@ -239,7 +241,7 @@ separate, explicit control action.
 
 The agent, SPY benchmark, and fixed strategic shadow books advance on every due
 cycle with identical contributions and cost assumptions. Inspect them with
-`edgecraft performance --ledger state/edgecraft.db --mandate-id MANDATE_ID`.
+`edgecraft performance --ledger state/edgecraft-paper.db --mandate-id MANDATE_ID`.
 See [the performance guide](PERFORMANCE_EVALUATION.md) for interpretation.
 
 ## Validation boundary

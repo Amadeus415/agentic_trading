@@ -1,7 +1,7 @@
 # External web and social context
 
 Edgecraft gathers a small, auditable context packet before the model forms a
-weekly decision. The packet complements—not replaces—broker truth, price
+daily paper-trading decision. The packet complements—not replaces—broker truth, price
 history, causal backtests, and deterministic risk controls.
 
 Each source is labeled with `source_quality` (`primary`, `secondary`, or
@@ -19,7 +19,7 @@ metadata without spending browser minutes. Edgecraft then uses
 small number of diverse pages. The current
 [free plan](https://www.browserbase.com/pricing) lists 1,000 Search calls, 1,000
 Fetch calls, and one browser hour per month. Edgecraft does not need a full
-browser session for its normal weekly path.
+browser session for its normal daily paper-trading path.
 
 Small universes normally cost three Search calls: current news, SEC discovery,
 and public social-page discovery. Larger universes are split into

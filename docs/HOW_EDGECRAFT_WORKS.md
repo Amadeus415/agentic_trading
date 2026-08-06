@@ -112,7 +112,7 @@ The scheduled task runs health and readiness checks, then calls:
 ```bash
 uv run edgecraft cycle \
   --mandate state/mandates/live.json \
-  --ledger state/edgecraft.db
+  --ledger state/edgecraft-paper.db
 ```
 
 `cli.py` loads the typed mandate and constructs `AutonomousService`. In `autonomy.py`, `cycle_key()` derives an idempotency key such as `live_mandate:2026-07-21`.

@@ -1,33 +1,35 @@
 # Edgecraft Agent Instructions -
 
 ## Mission
-### Build a FULLY Agentic Hedge Fund
-Build an understandable, production-quality agentic Hedge Fund on top of Robinhood MCP. The system accepts a portfolio mandate such as “invest $10 every
-week into index funds at attractive prices,” observes the account and its trade
-history, researches current market conditions, forms and tests a weekly
-hypothesis, and can autonomously place and monitor trades through Robinhood.
+### Build a Fully Agentic Paper-Trading Fund
+Build an understandable, production-quality agentic paper-trading fund. The
+system observes read-only account and market context, researches current market
+conditions, forms and tests a daily hypothesis, and records simulated trades in
+an auditable paper portfolio. Scheduled operation must never place, cancel, or
+otherwise mutate a real Robinhood order.
 
 This is a backend-first project. Prefer durable domain modules, a strong CLI,
 machine-callable tools, and explicit data contracts over frontend work.
 
 # Goals From the Human
 
-I want this to be a very high performing agentic hedge fund. Built on codex, with scheduled tasks and robinhood mcp running daily. This should be fully autonoumous with no human in the loop. For code Please make it understandable, readable and avoid unneeded complexity.
+I want this to be a high-performing agentic paper fund, built on Codex and run
+daily through a scheduled task with no routine human step. All trades are fake;
+Robinhood access is read-only context. Keep code understandable and avoid
+unneeded complexity.
 
 ## Product principles
 
-- Autonomy means no routine human approval step. Once a mandate is explicitly
-  armed for live execution, the agent may research, decide, execute, reconcile,
-  and recover without human intervention.
+- Autonomy means no routine human approval step for research, decisions, and
+  simulated paper-portfolio updates.
 - Autonomy does not mean unbounded authority. Every action must pass
   deterministic, code-enforced mandate, cash, concentration, liquidity,
   drawdown, turnover, market-hours, and data-freshness checks that the reasoning
   agent cannot bypass. Keep these pretty light and don't overdo them
-- Default new mandates and development workflows to paper or dry-run execution.
-  Enabling live trading must be explicit, scoped to one account and mandate,
-  recorded in the audit log, and reversible with a kill switch.
-- Treat the weekly contribution as a hard spending ceiling, not a target that
-  justifies poor trades. Cash carryover is allowed when policy permits it.
+- Keep scheduled mandates and development workflows in shadow/paper mode. Never
+  add a live mandate to the scheduled entrypoint.
+- Treat the daily simulated contribution as a hard ceiling, not a target that
+  justifies poor trades. A hold is valid when evidence is weak.
 - Separate probabilistic reasoning from deterministic controls. Models may
   propose; typed policy and risk engines authorize.
 - Optimize for repeatable decision quality, costs, taxes, diversification, and
