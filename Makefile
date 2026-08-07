@@ -1,4 +1,4 @@
-.PHONY: install test lint security demo health fund-init fund-context fund-status fund-performance scheduled-cycle validate
+.PHONY: install test lint security demo health fund-init fund-context fund-status fund-performance scheduled-cycle validate dashboard
 
 FUND_CONFIG := examples/fund.mandate.json
 FUND_LEDGER := state/edgecraft-fund.db
@@ -35,6 +35,10 @@ fund-status:
 
 fund-performance:
 	uv run edgecraft fund-performance --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
+
+# Read-only Next.js dashboard over the paper ledger (Node/npm required).
+dashboard:
+	cd dashboard && npm run dev
 
 # Codex writes today's researched input; this applies fake-money accounting only.
 scheduled-cycle:

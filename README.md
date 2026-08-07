@@ -111,6 +111,17 @@ uv run edgecraft fund-verify \
   --ledger state/edgecraft-fund.db
 ```
 
+## Dashboard
+
+Read-only Next.js UI for NAV, positions, cycles, and paper fills over `state/edgecraft-fund.db`.
+
+```bash
+cd dashboard && npm install && npm run dev
+# or: make dashboard
+```
+
+Set `EDGECRAFT_FUND_DB=../state/edgecraft-fund.db` in `dashboard/.env.local` (default). See [dashboard/README.md](dashboard/README.md).
+
 ## Accounting model
 
 - Positions have signed fractional quantities: positive is long, negative is short.
