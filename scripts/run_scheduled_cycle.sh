@@ -6,8 +6,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-CONFIG="examples/fund.mandate.json"
-LEDGER="state/edgecraft-fund.db"
+CONFIG="${FUND_CONFIG:-examples/fund.mandate.aggressive.json}"
+LEDGER="${FUND_LEDGER:-state/edgecraft-aggressive.db}"
 TODAY_UTC="$(date -u +%F)"
 INPUT="${FUND_INPUT:-state/fund-inputs/${TODAY_UTC}.json}"
 

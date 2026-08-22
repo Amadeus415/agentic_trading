@@ -28,16 +28,16 @@ def test_scheduled_script_is_fixed_to_paper_fund(tmp_path):
     assert result.returncode == 0
     calls = trace.read_text().splitlines()
     assert calls == [
-        "run --no-sync edgecraft fund-init --config examples/fund.mandate.json "
-        "--ledger state/edgecraft-fund.db",
-        "run --no-sync edgecraft fund-verify --config examples/fund.mandate.json "
-        "--ledger state/edgecraft-fund.db",
-        "run --no-sync edgecraft fund-run --config examples/fund.mandate.json "
-        f"--input {input_path} --ledger state/edgecraft-fund.db --require-as-of-today "
+        "run --no-sync edgecraft fund-init --config examples/fund.mandate.aggressive.json "
+        "--ledger state/edgecraft-aggressive.db",
+        "run --no-sync edgecraft fund-verify --config examples/fund.mandate.aggressive.json "
+        "--ledger state/edgecraft-aggressive.db",
+        "run --no-sync edgecraft fund-run --config examples/fund.mandate.aggressive.json "
+        f"--input {input_path} --ledger state/edgecraft-aggressive.db --require-as-of-today "
         "--max-decision-age-seconds 1800 --require-cycle-key "
         f"{datetime.now(UTC).date()}",
-        "run --no-sync edgecraft fund-verify --config examples/fund.mandate.json "
-        "--ledger state/edgecraft-fund.db",
+        "run --no-sync edgecraft fund-verify --config examples/fund.mandate.aggressive.json "
+        "--ledger state/edgecraft-aggressive.db",
     ]
 
 

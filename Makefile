@@ -1,7 +1,7 @@
 .PHONY: install test lint security demo health fund-init fund-context fund-status fund-performance scheduled-cycle validate dashboard
 
-FUND_CONFIG := examples/fund.mandate.json
-FUND_LEDGER := state/edgecraft-fund.db
+FUND_CONFIG ?= examples/fund.mandate.aggressive.json
+FUND_LEDGER ?= state/edgecraft-aggressive.db
 
 install:
 	uv sync --extra dev

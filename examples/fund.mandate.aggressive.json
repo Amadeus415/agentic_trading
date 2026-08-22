@@ -1,0 +1,39 @@
+{
+  "fund_id": "edgecraft-aggressive",
+  "mandate": {
+    "initial_cash": "1000.00",
+    "supported_asset_classes": [
+      "stock",
+      "crypto",
+      "prediction"
+    ],
+    "fee_bps": "5",
+    "slippage_bps": "10",
+    "quote_freshness": {
+      "stock": 600,
+      "crypto": 300,
+      "prediction": 900
+    },
+    "max_source_age": {
+      "stock": 86400,
+      "crypto": 600,
+      "prediction": 3600
+    },
+    "max_gross_exposure": "1500.00",
+    "max_absolute_net_exposure": "1000.00",
+    "max_short_exposure": "500.00",
+    "max_single_position_weight": "0.60",
+    "max_cycle_turnover": "1000.00",
+    "max_order_count": 30,
+    "max_drawdown": "0.50",
+    "growth_objective": {
+      "target_nav": "100000.00",
+      "target_horizon_years": "10"
+    },
+    "scale_limits_with_nav": true,
+    "max_gross_exposure_nav_multiple": "3.00",
+    "max_absolute_net_exposure_nav_multiple": "2.00",
+    "max_short_exposure_nav_multiple": "1.00",
+    "max_cycle_turnover_nav_multiple": "4.00"
+  }
+}
