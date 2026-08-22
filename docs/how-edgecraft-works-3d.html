@@ -284,13 +284,16 @@ for (let i = 0; i < 26; i++) {
 // ---- Risk gates (the deterministic wall) ----
 const GATE_DEFS = [
   { name: 'schema + sides',    detail: 'valid JSON · legal buy/sell/short/cover' },
-  { name: 'freshness',         detail: 'quotes are minutes old, not days' },
+  { name: 'freshness',         detail: 'quotes minutes old, never stale' },
   { name: 'evidence link',     detail: 'every order cites sourced evidence' },
-  { name: 'cash',              detail: 'no negative balances, ever' },
-  { name: 'order_count ≤ 12',  detail: 'max orders per cycle' },
-  { name: 'turnover ≤ 1×NAV',  detail: 'no churning the book' },
-  { name: 'gross ≤ 1.5×NAV',   detail: 'total exposure cap' },
-  { name: 'position ≤ 35%NAV', detail: 'concentration cap' },
+  { name: 'cash + reserves',   detail: 'no negative cash, no uncovered shorts' },
+  { name: 'order_count ≤ 12',  detail: 'base mandate · aggressive allows 30' },
+  { name: 'turnover ≤ 1×NAV',  detail: 'base mandate · aggressive allows 4×NAV' },
+  { name: 'gross ≤ 1.5×NAV',   detail: 'base mandate · aggressive allows 3×NAV' },
+  { name: 'net ≤ 1×NAV',       detail: 'base mandate · aggressive allows 2×NAV' },
+  { name: 'short ≤ 0.5×NAV',   detail: 'base mandate · aggressive allows 1×NAV' },
+  { name: 'position ≤ 35%NAV', detail: 'base mandate · aggressive allows 60%' },
+  { name: 'drawdown lock 25%', detail: 'base mandate · aggressive allows 50%' },
 ];
 const gateColors = { ok: '#34d399', idle: '#1f3348', fail: '#f87171' };
 const gates = new THREE.Group();
@@ -299,7 +302,7 @@ scene.add(gates);
 GATE_DEFS.forEach((def, i) => {
   const g = new THREE.Group();
   // gates sit ON the packet's flight path, one after another, like slalom hoops
-  g.position.set(-1 + i * 1.4, 1.5 + Math.sin(i * 1.1) * 0.9, Math.cos(i * 0.9) * 0.7);
+  g.position.set(-2.6 + i * 1.05, 1.5 + Math.sin(i * 1.1) * 0.9, Math.cos(i * 0.9) * 0.7);
   const ring = new THREE.Mesh(
     new THREE.TorusGeometry(1.45, 0.075, 10, 48),
     new THREE.MeshStandardMaterial({ color: gateColors.idle, emissive: gateColors.idle,
@@ -569,7 +572,7 @@ const STEPS = [
 },
 {
   title: 'The gauntlet: deterministic risk gates',
-  body: `Before any trade happens, code re-checks everything the agent claimed: quote <b>freshness</b>, <b>evidence linkage</b>, available <b>cash</b>, ≤12 orders, turnover ≤1× NAV, gross exposure ≤1.5× NAV, no position >35% of NAV, drawdown lock at 25%. The agent <b>cannot bypass these</b> — models propose, code disposes.`,
+  body: `Before any trade happens, code re-checks everything the agent claimed: quote <b>freshness</b>, <b>evidence linkage</b>, available <b>cash</b>, order count, cycle turnover, gross / net / short exposure caps, a per-position concentration cap, and a drawdown lock. Exact numbers live in the mandate JSON — the $1K base mandate uses ≤12 orders, turnover ≤1× NAV, gross ≤1.5× NAV, no position >35%, drawdown lock 25% — and limits scale only with <b>earned</b> NAV. The agent <b>cannot bypass these</b> — models propose, code disposes.`,
   cam: [[4, 7.5, 20], [6, 1.5, 0]],
   enter() {
     const p = makePacket();
