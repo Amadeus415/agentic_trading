@@ -32,18 +32,20 @@ flowchart LR
 
 The bankroll is deposited once. There is no daily contribution and no reset. The explicit research objective is to compound $1,000 into $100,000 over ten years—an aggressive 100x target requiring about 58.5% annualized returns, not a promise. The fund can hold cash or take long and short positions in stocks, native crypto, and binary prediction contracts. It may name any syntactically valid instrument; there is no symbol whitelist. Every trade still needs fresh sourced prices, cited evidence, valid inventory, and room inside the checked-in risk envelope.
 
+The active book is the aggressive mandate (`edgecraft-aggressive` in `examples/fund.mandate.aggressive.json`): a high-tempo, short-term trader that is expected to deploy capital nearly every cycle, trade prediction-market contracts as its native levered instrument, run full-size shorts, and cut broken theses fast. The original conservative book (`edgecraft-1k`) stays frozen and verifiable at `state/edgecraft-fund.db`.
+
 Current envelope:
 
 | Control | Limit |
 |:--|--:|
 | Initial fake cash | $1,000 once |
-| Gross exposure | max($1,500, 1.50 × earned NAV) |
-| Absolute net exposure | max($1,000, 1.00 × earned NAV) |
-| Short exposure | max($500, 0.50 × earned NAV) |
-| One position | 35% of NAV |
-| Turnover per cycle | max($1,000, 1.00 × earned NAV) |
-| Orders per cycle | 12 |
-| Drawdown gate | 25% |
+| Gross exposure | max($1,500, 3.00 × earned NAV) |
+| Absolute net exposure | max($1,000, 2.00 × earned NAV) |
+| Short exposure | max($500, 1.00 × earned NAV) |
+| One position | 60% of NAV |
+| Turnover per cycle | max($1,000, 4.00 × earned NAV) |
+| Orders per cycle | 30 |
+| Drawdown gate | 50% |
 | Simulated fee / slippage | 5 / 10 bps |
 
 The dollar values are bootstrap floors; limits scale only after the fund earns a higher NAV, never through deposits. Codex chooses the instruments, direction, sizing, and whether to trade; code prevents broken accounting, stale or unsupported inputs, and risk outside the experiment. The growth target cannot override those controls.
@@ -145,7 +147,8 @@ src/edgecraft/
 ├── research.py             # experiment matrix and robustness evidence
 └── walkforward.py          # out-of-sample strategy validation
 
-examples/fund.mandate.json                  # fixed $1,000 mandate
+examples/fund.mandate.aggressive.json       # active $1,000 aggressive mandate
+examples/fund.mandate.json                  # retired conservative mandate
 examples/fund-cycle.starting.example.json   # executable three-market fixture
 scripts/run_scheduled_cycle.sh              # fixed daily paper apply path
 tests/test_paper_fund.py                    # accounting and failure invariants
