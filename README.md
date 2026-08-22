@@ -11,7 +11,7 @@ Every day Codex researches public markets, proposes a buy, sell, short, cover, o
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-0b1220.svg)](LICENSE)
 [![Money: fake](https://img.shields.io/badge/money-100%25%20fake-22c55e)](docs/CODEX_SCHEDULED_TASK.md)
 
-**[Starting prompt](docs/FUND_STARTING_PROMPT.md)** · **[Daily Codex task](docs/CODEX_SCHEDULED_TASK.md)** · **[Accounting contract](docs/FUND_ACCOUNTING.md)** · **[Research lab](#research-lab)**
+**[Interactive 3D explainer](docs/how-edgecraft-works-3d.html)** · **[Starting prompt](docs/FUND_STARTING_PROMPT.md)** · **[Daily Codex task](docs/CODEX_SCHEDULED_TASK.md)** · **[Accounting contract](docs/FUND_ACCOUNTING.md)** · **[Research lab](#research-lab)**
 
 </div>
 
