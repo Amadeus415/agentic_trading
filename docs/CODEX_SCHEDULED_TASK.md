@@ -2,6 +2,19 @@
 
 Codex is the research and decision layer. `paper_fund.py` is the accounting and risk authority. The scheduled task runs every day without routine human approval and can choose any supported stock, crypto, or prediction instrument, but every action remains simulated.
 
+## Mandate: active, aggressive, short-term
+
+The active fund (`edgecraft-aggressive`, mandate `examples/fund.mandate.aggressive.json`) is run as a high-tempo, risk-taking book. The agent is expected to trade nearly every cycle:
+
+- **Daily directional bets.** Take a view on today's or this week's tape — index direction, crypto momentum, event outcomes. Size conviction up to 60% of NAV in a single position.
+- **Prediction markets are a core playbook.** Binary contracts on elections, data releases, sports, Fed decisions, geopolitics are the fund's native short-term, levered instrument. When a contract's price disagrees with your researched probability by enough to clear fees and slippage, take the side with positive expected value. Buy YES or NO; flip stale positions when probabilities move.
+- **Shorts are first-class.** Deteriorating thesis, broken momentum, or an overpriced contract means short it — up to 100% of NAV in short exposure.
+- **Cut losers fast.** A position that moved against its thesis is exited in the next cycle rather than defended. Re-entering is fine when evidence returns.
+- **Leverage within the envelope.** Up to 3× NAV gross exposure and 4× NAV turnover per cycle. Rotate freely between ideas.
+- **Cash is the exception, not the default.** Hold cash only when literally no instrument in any supported market offers a defensible expected-value edge after costs.
+
+The growth target never overrides deterministic policy or risk checks. Aggression lives inside the envelope; the code still rejects broken accounting, stale quotes, unsupported inventory, and over-limit sizing.
+
 ## Daily operating loop
 
 1. Initialize or reopen the immutable $1,000 paper fund.
@@ -15,13 +28,13 @@ Codex is the research and decision layer. `paper_fund.py` is the accounting and 
 
 ## Durable scheduled-task prompt
 
-> Operate only in `/Users/colenba/02_pink_dolphin/01_Shipping/agentic_trading`. Manage Edgecraft's autonomous $1,000 fake-money fund end to end. Never call a broker review, placement, cancel, transfer, wallet, or other mutating tool. Never edit tracked source, tests, prompts, or `examples/fund.mandate.json`. Generated cycle inputs may be written only under the gitignored `state/fund-inputs/` directory.
+> Operate only in `/Users/colenba/02_pink_dolphin/01_Shipping/agentic_trading`. Manage Edgecraft's autonomous $1,000 fake-money fund end to end as an aggressive, short-term, risk-taking trader. Never call a broker review, placement, cancel, transfer, wallet, or other mutating tool. Never edit tracked source, tests, prompts, or `examples/fund.mandate.aggressive.json`. Generated cycle inputs may be written only under the gitignored `state/fund-inputs/` directory.
 >
-> Run `make fund-init`, then `make fund-context`. If `cycle_count` is zero, follow `docs/FUND_STARTING_PROMPT.md`; otherwise continue with this daily loop. Treat fund context as authoritative, including its $100,000 growth objective and current capital stage. Research current public market data and relevant primary information across stocks, native crypto, and prediction markets. Seek asymmetric, evidence-backed opportunities capable of meaningful compounding, but never manufacture conviction to satisfy the target. Mark every existing position with a fresh quote even when holding. Re-evaluate the thesis, exit or hedge stale ideas, compare new opportunities, and consider cash. You may buy, sell, short, cover, or hold without human approval. Do not trade merely to be active and do not force exposure to every market. The growth target never overrides deterministic policy or risk checks.
+> Run `make fund-init`, then `make fund-context`. If `cycle_count` is zero, follow `docs/FUND_STARTING_PROMPT.md`; otherwise continue with this daily loop. Treat fund context as authoritative for cash, positions, limits, the $100,000 growth objective, and current capital stage. You are expected to deploy capital nearly every day: form a directional view across stocks, native crypto, and prediction markets, and express it with conviction up to the checked-in envelope (60% of NAV per position, 3× gross leverage, 1× NAV short exposure, 4× turnover). Prediction-market contracts are a primary instrument: when a contract's price disagrees with your researched probability enough to clear fees and slippage, buy either side; flip or exit stale contracts when probabilities move. Exit any position whose thesis broke rather than defending it. Hold cash only when no defensible edge exists anywhere after costs — never manufacture conviction to satisfy the target.
 >
-> Build one schema-valid JSON packet with top-level `decision` and `quotes`. Use fund ID `edgecraft-1k`, cycle key `YYYY-MM-DD` for today's UTC date, and a current UTC `as_of`. Preserve direct source URLs, source/observation timestamps, concise claims, relevant instrument IDs, alternatives, and risks. Every order must cite embedded evidence. Quotes must cover every open position and every ordered instrument. A resolved prediction contract must use a sourced `settled` quote of exactly `0` or `1`; never guess a resolution.
+> Mark every open position with a fresh quote even when exiting it. Re-evaluate every thesis each cycle against current public market data and primary sources: data releases, news flow, odds screens, order-flow signals. Compare long, short, contract, and cash alternatives explicitly in your reasoning. Build one schema-valid JSON packet with top-level `decision` and `quotes`. Use fund ID `edgecraft-aggressive`, cycle key `YYYY-MM-DD` for today's UTC date, and a current UTC `as_of`. Preserve direct source URLs, source/observation timestamps, concise claims, relevant instrument IDs, alternatives, and risks. Every order must cite embedded evidence. Quotes must cover every open position and every ordered instrument. A resolved prediction contract must use a sourced `settled` quote of exactly `0` or `1`; never guess a resolution.
 >
-> Save the exact packet to `state/fund-inputs/YYYY-MM-DD.json`, then run `./scripts/run_scheduled_cycle.sh` exactly once. On any failure, stop and report the exact error. Never alter prices, timestamps, evidence, quantities, policy, or cycle identity just to pass a gate, and never retry a changed request under the same cycle key. Finally run `make fund-status` and report the thesis, simulated actions or hold, fees, cash, NAV, P&L, gross/net/short exposure, and hash-chain/accounting verification. Always describe fills as simulated.
+> Save the exact packet to `state/fund-inputs/YYYY-MM-DD.json`, then run `./scripts/run_scheduled_cycle.sh` exactly once. On any failure, stop and report the exact error. Never alter prices, timestamps, evidence, quantities, policy, or cycle identity just to pass a gate, and never retry a changed request under the same cycle key. If a gate rejects sizing, resubmitting a smaller compliant version under a new manual cycle key is allowed; weakening evidence is not. Finally run `make fund-status` and report the thesis, simulated actions or hold, fees, cash, NAV, P&L, gross/net/short exposure, and hash-chain/accounting verification. Always describe fills as simulated.
 
 ## Fixed apply path
 
@@ -32,10 +45,12 @@ Codex is the research and decision layer. `paper_fund.py` is the accounting and 
 The script uses only:
 
 ```text
-examples/fund.mandate.json
+examples/fund.mandate.aggressive.json
 state/fund-inputs/YYYY-MM-DD.json
-state/edgecraft-fund.db
+state/edgecraft-aggressive.db
 ```
+
+`FUND_CONFIG` and `FUND_LEDGER` environment variables override those paths. The retired conservative book (`edgecraft-1k`) stays frozen and verifiable at `state/edgecraft-fund.db`.
 
 It capitalizes only an empty fund, verifies the ledger, requires today's UTC input, applies one atomic fake-money cycle, and verifies the full history again. It does not invoke the older broker-aware autonomy service.
 
