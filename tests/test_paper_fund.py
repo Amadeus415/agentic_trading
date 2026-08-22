@@ -178,6 +178,7 @@ def _mandate(**kwargs: object) -> FundMandate:
         max_cycle_turnover=Decimal("5000"),
         max_order_count=50,
         max_drawdown=Decimal("0.50"),
+        scale_limits_with_nav=False,
     )
     base.update(kwargs)
     return FundMandate(**base)  # type: ignore[arg-type]
@@ -1360,9 +1361,7 @@ def test_completed_cycle_is_fully_auditable(tmp_path: Path) -> None:
         assert result.audit.fill_count == 1
 
         completed = next(
-            event
-            for event in ledger.list_events(FUND_ID)
-            if event.event_type == "cycle_completed"
+            event for event in ledger.list_events(FUND_ID) if event.event_type == "cycle_completed"
         )
         assert completed.payload["decision"]["thesis"] == decision.thesis
         assert completed.payload["quotes"][0]["instrument_id"] == "SPY"

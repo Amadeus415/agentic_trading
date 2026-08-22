@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -35,6 +36,9 @@ def test_fund_cli_initializes_runs_reports_and_verifies(tmp_path, capsys) -> Non
     assert first["initialized"] is True
     assert second["initialized"] is False
     assert context["state"]["cash"] == "1000.00"
+    assert context["growth_objective"]["target_nav"] == "100000.00"
+    assert context["growth_objective"]["stage"] == "bootstrap"
+    assert context["growth_objective"]["target_multiple"] == "100"
     assert "decision_schema" in context["input_contract"]
     assert cycle["paper_only"] is True
     assert cycle["result"]["state"]["cycle_count"] == 1
@@ -47,6 +51,7 @@ def test_fund_cli_initializes_runs_reports_and_verifies(tmp_path, capsys) -> Non
         "prediction",
     }
     assert status["cycle_count"] == 1
+    assert Decimal(status["growth_objective"]["remaining_multiple"]) > 0
     assert performance["initial_cash"] == "1000.00"
     assert performance["simulated_fill_count"] == 3
     assert performance["history"][0]["cycle_key"] == "example-start-2026-08-06"

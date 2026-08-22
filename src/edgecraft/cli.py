@@ -22,6 +22,7 @@ from edgecraft.context import browserbase_api_key, load_context_service
 from edgecraft.data import MarketDataProvider, synthetic_market_data
 from edgecraft.evaluation import evaluation_report
 from edgecraft.execution_models import PortfolioSnapshot, RiskPolicy
+from edgecraft.growth import growth_snapshot
 from edgecraft.intelligence import YahooMarketIntelligenceCollector
 from edgecraft.ledger import AuditLedger
 from edgecraft.models import BacktestRequest, CostModel
@@ -460,6 +461,9 @@ def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
         state = ledger.get_state(fund_id)
         cycles = ledger.list_cycles(fund_id)[-10:]
     initial = mandate.initial_cash
+    growth = growth_snapshot(
+        initial_nav=initial, current_nav=state.nav, objective=mandate.growth_objective
+    )
     return {
         "ok": True,
         "paper_only": True,
@@ -475,6 +479,7 @@ def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
             "profit_and_loss": str(state.nav - initial),
             "return_on_initial_cash": str((state.nav / initial) - 1),
         },
+        "growth_objective": growth.model_dump(mode="json"),
         "recent_cycles": cycles,
         "input_contract": {
             "shape": {
@@ -494,6 +499,8 @@ def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
             "quote_schema": FundQuote.model_json_schema(mode="validation"),
             "rules": [
                 "Use action=hold with no orders when evidence is weak.",
+                "Pursue the growth objective through evidence-backed asymmetric opportunities; "
+                "the target never overrides deterministic risk checks.",
                 "Use explicit buy, sell, short, or cover sides and positive quantities.",
                 "Include fresh quotes for every open position and every ordered instrument.",
                 "Cite every order to evidence embedded in the decision.",
@@ -526,9 +533,7 @@ def _fund_runtime_from_input(
         ),
         model=str(runtime_raw["model"]) if runtime_raw.get("model") else None,
         reasoning_effort=(
-            str(runtime_raw["reasoning_effort"])
-            if runtime_raw.get("reasoning_effort")
-            else None
+            str(runtime_raw["reasoning_effort"]) if runtime_raw.get("reasoning_effort") else None
         ),
         input_path=str(input_path),
         input_sha256=input_sha256,
@@ -653,6 +658,11 @@ def _fund_status(args: argparse.Namespace) -> dict[str, Any]:
             "profit_and_loss": str(state.nav - mandate.initial_cash),
             "return_on_initial_cash": str((state.nav / mandate.initial_cash) - 1),
         },
+        "growth_objective": growth_snapshot(
+            initial_nav=mandate.initial_cash,
+            current_nav=state.nav,
+            objective=mandate.growth_objective,
+        ).model_dump(mode="json"),
         "cycle_count": len(cycles),
         "verification": verification.model_dump(mode="json"),
     }
@@ -679,6 +689,11 @@ def _fund_performance(args: argparse.Namespace) -> dict[str, Any]:
         "current_nav": str(state.nav),
         "profit_and_loss": str(state.nav - initial),
         "total_return": str((state.nav / initial) - 1),
+        "growth_objective": growth_snapshot(
+            initial_nav=initial,
+            current_nav=state.nav,
+            objective=mandate.growth_objective,
+        ).model_dump(mode="json"),
         "max_drawdown": str(max((Decimal(item["drawdown"]) for item in history), default=0)),
         "positive_cycle_count": sum(item > 0 for item in cycle_returns),
         "negative_cycle_count": sum(item < 0 for item in cycle_returns),
