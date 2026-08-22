@@ -29,6 +29,8 @@ from pydantic import (
     model_validator,
 )
 
+from edgecraft.growth import GrowthObjective
+
 # ---------------------------------------------------------------------------
 # Constants and helpers
 # ---------------------------------------------------------------------------
@@ -169,6 +171,12 @@ class FundMandate(BaseModel):
     max_cycle_turnover: Decimal = Field(default=Decimal("1000"), ge=0)
     max_order_count: int = Field(default=20, ge=0)
     max_drawdown: Decimal = Field(default=Decimal("0.25"), ge=0, le=1)
+    growth_objective: GrowthObjective = Field(default_factory=GrowthObjective)
+    scale_limits_with_nav: bool = True
+    max_gross_exposure_nav_multiple: Decimal = Field(default=Decimal("1.50"), gt=0)
+    max_absolute_net_exposure_nav_multiple: Decimal = Field(default=Decimal("1.00"), gt=0)
+    max_short_exposure_nav_multiple: Decimal = Field(default=Decimal("0.50"), ge=0)
+    max_cycle_turnover_nav_multiple: Decimal = Field(default=Decimal("1.00"), ge=0)
 
     @field_validator("initial_cash", "fee_bps", "slippage_bps", mode="before")
     @classmethod
@@ -182,6 +190,10 @@ class FundMandate(BaseModel):
         "max_single_position_weight",
         "max_cycle_turnover",
         "max_drawdown",
+        "max_gross_exposure_nav_multiple",
+        "max_absolute_net_exposure_nav_multiple",
+        "max_short_exposure_nav_multiple",
+        "max_cycle_turnover_nav_multiple",
         mode="before",
     )
     @classmethod
@@ -232,6 +244,14 @@ class FundMandate(BaseModel):
 
     def source_age_for(self, asset_class: AssetClass) -> timedelta:
         return self.max_source_age[asset_class]
+
+    def effective_limit(
+        self, absolute_floor: Decimal, nav_multiple: Decimal, nav: Decimal
+    ) -> Decimal:
+        """Scale a risk ceiling with earned NAV, never with injected capital."""
+        if not self.scale_limits_with_nav:
+            return absolute_floor
+        return max(absolute_floor, nav * nav_multiple)
 
 
 class FundQuote(BaseModel):
@@ -1049,12 +1069,8 @@ def _quote_freshness_records(
                 price=quote.price,
                 observed_at=quote.observed_at,
                 source_timestamp=quote.source_timestamp,
-                observation_age_seconds=max(
-                    0, int((as_of - quote.observed_at).total_seconds())
-                ),
-                source_age_seconds=max(
-                    0, int((as_of - quote.source_timestamp).total_seconds())
-                ),
+                observation_age_seconds=max(0, int((as_of - quote.observed_at).total_seconds())),
+                source_age_seconds=max(0, int((as_of - quote.source_timestamp).total_seconds())),
                 max_observation_age_seconds=int(max_obs.total_seconds()),
                 max_source_age_seconds=int(max_src.total_seconds()),
                 source_name=quote.source_name,
@@ -1083,6 +1099,21 @@ def evaluate_risk(
     prediction_reserve = _prediction_short_reserve(post_positions)
     peak = max(pre_state.peak_nav, nav)
     post_dd = (peak - nav) / peak if peak > ZERO else ZERO
+    risk_nav = max(pre_state.nav, ZERO)
+    turnover_limit = mandate.effective_limit(
+        mandate.max_cycle_turnover, mandate.max_cycle_turnover_nav_multiple, risk_nav
+    )
+    gross_limit = mandate.effective_limit(
+        mandate.max_gross_exposure, mandate.max_gross_exposure_nav_multiple, risk_nav
+    )
+    net_limit = mandate.effective_limit(
+        mandate.max_absolute_net_exposure,
+        mandate.max_absolute_net_exposure_nav_multiple,
+        risk_nav,
+    )
+    short_limit = mandate.effective_limit(
+        mandate.max_short_exposure, mandate.max_short_exposure_nav_multiple, risk_nav
+    )
 
     checks: list[RiskCheck] = [
         RiskCheck(
@@ -1098,12 +1129,12 @@ def evaluate_risk(
         ),
         RiskCheck(
             name="cycle_turnover",
-            passed=turnover <= mandate.max_cycle_turnover,
+            passed=turnover <= turnover_limit,
             observed=str(turnover),
-            limit=str(mandate.max_cycle_turnover),
+            limit=str(turnover_limit),
             detail=(
-                f"cycle turnover {turnover} exceeds max_cycle_turnover {mandate.max_cycle_turnover}"
-                if turnover > mandate.max_cycle_turnover
+                f"cycle turnover {turnover} exceeds effective max_cycle_turnover {turnover_limit}"
+                if turnover > turnover_limit
                 else ""
             ),
         ),
@@ -1127,35 +1158,31 @@ def evaluate_risk(
         ),
         RiskCheck(
             name="gross_exposure",
-            passed=gross <= mandate.max_gross_exposure,
+            passed=gross <= gross_limit,
             observed=str(gross),
-            limit=str(mandate.max_gross_exposure),
+            limit=str(gross_limit),
             detail=(
-                f"gross exposure {gross} exceeds max {mandate.max_gross_exposure}"
-                if gross > mandate.max_gross_exposure
-                else ""
+                f"gross exposure {gross} exceeds max {gross_limit}" if gross > gross_limit else ""
             ),
         ),
         RiskCheck(
             name="absolute_net_exposure",
-            passed=abs(net) <= mandate.max_absolute_net_exposure,
+            passed=abs(net) <= net_limit,
             observed=str(abs(net)),
-            limit=str(mandate.max_absolute_net_exposure),
+            limit=str(net_limit),
             detail=(
-                f"absolute net exposure {abs(net)} exceeds max {mandate.max_absolute_net_exposure}"
-                if abs(net) > mandate.max_absolute_net_exposure
+                f"absolute net exposure {abs(net)} exceeds max {net_limit}"
+                if abs(net) > net_limit
                 else ""
             ),
         ),
         RiskCheck(
             name="short_exposure",
-            passed=short <= mandate.max_short_exposure,
+            passed=short <= short_limit,
             observed=str(short),
-            limit=str(mandate.max_short_exposure),
+            limit=str(short_limit),
             detail=(
-                f"short exposure {short} exceeds max {mandate.max_short_exposure}"
-                if short > mandate.max_short_exposure
-                else ""
+                f"short exposure {short} exceeds max {short_limit}" if short > short_limit else ""
             ),
         ),
     ]
@@ -1248,9 +1275,7 @@ def run_cycle_accounting(
         open_positions=open_positions,
         orders=decision.orders,
     )
-    quote_freshness = _quote_freshness_records(
-        mandate=mandate, as_of=decision.as_of, quotes=quotes
-    )
+    quote_freshness = _quote_freshness_records(mandate=mandate, as_of=decision.as_of, quotes=quotes)
 
     cash = prior_state.cash
     realized_cum = prior_state.realized_pnl_cumulative
@@ -1730,9 +1755,7 @@ class PaperFundLedger:
             (fund_id, cycle_key),
         ).fetchone()
         if row is None:
-            raise PaperFundValidationError(
-                f"cycle {cycle_key!r} not found for fund {fund_id}"
-            )
+            raise PaperFundValidationError(f"cycle {cycle_key!r} not found for fund {fund_id}")
         result = CycleResult.model_validate_json(row["result_json"])
         return {
             "fund_id": row["fund_id"],
@@ -1748,9 +1771,7 @@ class PaperFundLedger:
             "settlements": json.loads(row["settlements_json"]),
             "state": json.loads(row["state_json"]),
             "result": result.model_dump(mode="json"),
-            "audit": (
-                result.audit.model_dump(mode="json") if result.audit is not None else None
-            ),
+            "audit": (result.audit.model_dump(mode="json") if result.audit is not None else None),
         }
 
     def cycle_audit(self, fund_id: str, cycle_key: str) -> dict[str, Any]:

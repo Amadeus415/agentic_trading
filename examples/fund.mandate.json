@@ -25,6 +25,15 @@
     "max_single_position_weight": "0.35",
     "max_cycle_turnover": "1000.00",
     "max_order_count": 12,
-    "max_drawdown": "0.25"
+    "max_drawdown": "0.25",
+    "growth_objective": {
+      "target_nav": "100000.00",
+      "target_horizon_years": "10"
+    },
+    "scale_limits_with_nav": true,
+    "max_gross_exposure_nav_multiple": "1.50",
+    "max_absolute_net_exposure_nav_multiple": "1.00",
+    "max_short_exposure_nav_multiple": "0.50",
+    "max_cycle_turnover_nav_multiple": "1.00"
   }
 }
