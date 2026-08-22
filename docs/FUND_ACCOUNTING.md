@@ -2,6 +2,25 @@
 
 The paper fund is a deterministic state machine around one $1,000 bankroll. Codex supplies research, a typed decision, and sourced marks. It cannot supply cash or mutate stored state directly.
 
+## Growth objective
+
+The mandate explicitly targets a $100,000 paper NAV over ten years. That is a
+100x objective requiring roughly 58.5% annualized compounding, so it is an
+aggressive research target—not a forecast or guarantee.
+
+`fund-context`, `fund-status`, and `fund-performance` report simple progress,
+logarithmic compounding progress, the remaining multiple, and the current
+capital stage (`bootstrap`, `compound`, `scale`, `protect`, or
+`objective_reached`). The objective informs agent reasoning but has no authority
+to bypass accounting, evidence, freshness, drawdown, concentration, or cash
+checks.
+
+Dollar exposure and turnover limits remain the bootstrap floors. When
+`scale_limits_with_nav` is enabled, their effective ceilings grow only with
+earned NAV using checked-in NAV multiples. Deposits cannot enlarge them because
+capitalization remains a one-time immutable $1,000 event. Each effective limit
+is written into the cycle's risk audit record.
+
 ## State
 
 For signed position quantity `q` and current mark `p`:

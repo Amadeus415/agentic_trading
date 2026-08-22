@@ -2,7 +2,7 @@
 
 # EDGECRAFT
 
-### A $1,000 autonomous multi-market paper fund
+### An autonomous paper fund pursuing $1,000 → $100,000
 
 Every day Codex researches public markets, proposes a buy, sell, short, cover, or hold, and deterministic code applies it to an append-only fake-money ledger.
 
@@ -26,27 +26,27 @@ flowchart LR
     D --> G{"Typed accounting and risk gates"}
     G -->|Reject| A["Append-only audit"]
     G -->|Pass| P["Simulated fill"]
-    P --> B["Persistent $1,000 paper book"]
+    P --> B["Persistent compounding paper book"]
     B --> A
 ```
 
-The bankroll is deposited once. There is no daily contribution and no reset. The fund can hold cash or take long and short positions in stocks, native crypto, and binary prediction contracts. It may name any syntactically valid instrument; there is no symbol whitelist. Every trade still needs fresh sourced prices, cited evidence, valid inventory, and room inside the checked-in risk envelope.
+The bankroll is deposited once. There is no daily contribution and no reset. The explicit research objective is to compound $1,000 into $100,000 over ten years—an aggressive 100x target requiring about 58.5% annualized returns, not a promise. The fund can hold cash or take long and short positions in stocks, native crypto, and binary prediction contracts. It may name any syntactically valid instrument; there is no symbol whitelist. Every trade still needs fresh sourced prices, cited evidence, valid inventory, and room inside the checked-in risk envelope.
 
 Current envelope:
 
 | Control | Limit |
 |:--|--:|
 | Initial fake cash | $1,000 once |
-| Gross exposure | $1,500 |
-| Absolute net exposure | $1,000 |
-| Short exposure | $500 |
+| Gross exposure | max($1,500, 1.50 × earned NAV) |
+| Absolute net exposure | max($1,000, 1.00 × earned NAV) |
+| Short exposure | max($500, 0.50 × earned NAV) |
 | One position | 35% of NAV |
-| Turnover per cycle | $1,000 |
+| Turnover per cycle | max($1,000, 1.00 × earned NAV) |
 | Orders per cycle | 12 |
 | Drawdown gate | 25% |
 | Simulated fee / slippage | 5 / 10 bps |
 
-These limits are deliberately light. Codex chooses the instruments, direction, sizing, and whether to trade; code only prevents broken accounting, stale or unsupported inputs, and risk outside the experiment.
+The dollar values are bootstrap floors; limits scale only after the fund earns a higher NAV, never through deposits. Codex chooses the instruments, direction, sizing, and whether to trade; code prevents broken accounting, stale or unsupported inputs, and risk outside the experiment. The growth target cannot override those controls.
 
 ## Run it
 
@@ -59,7 +59,7 @@ make fund-init
 make fund-context
 ```
 
-`fund-context` prints the authoritative cash, positions, P&L, recent cycles, mandate, and exact JSON schema the agent must satisfy.
+`fund-context` prints the authoritative cash, positions, P&L, target progress, capital stage, recent cycles, mandate, and exact JSON schema the agent must satisfy.
 
 To exercise all three asset classes with static example data and a disposable ledger:
 
