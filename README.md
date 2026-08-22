@@ -4,7 +4,9 @@
 
 ### An autonomous paper fund pursuing $1,000 → $100,000
 
-Every day Codex researches public markets, proposes a buy, sell, short, cover, or hold, and deterministic code applies it to an append-only fake-money ledger.
+Edgecraft is a fully autonomous paper-trading fund with one job: turn $1,000 of fake money into $100,000 without ever touching a real brokerage account. Every day an AI agent (Codex) researches public markets — stocks, native crypto, and binary prediction contracts — proposes a buy, sell, short, cover, or hold, and deterministic Python code decides whether that proposal is even allowed to happen. Accepted trades land in an append-only SQLite ledger with the full evidence packet; rejected ones are recorded too, and nothing can be edited or deleted afterward.
+
+The design principle is simple: **models may propose; typed policy and risk engines authorize.** The agent cannot bypass accounting checks, inject cash, reset losses, or place a real order — the codebase has no live execution path at all.
 
 [![CI](https://github.com/Amadeus415/agentic_trading/actions/workflows/ci.yml/badge.svg)](https://github.com/Amadeus415/agentic_trading/actions/workflows/ci.yml)
 [![Python 3.11–3.14](https://img.shields.io/badge/python-3.11%E2%80%933.14-0b1220?logo=python&logoColor=white)](pyproject.toml)
@@ -143,6 +145,11 @@ See [the accounting contract](docs/FUND_ACCOUNTING.md) for formulas and schemas.
 src/edgecraft/
 ├── paper_fund.py           # typed models, accounting, risk, SQLite audit ledger
 ├── cli.py                  # fund commands plus the preserved research CLI
+├── context.py              # sourced web/market evidence with freshness policy
+├── codex_runtime.py        # invocation harness for the scheduled Codex agent
+├── decision_memory.py      # prior-decision and performance memory for the agent
+├── growth.py               # deterministic growth objective and capital stages
+├── observability.py        # structured JSON logging and event emission
 ├── engine.py               # causal backtest execution
 ├── research.py             # experiment matrix and robustness evidence
 └── walkforward.py          # out-of-sample strategy validation
@@ -152,6 +159,7 @@ examples/fund.mandate.json                  # retired conservative mandate
 examples/fund-cycle.starting.example.json   # executable three-market fixture
 scripts/run_scheduled_cycle.sh              # fixed daily paper apply path
 tests/test_paper_fund.py                    # accounting and failure invariants
+docs/                                       # accounting contract, prompts, autonomy notes
 ```
 
 ## Research lab
