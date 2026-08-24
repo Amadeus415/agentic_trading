@@ -1,6 +1,6 @@
 [project]
 name = "edgecraft"
-version = "0.8.0"
+version = "0.9.0"
 description = "An autonomous $1,000-to-$100,000 multi-market paper fund with an append-only ledger"
 readme = "README.md"
 license = "Apache-2.0"
