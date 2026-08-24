@@ -25,8 +25,12 @@ def test_fund_cli_initializes_runs_reports_and_verifies(tmp_path, capsys) -> Non
     first = _run(["fund-init", *common], capsys)
     second = _run(["fund-init", *common], capsys)
     context = _run(["fund-context", *common], capsys)
-    cycle = _run(["fund-run", *common, "--input", str(EXAMPLE)], capsys)
+    cycle = _run(
+        ["fund-run", *common, "--input", str(EXAMPLE), "--require-brain-journal"],
+        capsys,
+    )
     status = _run(["fund-status", *common], capsys)
+    brain = _run(["fund-brain", *common], capsys)
     performance = _run(["fund-performance", *common], capsys)
     verification = _run(["fund-verify", *common], capsys)
     cycle_key = cycle["result"]["cycle_key"]
@@ -40,6 +44,7 @@ def test_fund_cli_initializes_runs_reports_and_verifies(tmp_path, capsys) -> Non
     assert context["growth_objective"]["stage"] == "bootstrap"
     assert context["growth_objective"]["target_multiple"] == "100"
     assert "decision_schema" in context["input_contract"]
+    assert context["brain"]["schema_version"] == "edgecraft.fund-brain.v1"
     assert cycle["paper_only"] is True
     assert cycle["result"]["state"]["cycle_count"] == 1
     assert cycle["result"]["audit"]["risk"]["approved"] is True
@@ -51,6 +56,8 @@ def test_fund_cli_initializes_runs_reports_and_verifies(tmp_path, capsys) -> Non
         "prediction",
     }
     assert status["cycle_count"] == 1
+    assert len(status["brain"]["instruments"]) == 3
+    assert len(brain["brain"]["recent_cycles"]) == 1
     assert Decimal(status["growth_objective"]["remaining_multiple"]) > 0
     assert performance["initial_cash"] == "1000.00"
     assert performance["simulated_fill_count"] == 3

@@ -81,6 +81,13 @@ class DecisionAction(StrEnum):
     HOLD = "hold"
 
 
+class HypothesisStance(StrEnum):
+    LONG = "long"
+    SHORT = "short"
+    EXIT = "exit"
+    WATCH = "watch"
+
+
 class QuoteStatus(StrEnum):
     OPEN = "open"
     SETTLED = "settled"
@@ -366,6 +373,67 @@ class FundOrder(BaseModel):
         return cleaned
 
 
+class FundHypothesis(BaseModel):
+    """Falsifiable, instrument-level reasoning retained in the fund journal."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    instrument_id: str = Field(min_length=1, max_length=128)
+    stance: HypothesisStance
+    statement: str = Field(min_length=1, max_length=2000)
+    mechanism: str = Field(min_length=1, max_length=2000)
+    catalysts: tuple[str, ...] = Field(min_length=1, max_length=8)
+    falsifiers: tuple[str, ...] = Field(min_length=1, max_length=8)
+    expected_horizon_hours: int = Field(ge=1, le=8_760)
+    confidence: Decimal = Field(ge=0, le=1)
+    target_price: Decimal | None = Field(default=None, gt=0)
+    invalidation_price: Decimal | None = Field(default=None, gt=0)
+    evidence_ids: tuple[str, ...] = Field(min_length=1)
+
+    @field_validator("instrument_id")
+    @classmethod
+    def _instrument(cls, value: str) -> str:
+        return _validate_instrument_id(value)
+
+    @field_validator("confidence", "target_price", "invalidation_price", mode="before")
+    @classmethod
+    def _decimals(cls, value: Any) -> Decimal | None:
+        return None if value is None else _as_decimal(value)
+
+    @field_validator("catalysts", "falsifiers", "evidence_ids")
+    @classmethod
+    def _nonempty_strings(cls, value: Sequence[str]) -> tuple[str, ...]:
+        cleaned = tuple(str(item).strip() for item in value if str(item).strip())
+        if not cleaned:
+            raise ValueError("journal lists must contain at least one non-empty item")
+        return cleaned
+
+
+class DecisionJournal(BaseModel):
+    """Concise auditable reasoning; deliberately not private chain-of-thought."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    market_regime: str = Field(min_length=1, max_length=2000)
+    opportunity_set: str = Field(min_length=1, max_length=4000)
+    portfolio_intent: str = Field(min_length=1, max_length=4000)
+    what_changed: str = Field(min_length=1, max_length=4000)
+    lessons_applied: tuple[str, ...] = Field(default=(), max_length=12)
+    hypotheses: tuple[FundHypothesis, ...] = Field(default=(), max_length=40)
+
+    @field_validator("lessons_applied")
+    @classmethod
+    def _lessons(cls, value: Sequence[str]) -> tuple[str, ...]:
+        return tuple(str(item).strip() for item in value if str(item).strip())
+
+    @model_validator(mode="after")
+    def _unique_instruments(self) -> Self:
+        instruments = [item.instrument_id for item in self.hypotheses]
+        if len(instruments) != len(set(instruments)):
+            raise ValueError("journal hypotheses must use unique instrument_id values")
+        return self
+
+
 class FundDecision(BaseModel):
     """Normalized cycle decision: trade with orders, or hold with none."""
 
@@ -379,6 +447,7 @@ class FundDecision(BaseModel):
     thesis: str = Field(min_length=1, max_length=8000)
     alternatives: str = Field(default="", max_length=8000)
     risks: str = Field(default="", max_length=8000)
+    journal: DecisionJournal | None = None
     evidence: tuple[FundEvidence, ...] = ()
     orders: tuple[FundOrder, ...] = ()
 
@@ -422,6 +491,25 @@ class FundDecision(BaseModel):
                 raise ValueError(
                     f"order on {order.instrument_id} requires instrument-specific evidence"
                 )
+
+        if self.journal is not None:
+            hypotheses = {item.instrument_id: item for item in self.journal.hypotheses}
+            for hypothesis in self.journal.hypotheses:
+                for evidence_id in hypothesis.evidence_ids:
+                    if evidence_id not in evidence_by_id:
+                        raise ValueError(
+                            f"hypothesis on {hypothesis.instrument_id} cites unknown "
+                            f"evidence_id {evidence_id}"
+                        )
+                    item = evidence_by_id[evidence_id]
+                    if item.instrument_ids and hypothesis.instrument_id not in item.instrument_ids:
+                        raise ValueError(
+                            f"evidence {evidence_id} is not relevant to hypothesis "
+                            f"{hypothesis.instrument_id}"
+                        )
+            missing = sorted({order.instrument_id for order in self.orders}.difference(hypotheses))
+            if missing:
+                raise ValueError(f"ordered instruments are missing journal hypotheses: {missing}")
         return self
 
 
@@ -487,6 +575,21 @@ class FundState(BaseModel):
     @classmethod
     def _as_of_utc(cls, value: datetime) -> datetime:
         return _ensure_utc(value, "as_of")
+
+
+def validate_decision_journal(decision: FundDecision, prior_state: FundState) -> None:
+    """Require the scheduled agent to refresh every live or ordered hypothesis."""
+    if decision.journal is None:
+        raise PaperFundValidationError("scheduled decisions require an auditable journal")
+    journal_instruments = {hypothesis.instrument_id for hypothesis in decision.journal.hypotheses}
+    required = {position.instrument_id for position in prior_state.positions} | {
+        order.instrument_id for order in decision.orders
+    }
+    missing = sorted(required.difference(journal_instruments))
+    if missing:
+        raise PaperFundValidationError(
+            f"journal is missing hypotheses for open or ordered instruments: {missing}"
+        )
 
 
 class RiskCheck(BaseModel):
@@ -1433,8 +1536,14 @@ def request_digest(
     decision: FundDecision,
     quotes: Sequence[FundQuote],
 ) -> str:
+    decision_payload = decision.model_dump(mode="json")
+    # The journal was added after immutable v1 cycles existed. Omitting an absent
+    # journal preserves their canonical request digests; present journals remain
+    # part of the signed request and cannot be changed on replay.
+    if decision.journal is None:
+        decision_payload.pop("journal", None)
     payload = {
-        "decision": decision.model_dump(mode="json"),
+        "decision": decision_payload,
         "quotes": [q.model_dump(mode="json") for q in quotes],
     }
     return _sha256_hex(_canonical_json(payload))
@@ -1882,10 +1991,16 @@ class PaperFundLedger:
         quotes: Sequence[FundQuote],
         *,
         runtime: CycleRuntimeMetadata | None = None,
+        require_brain_journal: bool = False,
     ) -> CycleResult:
         """Execute atomically and retain rejected normalized requests in the audit chain."""
         try:
-            return self._execute_cycle(decision, quotes, runtime=runtime)
+            return self._execute_cycle(
+                decision,
+                quotes,
+                runtime=runtime,
+                require_brain_journal=require_brain_journal,
+            )
         except (PaperFundValidationError, PaperFundIdempotencyError) as exc:
             self._record_rejection(decision, quotes, exc, runtime=runtime)
             raise
@@ -1963,6 +2078,7 @@ class PaperFundLedger:
         quotes: Sequence[FundQuote],
         *,
         runtime: CycleRuntimeMetadata | None = None,
+        require_brain_journal: bool = False,
     ) -> CycleResult:
         """Execute one atomic cycle, or replay if the exact request was stored."""
         digest = request_digest(decision, quotes)
@@ -1985,6 +2101,8 @@ class PaperFundLedger:
                 return result.model_copy(update={"replayed": True})
 
             prior = self._load_latest_state(conn, decision.fund_id)
+            if require_brain_journal:
+                validate_decision_journal(decision, prior)
             outcome = run_cycle_accounting(
                 mandate=mandate,
                 prior_state=prior,

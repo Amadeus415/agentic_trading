@@ -32,5 +32,6 @@ fi
 "${RUN[@]}" fund-init --config "$CONFIG" --ledger "$LEDGER"
 "${RUN[@]}" fund-verify --config "$CONFIG" --ledger "$LEDGER"
 "${RUN[@]}" fund-run --config "$CONFIG" --input "$INPUT" --ledger "$LEDGER" \
-  --require-as-of-today --max-decision-age-seconds 1800 --require-cycle-key "$TODAY_UTC"
+  --require-as-of-today --max-decision-age-seconds 1800 --require-cycle-key "$TODAY_UTC" \
+  --require-brain-journal
 "${RUN[@]}" fund-verify --config "$CONFIG" --ledger "$LEDGER"

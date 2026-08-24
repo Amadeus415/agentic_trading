@@ -35,7 +35,7 @@ def test_scheduled_script_is_fixed_to_paper_fund(tmp_path):
         "run --no-sync edgecraft fund-run --config examples/fund.mandate.aggressive.json "
         f"--input {input_path} --ledger state/edgecraft-aggressive.db --require-as-of-today "
         "--max-decision-age-seconds 1800 --require-cycle-key "
-        f"{datetime.now(UTC).date()}",
+        f"{datetime.now(UTC).date()} --require-brain-journal",
         "run --no-sync edgecraft fund-verify --config examples/fund.mandate.aggressive.json "
         "--ledger state/edgecraft-aggressive.db",
     ]

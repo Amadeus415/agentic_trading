@@ -10,15 +10,19 @@ import pytest
 from pydantic import ValidationError
 
 from edgecraft import __version__
+from edgecraft.fund_brain import build_fund_brain
 from edgecraft.paper_fund import (
     AssetClass,
     CycleRuntimeMetadata,
     DecisionAction,
+    DecisionJournal,
     FundDecision,
     FundEvidence,
+    FundHypothesis,
     FundMandate,
     FundOrder,
     FundQuote,
+    HypothesisStance,
     OrderSide,
     PaperFundIdempotencyError,
     PaperFundIntegrityError,
@@ -26,6 +30,7 @@ from edgecraft.paper_fund import (
     PaperFundValidationError,
     QuoteStatus,
     mandate_digest,
+    validate_decision_journal,
 )
 
 AS_OF = datetime(2026, 8, 6, 15, 0, tzinfo=UTC)
@@ -380,6 +385,35 @@ def test_multi_asset_class_single_cycle(tmp_path: Path) -> None:
         assert result.state.cash == Decimal("710")
         assert len(result.state.positions) == 3
         assert result.state.nav == Decimal("1000")  # marks at cost, no fee
+
+
+def test_many_positions_can_open_atomically_in_one_cycle(tmp_path: Path) -> None:
+    instruments = tuple(f"STOCK{index}" for index in range(12))
+    evidence = tuple(
+        _ev(f"e-{instrument}", instruments=(instrument,)) for instrument in instruments
+    )
+    orders = tuple(
+        _buy(
+            instrument,
+            "1",
+            AssetClass.STOCK,
+            evidence_ids=(f"e-{instrument}",),
+        )
+        for instrument in instruments
+    )
+    quotes = [_quote(instrument, "50", AssetClass.STOCK) for instrument in instruments]
+
+    with _ledger(tmp_path) as ledger:
+        ledger.initialize(FUND_ID, _mandate(fee_bps=Decimal("0")))
+        result = ledger.execute_cycle(
+            _decision("many-positions", orders=orders, evidence=evidence),
+            quotes,
+        )
+
+    assert len(result.state.positions) == 12
+    assert result.state.gross_exposure == Decimal("600")
+    assert result.audit is not None
+    assert result.audit.risk.order_count == 12
 
 
 # ---------------------------------------------------------------------------
@@ -1319,6 +1353,100 @@ def test_default_mandate_is_paper_thousand() -> None:
     assert AssetClass.STOCK in m.supported_asset_classes
     assert AssetClass.CRYPTO in m.supported_asset_classes
     assert AssetClass.PREDICTION in m.supported_asset_classes
+
+
+def test_scheduled_journal_requires_hypothesis_for_every_live_instrument(tmp_path: Path) -> None:
+    evidence = _ev("e1", instruments=("AAPL",))
+    journal = DecisionJournal(
+        market_regime="Test regime",
+        opportunity_set="AAPL and cash",
+        portfolio_intent="Open one test position",
+        what_changed="First cycle",
+        hypotheses=(
+            FundHypothesis(
+                instrument_id="AAPL",
+                stance=HypothesisStance.LONG,
+                statement="AAPL may rise",
+                mechanism="Earnings growth can raise value",
+                catalysts=("earnings",),
+                falsifiers=("guidance cut",),
+                expected_horizon_hours=168,
+                confidence=Decimal("0.6"),
+                target_price=Decimal("120"),
+                invalidation_price=Decimal("90"),
+                evidence_ids=("e1",),
+            ),
+        ),
+    )
+    opening = _decision(
+        "journal-open",
+        orders=(_buy("AAPL", "1", AssetClass.STOCK),),
+        evidence=(evidence,),
+    ).model_copy(update={"journal": journal})
+
+    with _ledger(tmp_path) as ledger:
+        ledger.initialize(FUND_ID, _mandate())
+        validate_decision_journal(opening, ledger.get_state(FUND_ID))
+        ledger.execute_cycle(opening, [_quote("AAPL", "100", AssetClass.STOCK)])
+        next_hold = _decision(
+            "journal-hold",
+            action=DecisionAction.HOLD,
+            evidence=(evidence,),
+            as_of=AS_OF + timedelta(hours=1),
+        ).model_copy(
+            update={
+                "journal": DecisionJournal(
+                    market_regime="Test regime",
+                    opportunity_set="AAPL and cash",
+                    portfolio_intent="Review the book",
+                    what_changed="No change",
+                )
+            }
+        )
+        with pytest.raises(PaperFundValidationError, match="AAPL"):
+            validate_decision_journal(next_hold, ledger.get_state(FUND_ID))
+        with pytest.raises(PaperFundValidationError, match="AAPL"):
+            ledger.execute_cycle(next_hold, [], require_brain_journal=True)
+        assert ledger.list_events(FUND_ID)[-1].event_type == "cycle_rejected"
+        assert "AAPL" in ledger.list_events(FUND_ID)[-1].payload["reason"]
+
+
+def test_fund_brain_surfaces_losing_exit_as_future_feedback(tmp_path: Path) -> None:
+    evidence = _ev("e1", instruments=("AAPL",))
+    with _ledger(tmp_path) as ledger:
+        ledger.initialize(FUND_ID, _mandate(fee_bps=Decimal("0")))
+        ledger.execute_cycle(
+            _decision(
+                "brain-buy",
+                orders=(_buy("AAPL", "1", AssetClass.STOCK),),
+                evidence=(evidence,),
+            ),
+            [_quote("AAPL", "100", AssetClass.STOCK)],
+        )
+        ledger.execute_cycle(
+            _decision(
+                "brain-sell",
+                orders=(_sell("AAPL", "1", AssetClass.STOCK),),
+                evidence=(evidence,),
+                as_of=AS_OF + timedelta(hours=1),
+            ),
+            [
+                _quote(
+                    "AAPL",
+                    "90",
+                    AssetClass.STOCK,
+                    observed_at=AS_OF + timedelta(minutes=59),
+                )
+            ],
+        )
+
+        brain = build_fund_brain(ledger, FUND_ID, generated_at=AS_OF + timedelta(hours=2))
+
+    aapl = next(item for item in brain.instruments if item.instrument_id == "AAPL")
+    assert aapl.losing_exit_count == 1
+    assert aapl.realized_pnl == Decimal("-10")
+    assert brain.recent_cycles[0].next_cycle_outcome == "negative"
+    assert any("AAPL" in prompt for prompt in brain.adaptive_prompts)
 
 
 # ---------------------------------------------------------------------------

@@ -8,6 +8,54 @@
     "thesis": "Example only: diversify the opening paper book across three independently priced markets while retaining most cash.",
     "alternatives": "Hold all cash; use only a broad stock index; omit the prediction contract.",
     "risks": "This fixture is static test data, not a current recommendation or a scheduled input.",
+    "journal": {
+      "market_regime": "Example fixture regime; no current-market inference should be drawn.",
+      "opportunity_set": "Compared a broad stock index, native crypto, a binary contract, and cash.",
+      "portfolio_intent": "Demonstrate three independent paper positions while retaining liquidity.",
+      "what_changed": "This is the first fixture cycle, so there is no prior decision to revise.",
+      "lessons_applied": [],
+      "hypotheses": [
+        {
+          "instrument_id": "SPY",
+          "stance": "long",
+          "statement": "Example broad-equity exposure can demonstrate a liquid long position.",
+          "mechanism": "A broad index converts aggregate equity appreciation into portfolio NAV.",
+          "catalysts": ["Example market appreciation"],
+          "falsifiers": ["Example price falls below 450"],
+          "expected_horizon_hours": 720,
+          "confidence": "0.55",
+          "target_price": "550",
+          "invalidation_price": "450",
+          "evidence_ids": ["example-stock"]
+        },
+        {
+          "instrument_id": "BTC-USD",
+          "stance": "long",
+          "statement": "Example native-crypto exposure can demonstrate 24/7 fractional accounting.",
+          "mechanism": "A BTC price increase raises the marked value of the fractional position.",
+          "catalysts": ["Example crypto momentum"],
+          "falsifiers": ["Example price falls below 85000"],
+          "expected_horizon_hours": 336,
+          "confidence": "0.50",
+          "target_price": "120000",
+          "invalidation_price": "85000",
+          "evidence_ids": ["example-crypto"]
+        },
+        {
+          "instrument_id": "polymarket:example:YES",
+          "stance": "long",
+          "statement": "Example contract exposure can demonstrate bounded binary settlement.",
+          "mechanism": "The YES contract appreciates if its implied probability rises toward one.",
+          "catalysts": ["Example resolution evidence"],
+          "falsifiers": ["Example contract falls below 0.35"],
+          "expected_horizon_hours": 168,
+          "confidence": "0.50",
+          "target_price": "0.70",
+          "invalidation_price": "0.35",
+          "evidence_ids": ["example-prediction"]
+        }
+      ]
+    },
     "evidence": [
       {
         "evidence_id": "example-stock",

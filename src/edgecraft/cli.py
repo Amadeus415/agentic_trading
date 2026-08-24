@@ -22,6 +22,7 @@ from edgecraft.context import browserbase_api_key, load_context_service
 from edgecraft.data import MarketDataProvider, synthetic_market_data
 from edgecraft.evaluation import evaluation_report
 from edgecraft.execution_models import PortfolioSnapshot, RiskPolicy
+from edgecraft.fund_brain import build_fund_brain
 from edgecraft.growth import growth_snapshot
 from edgecraft.intelligence import YahooMarketIntelligenceCollector
 from edgecraft.ledger import AuditLedger
@@ -96,10 +97,21 @@ def _add_fund_commands(commands: Any) -> None:
         "--require-cycle-key",
         help="Require this exact cycle key for a scheduled run.",
     )
+    run.add_argument(
+        "--require-brain-journal",
+        action="store_true",
+        help="Require structured hypotheses for every open or ordered instrument.",
+    )
 
     status = commands.add_parser("fund-status", help="Show the current paper-fund book.")
     status.add_argument("--config", required=True, type=Path)
     status.add_argument("--ledger", default=DEFAULT_FUND_LEDGER)
+
+    brain = commands.add_parser(
+        "fund-brain", help="Show compact ledger-derived memory for the next decision."
+    )
+    brain.add_argument("--config", required=True, type=Path)
+    brain.add_argument("--ledger", default=DEFAULT_FUND_LEDGER)
 
     performance = commands.add_parser(
         "fund-performance", help="Report bankroll return and the immutable NAV history."
@@ -460,6 +472,7 @@ def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
     with PaperFundLedger(args.ledger) as ledger:
         state = ledger.get_state(fund_id)
         cycles = ledger.list_cycles(fund_id)[-10:]
+        brain = build_fund_brain(ledger, fund_id)
     initial = mandate.initial_cash
     growth = growth_snapshot(
         initial_nav=initial, current_nav=state.nav, objective=mandate.growth_objective
@@ -481,6 +494,7 @@ def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
         },
         "growth_objective": growth.model_dump(mode="json"),
         "recent_cycles": cycles,
+        "brain": brain.model_dump(mode="json"),
         "input_contract": {
             "shape": {
                 "decision": "FundDecision",
@@ -504,6 +518,9 @@ def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
                 "Use explicit buy, sell, short, or cover sides and positive quantities.",
                 "Include fresh quotes for every open position and every ordered instrument.",
                 "Cite every order to evidence embedded in the decision.",
+                "Scheduled decisions require an auditable journal with one current "
+                "hypothesis for every open or ordered instrument.",
+                "Use the ledger-derived brain as feedback, not causal proof of skill.",
                 "Use only public market data; never call a broker mutation tool.",
                 "Every accepted cycle stores decision, evidence, quotes, risk checks, "
                 "fills, fees, mandate digest, and runtime provenance in the hash-chained ledger.",
@@ -594,7 +611,12 @@ def _fund_run(args: argparse.Namespace) -> dict[str, Any]:
     try:
         with PaperFundLedger(args.ledger) as ledger:
             initialized = _ensure_fund_initialized(ledger, fund_id, mandate)
-            result = ledger.execute_cycle(decision, quotes, runtime=runtime)
+            result = ledger.execute_cycle(
+                decision,
+                quotes,
+                runtime=runtime,
+                require_brain_journal=args.require_brain_journal,
+            )
             verification = ledger.verify(fund_id)
     except Exception as exc:
         log_event(
@@ -648,6 +670,7 @@ def _fund_status(args: argparse.Namespace) -> dict[str, Any]:
         state = ledger.get_state(fund_id)
         cycles = ledger.list_cycles(fund_id)
         verification = ledger.verify(fund_id)
+        brain = build_fund_brain(ledger, fund_id)
     return {
         "ok": True,
         "paper_only": True,
@@ -664,7 +687,19 @@ def _fund_status(args: argparse.Namespace) -> dict[str, Any]:
             objective=mandate.growth_objective,
         ).model_dump(mode="json"),
         "cycle_count": len(cycles),
+        "brain": brain.model_dump(mode="json"),
         "verification": verification.model_dump(mode="json"),
+    }
+
+
+def _fund_brain(args: argparse.Namespace) -> dict[str, Any]:
+    fund_id, _mandate = _load_fund_config(args.config)
+    with PaperFundLedger(args.ledger) as ledger:
+        brain = build_fund_brain(ledger, fund_id)
+    return {
+        "ok": True,
+        "paper_only": True,
+        "brain": brain.model_dump(mode="json"),
     }
 
 
@@ -917,6 +952,7 @@ COMMAND_HANDLERS: dict[str, CommandHandler] = {
     "fund-context": _fund_context,
     "fund-run": _fund_run,
     "fund-status": _fund_status,
+    "fund-brain": _fund_brain,
     "fund-performance": _fund_performance,
     "fund-events": _fund_events,
     "fund-cycle": _fund_cycle,

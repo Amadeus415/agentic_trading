@@ -1,4 +1,4 @@
-.PHONY: install test lint security demo health fund-init fund-context fund-status fund-performance scheduled-cycle validate dashboard
+.PHONY: install test lint security demo health fund-init fund-context fund-status fund-brain fund-performance scheduled-cycle validate dashboard
 
 FUND_CONFIG ?= examples/fund.mandate.aggressive.json
 FUND_LEDGER ?= state/edgecraft-aggressive.db
@@ -32,6 +32,9 @@ fund-context:
 
 fund-status:
 	uv run edgecraft fund-status --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
+
+fund-brain:
+	uv run edgecraft fund-brain --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
 
 fund-performance:
 	uv run edgecraft fund-performance --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
