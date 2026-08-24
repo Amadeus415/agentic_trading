@@ -67,6 +67,14 @@ One input packet contains:
     "thesis": "...",
     "alternatives": "...",
     "risks": "...",
+    "journal": {
+      "market_regime": "...",
+      "opportunity_set": "...",
+      "portfolio_intent": "...",
+      "what_changed": "...",
+      "lessons_applied": [],
+      "hypotheses": []
+    },
     "evidence": [],
     "orders": []
   },
@@ -80,6 +88,7 @@ Run `make fund-context` for the authoritative JSON Schema. The executable static
 
 - A fresh fund has one immutable capitalization event and no positions.
 - Every cycle stores the normalized decision, embedded evidence, quotes, simulated fills, resulting state, and a SHA-256 digest.
+- Scheduled cycles require a structured journal and a refreshed hypothesis for every open or ordered instrument.
 - Every completed cycle also stores a structured audit sidecar: risk-check outcomes (observed value vs limit), quote freshness, fee totals, mandate digest, Edgecraft version, optional model/prompt metadata, and the input file SHA-256.
 - Hash-chained `cycle_completed` events retain the full decision, quotes, fills, settlements, state, and audit sidecar—not only a summary—so the event stream alone is a complete audit trail.
 - `(fund_id, cycle_key)` is unique. An identical replay returns the prior result; a different payload under that key is rejected.

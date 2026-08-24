@@ -1,6 +1,6 @@
 # Decision data model
 
-Each cycle input has exactly two top-level members: `decision` and `quotes`. Run `make fund-context` for the current machine-readable JSON Schema.
+Each cycle input has two required top-level members, `decision` and `quotes`, plus optional runtime provenance. Run `make fund-context` for the current machine-readable JSON Schema.
 
 ## Decision
 
@@ -10,10 +10,24 @@ Each cycle input has exactly two top-level members: `decision` and `quotes`. Run
 - UTC decision time;
 - `trade` or `hold`;
 - thesis, alternatives, and risks;
+- an auditable decision journal;
 - embedded evidence inventory;
 - zero or more explicit-side orders.
 
 A trade requires orders. A hold forbids orders. Every order cites known evidence. Evidence scoped to instrument IDs cannot support a different instrument.
+
+## Decision journal
+
+Scheduled cycles require `journal` with the observed market regime, opportunity
+set considered, portfolio intent, what changed, and lessons applied. Its
+`hypotheses` list records one current entry for every open or ordered instrument:
+stance, statement, mechanism, catalysts, falsifiers, horizon, confidence,
+optional target/invalidation prices, and evidence IDs. This is concise,
+decision-relevant rationale—not private chain-of-thought.
+
+Historical v1 cycles without journals remain replayable. An absent optional
+journal is omitted from their canonical digest; once a journal is present it is
+part of the immutable request digest.
 
 ## Evidence
 

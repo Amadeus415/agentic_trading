@@ -4,7 +4,7 @@
 
 ### An autonomous paper fund pursuing $1,000 → $100,000
 
-Edgecraft is a fully autonomous paper-trading fund with one job: turn $1,000 of fake money into $100,000 without ever touching a real brokerage account. Every day an AI agent (Codex) researches public markets — stocks, native crypto, and binary prediction contracts — proposes a buy, sell, short, cover, or hold, and deterministic Python code decides whether that proposal is even allowed to happen. Accepted trades land in an append-only SQLite ledger with the full evidence packet; rejected ones are recorded too, and nothing can be edited or deleted afterward.
+Edgecraft is a fully autonomous paper-trading fund with one job: turn $1,000 of fake money into $100,000 without ever touching a real brokerage account. Every day an AI agent (Codex) scans public markets, manages a multi-position stock/crypto/prediction book, and records falsifiable hypotheses before proposing a buy, sell, short, cover, or hold. Deterministic Python decides whether that proposal is allowed. Accepted trades land in an append-only SQLite ledger with the full evidence and decision journal; rejected ones are recorded too, and nothing can be edited or deleted afterward.
 
 The design principle is simple: **models may propose; typed policy and risk engines authorize.** The agent cannot bypass accounting checks, inject cash, reset losses, or place a real order — the codebase has no live execution path at all.
 
@@ -24,7 +24,7 @@ The design principle is simple: **models may propose; typed policy and risk engi
 
 ```mermaid
 flowchart LR
-    C["Codex researches any public market"] --> D["Structured decision + sourced prices"]
+    C["Codex scans public markets + reads fund memory"] --> D["Hypotheses + sourced portfolio decision"]
     D --> G{"Typed accounting and risk gates"}
     G -->|Reject| A["Append-only audit"]
     G -->|Pass| P["Simulated fill"]
@@ -34,7 +34,7 @@ flowchart LR
 
 The bankroll is deposited once. There is no daily contribution and no reset. The explicit research objective is to compound $1,000 into $100,000 over ten years—an aggressive 100x target requiring about 58.5% annualized returns, not a promise. The fund can hold cash or take long and short positions in stocks, native crypto, and binary prediction contracts. It may name any syntactically valid instrument; there is no symbol whitelist. Every trade still needs fresh sourced prices, cited evidence, valid inventory, and room inside the checked-in risk envelope.
 
-The active book is the aggressive mandate (`edgecraft-aggressive` in `examples/fund.mandate.aggressive.json`): a high-tempo, short-term trader that is expected to deploy capital nearly every cycle, trade prediction-market contracts as its native levered instrument, run full-size shorts, and cut broken theses fast. The original conservative book (`edgecraft-1k`) stays frozen and verifiable at `state/edgecraft-fund.db`.
+The active book is the aggressive mandate (`edgecraft-aggressive` in `examples/fund.mandate.aggressive.json`): a high-tempo, short-term trader that searches for opportunities every cycle, manages several independent positions when strong ideas exist, can run full-size shorts, and cuts broken theses fast. Activity is not the objective; compounded NAV is. The original conservative book (`edgecraft-1k`) stays frozen and verifiable at `state/edgecraft-fund.db`.
 
 Current envelope:
 
@@ -63,7 +63,7 @@ make fund-init
 make fund-context
 ```
 
-`fund-context` prints the authoritative cash, positions, P&L, target progress, capital stage, recent cycles, mandate, and exact JSON schema the agent must satisfy.
+`fund-context` prints the authoritative cash, positions, P&L, target progress, capital stage, mandate, exact JSON schema, and a compact ledger-derived brain. The brain shows recent theses, later NAV direction, costs, winning/losing exits, current unrealized P&L, rejections, and the latest hypothesis for each instrument. It is feedback, not causal performance attribution.
 
 To exercise all three asset classes with static example data and a disposable ledger:
 
@@ -105,6 +105,7 @@ Inspect the experiment at any time:
 
 ```bash
 make fund-status
+make fund-brain
 make fund-performance
 uv run edgecraft fund-events \
   --config examples/fund.mandate.json \
@@ -144,10 +145,11 @@ See [the accounting contract](docs/FUND_ACCOUNTING.md) for formulas and schemas.
 ```text
 src/edgecraft/
 ├── paper_fund.py           # typed models, accounting, risk, SQLite audit ledger
+├── fund_brain.py           # compact outcomes, position hypotheses, and lessons
 ├── cli.py                  # fund commands plus the preserved research CLI
 ├── context.py              # sourced web/market evidence with freshness policy
 ├── codex_runtime.py        # invocation harness for the scheduled Codex agent
-├── decision_memory.py      # prior-decision and performance memory for the agent
+├── decision_memory.py      # legacy contribution-orchestrator memory
 ├── growth.py               # deterministic growth objective and capital stages
 ├── observability.py        # structured JSON logging and event emission
 ├── engine.py               # causal backtest execution
@@ -177,7 +179,11 @@ uv run edgecraft walk-forward \
   --test-sessions 126
 ```
 
-Historical contribution-based autonomy modules remain for backward compatibility, but the checked-in schedule and active product path use only `paper_fund.py` and the fake-money ledger.
+Historical contribution-based autonomy modules remain for backward compatibility, but the checked-in schedule and active product path use the `paper_fund.py` accounting core, `fund_brain.py` read model, and fake-money ledger.
+
+Options are intentionally not modeled yet. Adding them requires explicit
+contracts for multipliers, expiry, exercise/assignment, spreads, liquidity, and
+worst-case loss; Edgecraft will not pretend an option is ordinary stock.
 
 ## Security and privacy
 

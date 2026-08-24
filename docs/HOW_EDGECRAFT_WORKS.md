@@ -4,9 +4,9 @@ In one sentence: Codex proposes a sourced portfolio decision, and `paper_fund.py
 
 ## Code path
 
-1. `edgecraft fund-context` loads the immutable mandate and latest `FundState`.
-2. Codex researches public markets and writes `FundDecision` plus `FundQuote` objects.
-3. `edgecraft fund-run` validates fund identity and scheduled freshness.
+1. `edgecraft fund-context` loads the immutable mandate, latest `FundState`, and compact ledger-derived brain.
+2. Codex scans public markets, revisits prior outcomes, and writes a journaled `FundDecision` plus `FundQuote` objects.
+3. `edgecraft fund-run` validates fund identity, scheduled freshness, and complete hypotheses for every open or ordered instrument.
 4. `PaperFundLedger.execute_cycle()` starts an immediate SQLite transaction and enforces cycle idempotency.
 5. `run_cycle_accounting()` settles resolved prediction contracts, applies explicit-side simulated fills, marks all positions, and checks risk.
 6. The ledger stores the exact normalized inputs, fills, state, digest, and next hash-chained event in one commit.
@@ -26,6 +26,7 @@ There is no instrument whitelist. An instrument ID only has to be syntactically 
 - [Starting prompt](FUND_STARTING_PROMPT.md)
 - [Daily scheduled task](CODEX_SCHEDULED_TASK.md)
 - `src/edgecraft/paper_fund.py`
+- `src/edgecraft/fund_brain.py`
 - `tests/test_paper_fund.py`
 
 The older research/backtest modules remain separate so causal experiment code does not become portfolio authority.
