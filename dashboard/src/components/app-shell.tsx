@@ -103,7 +103,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
         <div className="border-t border-border px-3 py-2.5">
           <p className="font-mono text-[10px] text-muted-foreground">
-            shadow · $1,000 base
+            paper · $1,000 base
           </p>
         </div>
       </aside>

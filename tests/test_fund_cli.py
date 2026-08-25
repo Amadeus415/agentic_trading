@@ -29,13 +29,11 @@ def test_fund_cli_initializes_runs_reports_and_verifies(tmp_path, capsys) -> Non
         ["fund-run", *common, "--input", str(EXAMPLE), "--require-brain-journal"],
         capsys,
     )
-    status = _run(["fund-status", *common], capsys)
-    brain = _run(["fund-brain", *common], capsys)
-    performance = _run(["fund-performance", *common], capsys)
+    shown = _run(["fund-show", *common, "--history", "--events"], capsys)
     verification = _run(["fund-verify", *common], capsys)
     cycle_key = cycle["result"]["cycle_key"]
     cycle_detail = _run(["fund-cycle", *common, "--cycle-key", cycle_key], capsys)
-    audit = _run(["fund-audit", *common, "--cycle-key", cycle_key], capsys)
+    audited = _run(["fund-cycle", *common, "--cycle-key", cycle_key, "--audit"], capsys)
 
     assert first["initialized"] is True
     assert second["initialized"] is False
@@ -55,18 +53,20 @@ def test_fund_cli_initializes_runs_reports_and_verifies(tmp_path, capsys) -> Non
         "crypto",
         "prediction",
     }
-    assert status["cycle_count"] == 1
-    assert len(status["brain"]["instruments"]) == 3
-    assert len(brain["brain"]["recent_cycles"]) == 1
-    assert Decimal(status["growth_objective"]["remaining_multiple"]) > 0
-    assert performance["initial_cash"] == "1000.00"
-    assert performance["simulated_fill_count"] == 3
-    assert performance["history"][0]["cycle_key"] == "example-start-2026-08-06"
+    assert shown["cycle_count"] == 1
+    assert len(shown["brain"]["instruments"]) == 3
+    assert len(shown["brain"]["recent_cycles"]) == 1
+    assert Decimal(shown["growth_objective"]["remaining_multiple"]) > 0
+    assert shown["history"]["initial_cash"] == "1000.00"
+    assert shown["history"]["simulated_fill_count"] == 3
+    assert shown["history"]["history"][0]["cycle_key"] == "example-start-2026-08-06"
+    assert shown["events"]
     assert verification["ok"] is True
     assert cycle_detail["cycle"]["decision"]["cycle_key"] == cycle_key
-    assert audit["audit_gaps"] == []
-    assert audit["reconciliation"]["ledger_ok"] is True
-    assert audit["events"]
+    assert "audit" not in cycle_detail
+    assert audited["audit"]["audit_gaps"] == []
+    assert audited["audit"]["reconciliation"]["has_audit_sidecar"] is True
+    assert audited["audit"]["events"]
 
 
 def test_fund_cli_rejects_noncurrent_scheduled_input(tmp_path, capsys) -> None:

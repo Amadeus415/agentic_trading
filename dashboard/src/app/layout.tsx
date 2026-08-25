@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import type { ReactNode } from "react";
 
 import { AppShell } from "@/components/app-shell";
-import { TooltipProvider } from "@/components/ui/tooltip";
 
 import "./globals.css";
 
@@ -21,16 +21,14 @@ export const metadata: Metadata = {
   description: "Edgecraft paper-trading fund dashboard",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html
       lang="en"
       className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <TooltipProvider>
-          <AppShell>{children}</AppShell>
-        </TooltipProvider>
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

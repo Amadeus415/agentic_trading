@@ -318,37 +318,49 @@ wheels = [
 
 [[package]]
 name = "edgecraft"
-version = "0.9.0"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
+    { name = "pydantic" },
+]
+
+[package.optional-dependencies]
+dev = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "pandas" },
-    { name = "pydantic" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "yfinance" },
+]
+lab = [
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "pandas" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "yfinance" },
 ]
 
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-]
-
 [package.metadata]
 requires-dist = [
-    { name = "numpy", specifier = ">=2.2,<3" },
-    { name = "pandas", specifier = ">=2.2,<4" },
+    { name = "numpy", marker = "extra == 'dev'", specifier = ">=2.2,<3" },
+    { name = "numpy", marker = "extra == 'lab'", specifier = ">=2.2,<3" },
+    { name = "pandas", marker = "extra == 'dev'", specifier = ">=2.2,<4" },
+    { name = "pandas", marker = "extra == 'lab'", specifier = ">=2.2,<4" },
     { name = "pydantic", specifier = ">=2.11,<3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4,<10" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6.2,<8" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.12,<1" },
-    { name = "scipy", specifier = ">=1.15,<2" },
-    { name = "yfinance", specifier = ">=0.2.65,<2" },
+    { name = "scipy", marker = "extra == 'dev'", specifier = ">=1.15,<2" },
+    { name = "scipy", marker = "extra == 'lab'", specifier = ">=1.15,<2" },
+    { name = "yfinance", marker = "extra == 'dev'", specifier = ">=0.2.65,<2" },
+    { name = "yfinance", marker = "extra == 'lab'", specifier = ">=0.2.65,<2" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["lab", "dev"]
 
 [[package]]
 name = "frozendict"

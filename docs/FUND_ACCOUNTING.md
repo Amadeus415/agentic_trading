@@ -8,7 +8,7 @@ The mandate explicitly targets a $100,000 paper NAV over ten years. That is a
 100x objective requiring roughly 58.5% annualized compounding, so it is an
 aggressive research target—not a forecast or guarantee.
 
-`fund-context`, `fund-status`, and `fund-performance` report simple progress,
+`fund-context` and `fund-show --history` report simple progress,
 logarithmic compounding progress, the remaining multiple, and the current
 capital stage (`bootstrap`, `compound`, `scale`, `protect`, or
 `objective_reached`). The objective informs agent reasoning but has no authority
@@ -96,7 +96,7 @@ Run `make fund-context` for the authoritative JSON Schema. The executable static
 - Rejected normalized decisions are retained as `cycle_rejected` audit events with their exact packet digest, reason, decision, quotes, runtime provenance, and structured risk evaluation when a policy limit failed.
 - Events form a SHA-256 chain. SQLite triggers prohibit update/delete on fund, cycle, and event records.
 - `fund-verify` recomputes request digests, replays every cycle from the original $1,000, compares positions/cash/NAV, and verifies the event chain.
-- `fund-cycle` and `fund-audit` retrieve the full immutable packet for one cycle, including audit gaps and reconciliation status.
+- `fund-cycle --cycle-key` retrieves the immutable packet. Add `--audit` for related events and sidecar completeness gaps. Run `fund-verify` for hash-chain and accounting replay.
 - Later cycles cannot carry an `as_of` earlier than the prior completed cycle.
 
 The active domain is paper-only by construction: it defines no live mode and imports no broker adapter.

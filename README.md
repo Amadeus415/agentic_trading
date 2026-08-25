@@ -13,7 +13,7 @@ The design principle is simple: **models may propose; typed policy and risk engi
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-0b1220.svg)](LICENSE)
 [![Money: fake](https://img.shields.io/badge/money-100%25%20fake-22c55e)](docs/CODEX_SCHEDULED_TASK.md)
 
-**[Interactive 3D explainer](docs/how-edgecraft-works-3d.html)** · **[Starting prompt](docs/FUND_STARTING_PROMPT.md)** · **[Daily Codex task](docs/CODEX_SCHEDULED_TASK.md)** · **[Accounting contract](docs/FUND_ACCOUNTING.md)** · **[Research lab](#research-lab)**
+**[Starting prompt](docs/FUND_STARTING_PROMPT.md)** · **[Daily Codex task](docs/CODEX_SCHEDULED_TASK.md)** · **[Accounting contract](docs/FUND_ACCOUNTING.md)** · **[Research lab](#research-lab)**
 
 </div>
 
@@ -104,28 +104,26 @@ The script refuses a missing or non-current input, verifies the existing hash ch
 Inspect the experiment at any time:
 
 ```bash
-make fund-status
-make fund-brain
-make fund-performance
-uv run edgecraft fund-events \
-  --config examples/fund.mandate.json \
-  --ledger state/edgecraft-fund.db \
-  --limit 20
+make fund-show
+uv run edgecraft fund-show \
+  --config examples/fund.mandate.aggressive.json \
+  --ledger state/edgecraft-aggressive.db \
+  --history --events
 uv run edgecraft fund-verify \
-  --config examples/fund.mandate.json \
-  --ledger state/edgecraft-fund.db
+  --config examples/fund.mandate.aggressive.json \
+  --ledger state/edgecraft-aggressive.db
 ```
 
 ## Dashboard
 
-Read-only Next.js UI for NAV, positions, cycles, and paper fills over `state/edgecraft-fund.db`.
+Read-only Next.js UI for NAV, positions, cycles, and paper fills over `state/edgecraft-aggressive.db`.
 
 ```bash
 cd dashboard && npm install && npm run dev
 # or: make dashboard
 ```
 
-Set `EDGECRAFT_FUND_DB=../state/edgecraft-fund.db` in `dashboard/.env.local` (default). See [dashboard/README.md](dashboard/README.md).
+Set `EDGECRAFT_FUND_DB=../state/edgecraft-aggressive.db` in `dashboard/.env.local` (default). See [dashboard/README.md](dashboard/README.md).
 
 ## Accounting model
 
@@ -146,30 +144,29 @@ See [the accounting contract](docs/FUND_ACCOUNTING.md) for formulas and schemas.
 src/edgecraft/
 ├── paper_fund.py           # typed models, accounting, risk, SQLite audit ledger
 ├── fund_brain.py           # compact outcomes, position hypotheses, and lessons
-├── cli.py                  # fund commands plus the preserved research CLI
-├── context.py              # sourced web/market evidence with freshness policy
-├── codex_runtime.py        # invocation harness for the scheduled Codex agent
-├── decision_memory.py      # legacy contribution-orchestrator memory
+├── cli.py                  # fund commands plus the optional research-lab CLI
 ├── growth.py               # deterministic growth objective and capital stages
-├── observability.py        # structured JSON logging and event emission
-├── engine.py               # causal backtest execution
+├── observability.py        # structured JSON logging
+├── engine.py               # research-lab causal backtest execution
 ├── research.py             # experiment matrix and robustness evidence
 └── walkforward.py          # out-of-sample strategy validation
 
 examples/fund.mandate.aggressive.json       # active $1,000 aggressive mandate
-examples/fund.mandate.json                  # retired conservative mandate
+examples/fund.mandate.json                  # retired conservative fixture
 examples/fund-cycle.starting.example.json   # executable three-market fixture
 scripts/run_scheduled_cycle.sh              # fixed daily paper apply path
 tests/test_paper_fund.py                    # accounting and failure invariants
-docs/                                       # accounting contract, prompts, autonomy notes
+docs/                                       # accounting contract and Codex prompts
 ```
 
 ## Research lab
 
-The earlier causal backtest, strategy, cost-stress, and walk-forward tools remain available and tested. They are research inputs, not the paper fund's source of cash or execution authority.
+Causal backtest, strategy, cost-stress, and walk-forward tools live in the optional `lab` extra. They are research inputs, not the paper fund's source of cash or execution authority.
 
 ```bash
+uv sync --extra lab   # or: make install, which includes the lab via --extra dev
 make demo
+make validate-lab
 uv run edgecraft strategies
 uv run edgecraft backtest --config examples/research.json --data-source synthetic
 uv run edgecraft walk-forward \
@@ -178,8 +175,6 @@ uv run edgecraft walk-forward \
   --train-sessions 504 \
   --test-sessions 126
 ```
-
-Historical contribution-based autonomy modules remain for backward compatibility, but the checked-in schedule and active product path use the `paper_fund.py` accounting core, `fund_brain.py` read model, and fake-money ledger.
 
 Options are intentionally not modeled yet. Adding them requires explicit
 contracts for multipliers, expiry, exercise/assignment, spreads, liquidity, and

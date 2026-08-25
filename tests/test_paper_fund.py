@@ -1503,9 +1503,9 @@ def test_completed_cycle_is_fully_auditable(tmp_path: Path) -> None:
 
         audit = ledger.cycle_audit(FUND_ID, "audit-trade")
         assert audit["audit_gaps"] == []
-        assert audit["reconciliation"]["ledger_ok"] is True
+        assert audit["reconciliation"]["has_audit_sidecar"] is True
         assert audit["events"][0]["event_type"] == "cycle_completed"
-        assert audit["fills"][0]["fee"] == "0"
+        assert audit["cycle"]["fills"][0]["fee"] == "0"
         assert ledger.verify(FUND_ID).ok is True
 
 

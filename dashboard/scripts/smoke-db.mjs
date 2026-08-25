@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dashboardRoot = path.resolve(__dirname, "..");
 
-const DEFAULT_RELATIVE_DB = path.join("..", "state", "edgecraft-fund.db");
+const DEFAULT_RELATIVE_DB = path.join("..", "state", "edgecraft-aggressive.db");
 
 function resolveFundDbPath() {
   const fromEnv = process.env.EDGECRAFT_FUND_DB?.trim();

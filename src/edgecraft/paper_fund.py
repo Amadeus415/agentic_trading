@@ -103,6 +103,14 @@ def _ensure_utc(value: datetime, field_name: str) -> datetime:
     return value.astimezone(UTC)
 
 
+def _iso_z(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _parse_iso_z(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
+
+
 def _as_decimal(value: Any) -> Decimal:
     if isinstance(value, Decimal):
         return value
@@ -115,7 +123,7 @@ def _json_default(value: Any) -> Any:
     if isinstance(value, Decimal):
         return str(value)
     if isinstance(value, datetime):
-        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+        return _iso_z(value)
     if isinstance(value, Path):
         return str(value)
     raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
@@ -475,42 +483,46 @@ class FundDecision(BaseModel):
             raise ValueError(f"evidence is newer than decision: {future_evidence}")
 
         for order in self.orders:
-            cited: list[FundEvidence] = []
-            for eid in order.evidence_ids:
-                if eid not in evidence_by_id:
-                    raise ValueError(
-                        f"order on {order.instrument_id} cites unknown evidence_id {eid}"
-                    )
-                item = evidence_by_id[eid]
-                cited.append(item)
-                if item.instrument_ids and order.instrument_id not in item.instrument_ids:
-                    raise ValueError(
-                        f"evidence {eid} is not relevant to instrument {order.instrument_id}"
-                    )
-            if not any(order.instrument_id in item.instrument_ids for item in cited):
-                raise ValueError(
-                    f"order on {order.instrument_id} requires instrument-specific evidence"
-                )
+            _require_cited_evidence(
+                evidence_by_id,
+                order.evidence_ids,
+                order.instrument_id,
+                role="order",
+            )
 
         if self.journal is not None:
             hypotheses = {item.instrument_id: item for item in self.journal.hypotheses}
             for hypothesis in self.journal.hypotheses:
-                for evidence_id in hypothesis.evidence_ids:
-                    if evidence_id not in evidence_by_id:
-                        raise ValueError(
-                            f"hypothesis on {hypothesis.instrument_id} cites unknown "
-                            f"evidence_id {evidence_id}"
-                        )
-                    item = evidence_by_id[evidence_id]
-                    if item.instrument_ids and hypothesis.instrument_id not in item.instrument_ids:
-                        raise ValueError(
-                            f"evidence {evidence_id} is not relevant to hypothesis "
-                            f"{hypothesis.instrument_id}"
-                        )
+                _require_cited_evidence(
+                    evidence_by_id,
+                    hypothesis.evidence_ids,
+                    hypothesis.instrument_id,
+                    role="hypothesis",
+                )
             missing = sorted({order.instrument_id for order in self.orders}.difference(hypotheses))
             if missing:
                 raise ValueError(f"ordered instruments are missing journal hypotheses: {missing}")
         return self
+
+
+def _require_cited_evidence(
+    evidence_by_id: Mapping[str, FundEvidence],
+    evidence_ids: Sequence[str],
+    instrument_id: str,
+    *,
+    role: str,
+) -> None:
+    cited: list[FundEvidence] = []
+    for evidence_id in evidence_ids:
+        if evidence_id not in evidence_by_id:
+            raise ValueError(f"{role} on {instrument_id} cites unknown evidence_id {evidence_id}")
+        item = evidence_by_id[evidence_id]
+        cited.append(item)
+        if item.instrument_ids and instrument_id not in item.instrument_ids:
+            target = "instrument" if role == "order" else "hypothesis"
+            raise ValueError(f"evidence {evidence_id} is not relevant to {target} {instrument_id}")
+    if role == "order" and not any(instrument_id in item.instrument_ids for item in cited):
+        raise ValueError(f"order on {instrument_id} requires instrument-specific evidence")
 
 
 class FundPosition(BaseModel):
@@ -575,6 +587,24 @@ class FundState(BaseModel):
     @classmethod
     def _as_of_utc(cls, value: datetime) -> datetime:
         return _ensure_utc(value, "as_of")
+
+
+def _initial_state(fund_id: str, cash: Decimal, as_of: datetime) -> FundState:
+    return FundState(
+        fund_id=fund_id,
+        as_of=as_of,
+        cash=cash,
+        positions=(),
+        nav=cash,
+        peak_nav=cash,
+        drawdown=ZERO,
+        gross_exposure=ZERO,
+        net_exposure=ZERO,
+        short_exposure=ZERO,
+        realized_pnl_cumulative=ZERO,
+        cycle_count=0,
+        last_cycle_key=None,
+    )
 
 
 def validate_decision_journal(decision: FundDecision, prior_state: FundState) -> None:
@@ -1183,6 +1213,23 @@ def _quote_freshness_records(
     return tuple(records)
 
 
+def _risk_check(
+    name: str,
+    *,
+    passed: bool,
+    observed: Any,
+    limit: Any,
+    detail: str,
+) -> RiskCheck:
+    return RiskCheck(
+        name=name,
+        passed=passed,
+        observed=str(observed),
+        limit=None if limit is None else str(limit),
+        detail=detail,
+    )
+
+
 def evaluate_risk(
     *,
     mandate: FundMandate,
@@ -1219,71 +1266,71 @@ def evaluate_risk(
     )
 
     checks: list[RiskCheck] = [
-        RiskCheck(
-            name="order_count",
+        _risk_check(
+            "order_count",
             passed=order_count <= mandate.max_order_count,
-            observed=str(order_count),
-            limit=str(mandate.max_order_count),
+            observed=order_count,
+            limit=mandate.max_order_count,
             detail=(
                 f"order count {order_count} exceeds max_order_count {mandate.max_order_count}"
                 if order_count > mandate.max_order_count
                 else ""
             ),
         ),
-        RiskCheck(
-            name="cycle_turnover",
+        _risk_check(
+            "cycle_turnover",
             passed=turnover <= turnover_limit,
-            observed=str(turnover),
-            limit=str(turnover_limit),
+            observed=turnover,
+            limit=turnover_limit,
             detail=(
                 f"cycle turnover {turnover} exceeds effective max_cycle_turnover {turnover_limit}"
                 if turnover > turnover_limit
                 else ""
             ),
         ),
-        RiskCheck(
-            name="post_nav_positive",
+        _risk_check(
+            "post_nav_positive",
             passed=nav > ZERO,
-            observed=str(nav),
+            observed=nav,
             limit="> 0",
             detail=f"post-trade NAV must be positive: {nav}" if nav <= ZERO else "",
         ),
-        RiskCheck(
-            name="prediction_short_reserve",
+        _risk_check(
+            "prediction_short_reserve",
             passed=post_cash >= prediction_reserve,
-            observed=str(post_cash),
-            limit=str(prediction_reserve),
+            observed=post_cash,
+            limit=prediction_reserve,
             detail=(
                 f"cash {post_cash} is below prediction-short settlement reserve {prediction_reserve}"
                 if post_cash < prediction_reserve
                 else "cash covers worst-case binary short settlement liability"
             ),
         ),
-        RiskCheck(
-            name="gross_exposure",
+        _risk_check(
+            "gross_exposure",
             passed=gross <= gross_limit,
-            observed=str(gross),
-            limit=str(gross_limit),
+            observed=gross,
+            limit=gross_limit,
             detail=(
                 f"gross exposure {gross} exceeds max {gross_limit}" if gross > gross_limit else ""
             ),
         ),
-        RiskCheck(
-            name="absolute_net_exposure",
+        _risk_check(
+            "absolute_net_exposure",
             passed=abs(net) <= net_limit,
-            observed=str(abs(net)),
-            limit=str(net_limit),
+            observed=abs(net),
+            limit=net_limit,
             detail=(
                 f"absolute net exposure {abs(net)} exceeds max {net_limit}"
                 if abs(net) > net_limit
                 else ""
             ),
         ),
-        RiskCheck(
-            name="short_exposure",
+        _risk_check(
+            "short_exposure",
             passed=short <= short_limit,
-            observed=str(short),
-            limit=str(short_limit),
+            observed=short,
+            limit=short_limit,
             detail=(
                 f"short exposure {short} exceeds max {short_limit}" if short > short_limit else ""
             ),
@@ -1294,11 +1341,11 @@ def evaluate_risk(
         for pos in post_positions:
             weight = abs(pos.market_value or ZERO) / nav
             checks.append(
-                RiskCheck(
-                    name=f"position_weight:{pos.instrument_id}",
+                _risk_check(
+                    f"position_weight:{pos.instrument_id}",
                     passed=weight <= mandate.max_single_position_weight,
-                    observed=str(weight),
-                    limit=str(mandate.max_single_position_weight),
+                    observed=weight,
+                    limit=mandate.max_single_position_weight,
                     detail=(
                         f"position weight {weight} for {pos.instrument_id} exceeds "
                         f"max_single_position_weight {mandate.max_single_position_weight}"
@@ -1314,11 +1361,11 @@ def evaluate_risk(
     drawdown_breach = pre_state.drawdown > mandate.max_drawdown
     risk_increasing = gross > pre_gross
     checks.append(
-        RiskCheck(
-            name="drawdown_risk_increase",
+        _risk_check(
+            "drawdown_risk_increase",
             passed=not (drawdown_breach and risk_increasing),
-            observed=str(pre_state.drawdown),
-            limit=str(mandate.max_drawdown),
+            observed=pre_state.drawdown,
+            limit=mandate.max_drawdown,
             detail=(
                 f"drawdown {pre_state.drawdown} exceeds max_drawdown {mandate.max_drawdown}; "
                 f"refusing risk-increasing cycle (gross {pre_gross} -> {gross})"
@@ -1715,7 +1762,7 @@ class PaperFundLedger:
         occurred_at: datetime | None = None,
     ) -> int:
         occurred = (occurred_at or _utc_now()).astimezone(UTC)
-        occurred_s = occurred.isoformat().replace("+00:00", "Z")
+        occurred_s = _iso_z(occurred)
         payload_json = _canonical_json(payload)
         prev_seq, prev_hash = self._latest_event_hash(conn, fund_id)
         sequence = prev_seq + 1
@@ -1758,26 +1805,12 @@ class PaperFundLedger:
                 """,
                 (
                     fund_id,
-                    created.isoformat().replace("+00:00", "Z"),
+                    _iso_z(created),
                     mandate.model_dump_json(),
                     str(mandate.initial_cash),
                 ),
             )
-            state = FundState(
-                fund_id=fund_id,
-                as_of=created,
-                cash=mandate.initial_cash,
-                positions=(),
-                nav=mandate.initial_cash,
-                peak_nav=mandate.initial_cash,
-                drawdown=ZERO,
-                gross_exposure=ZERO,
-                net_exposure=ZERO,
-                short_exposure=ZERO,
-                realized_pnl_cumulative=ZERO,
-                cycle_count=0,
-                last_cycle_key=None,
-            )
+            state = _initial_state(fund_id, mandate.initial_cash, created)
             self._append_event(
                 conn,
                 fund_id=fund_id,
@@ -1819,22 +1852,8 @@ class PaperFundLedger:
         if fund is None:
             raise PaperFundValidationError(f"fund {fund_id} is not initialized")
         cash = Decimal(fund["initial_cash"])
-        created = datetime.fromisoformat(fund["created_at"].replace("Z", "+00:00")).astimezone(UTC)
-        return FundState(
-            fund_id=fund_id,
-            as_of=created,
-            cash=cash,
-            positions=(),
-            nav=cash,
-            peak_nav=cash,
-            drawdown=ZERO,
-            gross_exposure=ZERO,
-            net_exposure=ZERO,
-            short_exposure=ZERO,
-            realized_pnl_cumulative=ZERO,
-            cycle_count=0,
-            last_cycle_key=None,
-        )
+        created = _parse_iso_z(fund["created_at"])
+        return _initial_state(fund_id, cash, created)
 
     def get_state(self, fund_id: str) -> FundState:
         return self._load_latest_state(self.connection, fund_id)
@@ -1852,19 +1871,7 @@ class PaperFundLedger:
         ).fetchall()
         return [dict(row) for row in rows]
 
-    def get_cycle(self, fund_id: str, cycle_key: str) -> dict[str, Any]:
-        """Return the full immutable cycle row used for audit and replay."""
-        row = self.connection.execute(
-            """
-            SELECT fund_id, cycle_key, decision_id, as_of, action, request_digest,
-                   decision_json, quotes_json, fills_json, settlements_json,
-                   state_json, result_json, created_at
-            FROM cycles WHERE fund_id = ? AND cycle_key = ?
-            """,
-            (fund_id, cycle_key),
-        ).fetchone()
-        if row is None:
-            raise PaperFundValidationError(f"cycle {cycle_key!r} not found for fund {fund_id}")
+    def _cycle_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
         result = CycleResult.model_validate_json(row["result_json"])
         return {
             "fund_id": row["fund_id"],
@@ -1883,15 +1890,44 @@ class PaperFundLedger:
             "audit": (result.audit.model_dump(mode="json") if result.audit is not None else None),
         }
 
+    def list_full_cycles(self, fund_id: str) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            """
+            SELECT fund_id, cycle_key, decision_id, as_of, action, request_digest,
+                   decision_json, quotes_json, fills_json, settlements_json,
+                   state_json, result_json, created_at
+            FROM cycles WHERE fund_id = ? ORDER BY created_at ASC, cycle_key ASC
+            """,
+            (fund_id,),
+        ).fetchall()
+        return [self._cycle_from_row(row) for row in rows]
+
+    def get_cycle(self, fund_id: str, cycle_key: str) -> dict[str, Any]:
+        """Return the full immutable cycle row used for audit and replay."""
+        row = self.connection.execute(
+            """
+            SELECT fund_id, cycle_key, decision_id, as_of, action, request_digest,
+                   decision_json, quotes_json, fills_json, settlements_json,
+                   state_json, result_json, created_at
+            FROM cycles WHERE fund_id = ? AND cycle_key = ?
+            """,
+            (fund_id, cycle_key),
+        ).fetchone()
+        if row is None:
+            raise PaperFundValidationError(f"cycle {cycle_key!r} not found for fund {fund_id}")
+        return self._cycle_from_row(row)
+
     def cycle_audit(self, fund_id: str, cycle_key: str) -> dict[str, Any]:
-        """Join decision, quotes, risk, fills, events, and verification for one cycle."""
+        """Join one cycle with related events and sidecar completeness gaps.
+
+        Does not replay accounting; run verify() for hash-chain and book integrity.
+        """
         cycle = self.get_cycle(fund_id, cycle_key)
         related = [
             event.model_dump(mode="json")
             for event in self.list_events(fund_id)
             if event.payload.get("cycle_key") == cycle_key
         ]
-        verification = self.verify(fund_id, raise_on_error=False)
         audit = cycle.get("audit") or {}
         gaps: list[str] = []
         if not audit:
@@ -1908,24 +1944,17 @@ class PaperFundLedger:
             gaps.append("No hash-chained event references this cycle_key")
         return {
             "schema_version": "edgecraft.fund-cycle-audit-view.v1",
-            "generated_at": _utc_now().isoformat().replace("+00:00", "Z"),
+            "generated_at": _iso_z(_utc_now()),
             "fund_id": fund_id,
             "cycle_key": cycle_key,
             "cycle": cycle,
-            "decision": cycle["decision"],
-            "quotes": cycle["quotes"],
-            "fills": cycle["fills"],
-            "settlements": cycle["settlements"],
-            "state": cycle["state"],
             "audit": audit,
             "events": related,
-            "verification": verification.model_dump(mode="json"),
             "audit_gaps": gaps,
             "reconciliation": {
                 "request_digest": cycle["request_digest"],
-                "chain_ok": verification.chain_ok,
-                "accounting_ok": verification.accounting_ok,
-                "ledger_ok": verification.ok,
+                "event_count": len(related),
+                "has_audit_sidecar": bool(audit),
             },
         }
 
@@ -1947,7 +1976,7 @@ class PaperFundLedger:
                     "cycle_key": row["cycle_key"],
                     "decision_id": row["decision_id"],
                     "action": row["action"],
-                    "as_of": state.as_of.isoformat().replace("+00:00", "Z"),
+                    "as_of": _iso_z(state.as_of),
                     "nav": str(state.nav),
                     "cash": str(state.cash),
                     "gross_exposure": str(state.gross_exposure),
@@ -1970,9 +1999,7 @@ class PaperFundLedger:
         ).fetchall()
         events: list[AuditEvent] = []
         for row in rows:
-            occurred = datetime.fromisoformat(row["occurred_at"].replace("Z", "+00:00")).astimezone(
-                UTC
-            )
+            occurred = _parse_iso_z(row["occurred_at"])
             events.append(
                 AuditEvent(
                     sequence=int(row["sequence"]),
@@ -2182,7 +2209,7 @@ class PaperFundLedger:
                     decision.fund_id,
                     decision.cycle_key,
                     decision.decision_id,
-                    decision.as_of.isoformat().replace("+00:00", "Z"),
+                    _iso_z(decision.as_of),
                     decision.action.value,
                     digest,
                     decision.model_dump_json(),
@@ -2191,7 +2218,7 @@ class PaperFundLedger:
                     _canonical_json([s.model_dump(mode="json") for s in settlements]),
                     new_state.model_dump_json(),
                     result.model_dump_json(),
-                    created.isoformat().replace("+00:00", "Z"),
+                    _iso_z(created),
                 ),
             )
             return result
@@ -2264,24 +2291,8 @@ class PaperFundLedger:
             if cash != mandate.initial_cash:
                 accounting_ok = False
                 details.append("initial_cash does not match mandate")
-            created = datetime.fromisoformat(
-                fund_row["created_at"].replace("Z", "+00:00")
-            ).astimezone(UTC)
-            state = FundState(
-                fund_id=fund_id,
-                as_of=created,
-                cash=cash,
-                positions=(),
-                nav=cash,
-                peak_nav=cash,
-                drawdown=ZERO,
-                gross_exposure=ZERO,
-                net_exposure=ZERO,
-                short_exposure=ZERO,
-                realized_pnl_cumulative=ZERO,
-                cycle_count=0,
-                last_cycle_key=None,
-            )
+            created = _parse_iso_z(fund_row["created_at"])
+            state = _initial_state(fund_id, cash, created)
             cycles = conn.execute(
                 """
                 SELECT decision_json, quotes_json, state_json, request_digest

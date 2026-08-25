@@ -12,7 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from edgecraft.paper_fund import PaperFundLedger
+from edgecraft.paper_fund import FundHypothesis, PaperFundLedger
 
 ZERO = Decimal("0")
 
@@ -45,7 +45,7 @@ class InstrumentMemory(BaseModel):
     losing_exit_count: int = Field(ge=0)
     realized_pnl: Decimal = ZERO
     fees_paid: Decimal = ZERO
-    latest_hypothesis: dict[str, Any] | None = None
+    latest_hypothesis: FundHypothesis | None = None
 
 
 class RejectionMemory(BaseModel):
@@ -82,8 +82,7 @@ def build_fund_brain(
 ) -> FundBrainSnapshot:
     """Summarize decisions and realized outcomes without changing fund state."""
     state = ledger.get_state(fund_id)
-    cycle_refs = ledger.list_cycles(fund_id)
-    cycles = [ledger.get_cycle(fund_id, item["cycle_key"]) for item in cycle_refs]
+    cycles = ledger.list_full_cycles(fund_id)
     current_positions = {position.instrument_id: position for position in state.positions}
 
     instrument_rows: dict[str, dict[str, Any]] = {}
@@ -96,7 +95,7 @@ def build_fund_brain(
         for hypothesis in journal.get("hypotheses", []):
             instrument_id = str(hypothesis["instrument_id"])
             row = instrument_rows.setdefault(instrument_id, _empty_instrument(instrument_id))
-            row["latest_hypothesis"] = hypothesis
+            row["latest_hypothesis"] = FundHypothesis.model_validate(hypothesis)
             last_activity[instrument_id] = index
 
         fills = [*cycle["fills"], *cycle["settlements"]]
@@ -129,7 +128,9 @@ def build_fund_brain(
         cycle_memories.append(
             CycleMemory(
                 cycle_key=str(cycle["cycle_key"]),
-                as_of=datetime.fromisoformat(str(cycle["as_of"]).replace("Z", "+00:00")),
+                as_of=datetime.fromisoformat(str(cycle["as_of"]).replace("Z", "+00:00")).astimezone(
+                    UTC
+                ),
                 action=str(cycle["action"]),
                 thesis=str(decision["thesis"]),
                 what_changed=journal.get("what_changed"),

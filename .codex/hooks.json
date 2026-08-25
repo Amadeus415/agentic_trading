@@ -1,5 +1,5 @@
 {
-  "description": "Require Edgecraft single-use permits for Robinhood order mutations.",
+  "description": "Block broker mutation tools. Edgecraft is paper-only.",
   "hooks": {
     "PreToolUse": [
       {
@@ -7,9 +7,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/scripts/guard_robinhood_tool.py\"",
+            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/scripts/deny_broker_tools.py\"",
             "timeout": 10,
-            "statusMessage": "Checking Edgecraft trade permit"
+            "statusMessage": "Blocking broker mutation tools"
           }
         ]
       }

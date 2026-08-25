@@ -10,8 +10,9 @@ review.
 2. Use synthetic, placeholder, or properly licensed public market data. Never
    commit real account IDs, order IDs, broker payloads, credentials, tax data,
    or another person’s trading history.
-3. Keep all new mandates and examples in shadow mode. Tests must not place or
-   cancel a real order.
+3. Keep the scheduled path paper-only. Do not add live mandates, broker
+   adapters, or mutating financial tools. Tests must not place or cancel a
+   real order.
 4. Add tests for the success path and the important failure paths.
 5. Run the checks:
 

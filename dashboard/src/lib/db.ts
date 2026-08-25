@@ -5,7 +5,7 @@
 import Database from "better-sqlite3";
 import path from "path";
 
-const DEFAULT_RELATIVE_DB = path.join("..", "state", "edgecraft-fund.db");
+const DEFAULT_RELATIVE_DB = path.join("..", "state", "edgecraft-aggressive.db");
 
 let cached: Database.Database | null = null;
 let cachedPath: string | null = null;

@@ -305,8 +305,10 @@ export function summaryMetrics(
     drawdown = peakNav > 0 ? Math.max(0, (peakNav - currentNav) / peakNav) : 0;
   }
 
-  const cash =
-    options?.cash !== undefined ? asNumber(options.cash) : currentNav; // caller should pass cash from state
+  if (options?.cash === undefined) {
+    throw new Error("summaryMetrics requires cash from the stored fund state");
+  }
+  const cash = asNumber(options.cash);
 
   const totalReturnPct =
     initialCash > 0 ? ((currentNav - initialCash) / initialCash) * 100 : 0;

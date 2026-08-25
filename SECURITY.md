@@ -2,15 +2,16 @@
 
 ## Active product boundary
 
-The active Edgecraft paper fund is fake-money-only by construction:
+The Edgecraft paper fund is fake-money-only by construction:
 
 - `FundMandate` has no live mode.
 - `paper_fund.py` imports no broker client or execution adapter.
 - The scheduled script invokes only `fund-init`, `fund-verify`, and `fund-run`.
+- The repository contains no broker mutation path, permit, or live policy.
 - Generated ledgers and decision inputs are gitignored.
 - SQLite cycles and events are append-only and hash-chained.
 
-The repository retains older broker-aware autonomy modules for backward compatibility and tests, but they are not part of the checked-in schedule or the $1,000 fund. Do not add a broker call to the fund domain or scheduled prompt.
+Do not add a broker call, live mandate, credential, or mutating financial tool to the fund domain or scheduled prompt.
 
 ## Sensitive data
 
