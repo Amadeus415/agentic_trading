@@ -55,10 +55,9 @@ trade attribution.
 ## Authority and safety boundary
 
 - Scheduled operation is paper-only. Never add a live mandate, broker adapter,
-  credential, execution permit, or mutating financial tool to the scheduled
-  path.
-- Robinhood or other account access, if present, is read-only context and is not
-  required for the paper fund.
+  credential, execution permit, or mutating financial tool.
+- There is no broker adapter. Do not add one. Broker mutation tools are denied
+  by `scripts/deny_broker_tools.py`.
 - Models propose. Typed accounting and policy code authorizes. The agent cannot
   bypass cash, inventory, concentration, gross/net/short exposure, turnover,
   drawdown, freshness, evidence, or idempotency checks.
@@ -116,5 +115,5 @@ trade attribution.
 3. Validate focused behavior after each milestone, then run the full test, lint,
    operational smoke, accounting replay, and security suites.
 4. Use real public read-only market data for final integration evidence when it
-   is available. Never fabricate a successful source or broker check.
+   is available. Never fabricate a successful source check.
 5. Keep changes small, coherent, reviewable, and free of unrelated cleanup.

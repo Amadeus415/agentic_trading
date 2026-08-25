@@ -6,7 +6,7 @@ review.
 ## Before opening a pull request
 
 1. Create an issue or short proposal for changes to the trading authority,
-   broker boundary, data model, or public API.
+   paper-only boundary, data model, or public API.
 2. Use synthetic, placeholder, or properly licensed public market data. Never
    commit real account IDs, order IDs, broker payloads, credentials, tax data,
    or another person’s trading history.
@@ -20,6 +20,9 @@ review.
    make validate
    make security
    ```
+
+   Paper-fund CI is `make validate`. The optional research lab smoke is
+   `make validate-lab` and is not required for paper-fund changes.
 
 By submitting a contribution, you agree that it is licensed under Apache-2.0,
 the same license as the project, and that you have the right to submit it.

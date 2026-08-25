@@ -32,9 +32,11 @@ flowchart LR
     B --> A
 ```
 
+In one sentence: Codex proposes a sourced portfolio decision; `paper_fund.py` applies it to a persistent $1,000 fake-money ledger.
+
 The bankroll is deposited once. There is no daily contribution and no reset. The explicit research objective is to compound $1,000 into $100,000 over ten years—an aggressive 100x target requiring about 58.5% annualized returns, not a promise. The fund can hold cash or take long and short positions in stocks, native crypto, and binary prediction contracts. It may name any syntactically valid instrument; there is no symbol whitelist. Every trade still needs fresh sourced prices, cited evidence, valid inventory, and room inside the checked-in risk envelope.
 
-The active book is the aggressive mandate (`edgecraft-aggressive` in `examples/fund.mandate.aggressive.json`): a high-tempo, short-term trader that searches for opportunities every cycle, manages several independent positions when strong ideas exist, can run full-size shorts, and cuts broken theses fast. Activity is not the objective; compounded NAV is. The original conservative book (`edgecraft-1k`) stays frozen and verifiable at `state/edgecraft-fund.db`.
+The active book is `edgecraft-aggressive` (`examples/fund.mandate.aggressive.json`): a high-tempo, short-term trader that searches for opportunities every cycle, manages several independent positions when strong ideas exist, can run full-size shorts, and cuts broken theses fast. Activity is not the objective; compounded NAV is. The original conservative book (`edgecraft-1k`) stays frozen and verifiable at `state/edgecraft-fund.db`.
 
 Current envelope:
 
@@ -83,7 +85,7 @@ uv run edgecraft fund-verify \
 
 The example is executable fixture data, not a current market decision.
 
-## Start and operate the real paper book
+## Start and operate the paper book
 
 The first run uses the [starting prompt](docs/FUND_STARTING_PROMPT.md). It gives Codex the empty $1,000 book and lets it decide how much to deploy, where, and in which direction. Later runs use the [daily task](docs/CODEX_SCHEDULED_TASK.md) to mark every open position, revisit the thesis, and trade or hold without human approval.
 
@@ -105,25 +107,32 @@ Inspect the experiment at any time:
 
 ```bash
 make fund-show
-uv run edgecraft fund-show \
-  --config examples/fund.mandate.aggressive.json \
-  --ledger state/edgecraft-aggressive.db \
-  --history --events
-uv run edgecraft fund-verify \
-  --config examples/fund.mandate.aggressive.json \
-  --ledger state/edgecraft-aggressive.db
+make fund-verify
+uv run edgecraft fund-show --history --events
 ```
+
+CLI defaults are the active aggressive mandate ledger (`state/edgecraft-aggressive.db`). Pass `--config` / `--ledger` only to inspect another book.
+
+| Command | Job |
+|:--|:--|
+| `fund-validate` | Parse the checked-in mandate |
+| `fund-init` | Capitalize the fund exactly once |
+| `fund-context` | Agent packet: state, brain, JSON schema |
+| `fund-run` | Apply one researched decision |
+| `fund-show` | Inspect the book (`make fund-show` includes `--history`) |
+| `fund-cycle` | One cycle packet (`--audit` for event gaps) |
+| `fund-verify` | Hash-chain and accounting replay (`make fund-verify`) |
 
 ## Dashboard
 
 Read-only Next.js UI for NAV, positions, cycles, and paper fills over `state/edgecraft-aggressive.db`.
 
 ```bash
-cd dashboard && npm install && npm run dev
-# or: make dashboard
+make dashboard
+# or: cd dashboard && npm install && npm run dev
 ```
 
-Set `EDGECRAFT_FUND_DB=../state/edgecraft-aggressive.db` in `dashboard/.env.local` (default). See [dashboard/README.md](dashboard/README.md).
+See [dashboard/README.md](dashboard/README.md).
 
 ## Accounting model
 
@@ -136,7 +145,7 @@ Set `EDGECRAFT_FUND_DB=../state/edgecraft-aggressive.db` in `dashboard/.env.loca
 - Replaying the same cycle and payload is a no-op; changing a used cycle key is rejected.
 - The exact normalized decision, evidence, quotes, fills, state, request digest, and chained events are stored in SQLite. Immutable-table triggers reject update and delete operations.
 
-See [the accounting contract](docs/FUND_ACCOUNTING.md) for formulas and schemas.
+See [the accounting contract](docs/FUND_ACCOUNTING.md) for formulas, the decision packet, and invariants.
 
 ## Repository map
 
@@ -144,17 +153,15 @@ See [the accounting contract](docs/FUND_ACCOUNTING.md) for formulas and schemas.
 src/edgecraft/
 ├── paper_fund.py           # typed models, accounting, risk, SQLite audit ledger
 ├── fund_brain.py           # compact outcomes, position hypotheses, and lessons
-├── cli.py                  # fund commands plus the optional research-lab CLI
+├── cli.py                  # fund commands plus optional research-lab commands
 ├── growth.py               # deterministic growth objective and capital stages
-├── observability.py        # structured JSON logging
-├── engine.py               # research-lab causal backtest execution
-├── research.py             # experiment matrix and robustness evidence
-└── walkforward.py          # out-of-sample strategy validation
+└── observability.py        # structured JSON logging
 
 examples/fund.mandate.aggressive.json       # active $1,000 aggressive mandate
 examples/fund.mandate.json                  # retired conservative fixture
 examples/fund-cycle.starting.example.json   # executable three-market fixture
 scripts/run_scheduled_cycle.sh              # fixed daily paper apply path
+scripts/deny_broker_tools.py                # fail-closed Codex fence against broker tools
 tests/test_paper_fund.py                    # accounting and failure invariants
 docs/                                       # accounting contract and Codex prompts
 ```

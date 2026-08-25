@@ -2,6 +2,8 @@
 
 The paper fund is a deterministic state machine around one $1,000 bankroll. Codex supplies research, a typed decision, and sourced marks. It cannot supply cash or mutate stored state directly.
 
+Run `make fund-context` for the current machine-readable JSON Schema. The executable static fixture is [fund-cycle.starting.example.json](../examples/fund-cycle.starting.example.json).
+
 ## Growth objective
 
 The mandate explicitly targets a $100,000 paper NAV over ten years. That is a
@@ -52,15 +54,15 @@ Prediction instruments use prices between `0` and `1`. An open contract cannot b
 
 A binary short reserves enough cash to pay `$1 × short quantity` if every contract resolves against the fund. The short proceeds cannot be redeployed below that reserve. Reported prediction short exposure uses the remaining worst-case loss `(1 - mark) × quantity`, not the usually smaller current marked liability.
 
-## Input contract
+## Decision packet
 
-One input packet contains:
+Each cycle input has two required top-level members, `decision` and `quotes`, plus optional runtime provenance.
 
 ```json
 {
   "decision": {
     "decision_id": "...",
-    "fund_id": "edgecraft-1k",
+    "fund_id": "edgecraft-aggressive",
     "cycle_key": "...",
     "as_of": "UTC timestamp",
     "action": "trade or hold",
@@ -82,7 +84,19 @@ One input packet contains:
 }
 ```
 
-Run `make fund-context` for the authoritative JSON Schema. The executable static fixture is [fund-cycle.starting.example.json](../examples/fund-cycle.starting.example.json).
+`FundDecision` records stable identities, UTC decision time, `trade` or `hold`, thesis/alternatives/risks, an auditable journal, embedded evidence, and zero or more explicit-side orders. A trade requires orders. A hold forbids orders.
+
+Scheduled cycles require `journal` with the observed market regime, opportunity set considered, portfolio intent, what changed, and lessons applied. Its `hypotheses` list records one current entry for every open or ordered instrument: stance, statement, mechanism, catalysts, falsifiers, horizon, confidence, optional target/invalidation prices, and evidence IDs. This is concise, decision-relevant rationale—not private chain-of-thought.
+
+Historical v1 cycles without journals remain replayable. An absent optional journal is omitted from their canonical digest; once a journal is present it is part of the immutable request digest.
+
+`FundEvidence` retains a source name, direct URL, observed time, claim, summary, relevant instruments, and optional source content. Secrets and private account data are prohibited. Every order cites known evidence. Evidence scoped to instrument IDs cannot support a different instrument.
+
+`FundQuote` retains a quote ID, instrument ID, asset class, Decimal price, UTC source/observation time, source name/URL, and `open` or `settled` status. Every open position and order needs a fresh quote.
+
+`FundOrder` records instrument, asset class, side, positive fractional quantity, rationale, and evidence IDs. Sides have exact meanings: `buy`, `sell`, `short`, and `cover` are not interchangeable.
+
+The normalized objects are stored verbatim in an immutable cycle row. Their canonical SHA-256 digest is included in the event chain and recomputed during verification.
 
 ## Atomicity and provenance
 
@@ -99,4 +113,4 @@ Run `make fund-context` for the authoritative JSON Schema. The executable static
 - `fund-cycle --cycle-key` retrieves the immutable packet. Add `--audit` for related events and sidecar completeness gaps. Run `fund-verify` for hash-chain and accounting replay.
 - Later cycles cannot carry an `as_of` earlier than the prior completed cycle.
 
-The active domain is paper-only by construction: it defines no live mode and imports no broker adapter.
+The domain is paper-only by construction: it defines no live mode and imports no broker adapter.

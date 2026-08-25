@@ -8,6 +8,8 @@ The Edgecraft paper fund is fake-money-only by construction:
 - `paper_fund.py` imports no broker client or execution adapter.
 - The scheduled script invokes only `fund-init`, `fund-verify`, and `fund-run`.
 - The repository contains no broker mutation path, permit, or live policy.
+- Codex PreToolUse hooks deny `place_*` / `cancel_*` order tools via
+  `scripts/deny_broker_tools.py`.
 - Generated ledgers and decision inputs are gitignored.
 - SQLite cycles and events are append-only and hash-chained.
 

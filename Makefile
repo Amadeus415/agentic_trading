@@ -1,4 +1,4 @@
-.PHONY: install test lint security demo fund-init fund-context fund-show scheduled-cycle validate validate-lab dashboard
+.PHONY: install test lint security demo fund-init fund-context fund-show fund-verify scheduled-cycle validate validate-lab dashboard
 
 FUND_CONFIG ?= examples/fund.mandate.aggressive.json
 FUND_LEDGER ?= state/edgecraft-aggressive.db
@@ -28,6 +28,9 @@ fund-context:
 
 fund-show:
 	uv run edgecraft fund-show --config $(FUND_CONFIG) --ledger $(FUND_LEDGER) --history
+
+fund-verify:
+	uv run edgecraft fund-verify --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
 
 # Read-only Next.js dashboard over the paper ledger (Node/npm required).
 dashboard:

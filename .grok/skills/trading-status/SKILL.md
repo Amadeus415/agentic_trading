@@ -29,9 +29,7 @@ Run from the repository root. Capture JSON output:
 
 ```bash
 make fund-show
-uv run edgecraft fund-verify \
-  --config examples/fund.mandate.aggressive.json \
-  --ledger state/edgecraft-aggressive.db
+make fund-verify
 ```
 
 `make fund-show` already includes `--history`. Add `--events` when you need the
@@ -147,4 +145,4 @@ If the user only wants a pulse check ("quick", "one line", "tldr"):
 edgecraft-aggressive · paper · NAV $X (P&L +/−$Y, +Z%) · N pos · last cycle KEY (trade|hold) · ledger ok|FAIL · as_of …
 ```
 
-Still run `make fund-show` and `fund-verify` before answering.
+Still run `make fund-show` and `make fund-verify` before answering.
