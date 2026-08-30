@@ -133,6 +133,17 @@ def _add_fund_commands(commands: Any) -> None:
         parents=[fund],
         help="Verify the paper-fund hash chain and accounting replay.",
     )
+    visualize = commands.add_parser(
+        "fund-visualize",
+        parents=[fund],
+        help="Render a verified, GitHub-safe SVG of paper-fund progress.",
+    )
+    visualize.add_argument(
+        "--output",
+        dest="visualization_output",
+        type=Path,
+        default=Path("assets/fund-progress.svg"),
+    )
 
 
 def _add_lab_commands(commands: Any) -> None:
@@ -553,6 +564,14 @@ def _fund_verify(args: argparse.Namespace) -> dict[str, Any]:
     return report
 
 
+def _fund_visualize(args: argparse.Namespace) -> dict[str, Any]:
+    from edgecraft.fund_visualization import render_fund_progress
+
+    fund_id, mandate = _load_fund_config(args.config)
+    with PaperFundLedger(args.ledger) as ledger:
+        return render_fund_progress(ledger, fund_id, mandate, args.visualization_output)
+
+
 def _pnl_snapshot(initial: Decimal, nav: Decimal) -> dict[str, str]:
     return {
         "initial_cash": str(initial),
@@ -713,6 +732,7 @@ COMMAND_HANDLERS: dict[str, CommandHandler] = {
     "fund-cycle-key": _fund_cycle_key,
     "fund-run": _fund_run,
     "fund-show": _fund_show,
+    "fund-visualize": _fund_visualize,
     "fund-cycle": _fund_cycle,
     "fund-verify": _fund_verify,
     "strategies": _strategies,

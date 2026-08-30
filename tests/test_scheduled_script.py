@@ -40,6 +40,8 @@ def test_scheduled_script_is_fixed_to_paper_fund(tmp_path):
         f"{scheduled_cycle_key(datetime.now(UTC))} --require-brain-journal",
         "run --no-sync edgecraft fund-verify --config examples/fund.mandate.aggressive.json "
         "--ledger state/edgecraft-aggressive.db",
+        "run --no-sync edgecraft fund-visualize --config examples/fund.mandate.aggressive.json "
+        "--ledger state/edgecraft-aggressive.db --output assets/fund-progress.svg",
     ]
 
 

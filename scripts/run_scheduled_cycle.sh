@@ -50,3 +50,5 @@ fi
   --require-as-of-today --max-decision-age-seconds 1800 --require-cycle-key "$CYCLE_KEY" \
   --require-brain-journal
 "${RUN[@]}" fund-verify --config "$CONFIG" --ledger "$LEDGER"
+"${RUN[@]}" fund-visualize --config "$CONFIG" --ledger "$LEDGER" \
+  --output assets/fund-progress.svg

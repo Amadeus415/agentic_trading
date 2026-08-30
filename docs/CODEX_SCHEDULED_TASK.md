@@ -46,7 +46,7 @@ Save the packet to the printed `input_path`. The apply script requires that exac
 6. Produce one structured buy/sell/short/cover decision journal with cited evidence and a current hypothesis for every open or ordered instrument. Horizons must be ≤ 72 hours.
 7. Save the complete packet under `state/fund-inputs/`.
 8. Run the fixed apply script once.
-9. Verify and report the resulting book.
+9. Verify the resulting book, regenerate the public SVG, and publish only that snapshot.
 
 ## Durable scheduled-task prompt
 
@@ -56,7 +56,7 @@ Save the packet to the printed `input_path`. The apply script requires that exac
 >
 > Mark every open position with a fresh quote even when exiting it. Re-evaluate every thesis against current public market data and primary sources: filings, issuer releases, economic data, direct exchange data, reputable news, and contract resolution rules. Start with a broad scan, shortlist the most asymmetric 4–72h candidates, and compare long, short, contract, existing-position, and cash alternatives. Build one schema-valid JSON packet with top-level `decision` and `quotes`. Use fund ID `edgecraft-aggressive`, the cycle key printed by `fund-cycle-key`, and a current UTC `as_of`. The decision must include `journal`: market regime, opportunity set, portfolio intent, what changed, lessons applied from `brain`, and one current structured hypothesis for every open or ordered instrument. Each hypothesis records stance, mechanism, catalysts, falsifiers, horizon ≤ 72 hours, confidence, target/invalidation prices, and embedded evidence IDs. Preserve direct source URLs, source/observation timestamps, concise claims, relevant instrument IDs, alternatives, and risks. Every order must cite embedded evidence. Quotes must cover every open position and every ordered instrument. A resolved prediction contract must use a sourced `settled` quote of exactly `0` or `1`; never guess a resolution.
 >
-> Save the exact packet to the `input_path` printed by `fund-cycle-key`, then run `./scripts/run_scheduled_cycle.sh` exactly once. On any failure, stop and report the exact error. Never alter prices, timestamps, evidence, quantities, policy, or cycle identity just to pass a gate, and never retry a changed request under the same cycle key. If a gate rejects sizing, resubmitting a smaller compliant version under a new manual cycle key is allowed; weakening evidence is not. Finally run `make fund-show` and `make fund-verify`, then report the thesis, simulated actions, fees, cash, NAV, P&L, gross/net/short exposure, and hash-chain/accounting verification. Always describe fills as simulated.
+> Save the exact packet to the `input_path` printed by `fund-cycle-key`, then run `./scripts/run_scheduled_cycle.sh` exactly once. On any failure, stop and report the exact error. Never alter prices, timestamps, evidence, quantities, policy, or cycle identity just to pass a gate, and never retry a changed request under the same cycle key. If a gate rejects sizing, resubmitting a smaller compliant version under a new manual cycle key is allowed; weakening evidence is not. After a successful apply and verification, run `./scripts/publish_fund_visualization.sh`; it stages and pushes only `assets/fund-progress.svg`, never ledger state or unrelated work. Finally run `make fund-show` and `make fund-verify`, then report the thesis, simulated actions, fees, cash, NAV, P&L, gross/net/short exposure, visualization publication, and hash-chain/accounting verification. Always describe fills as simulated.
 
 ## Fixed apply path
 
@@ -74,7 +74,7 @@ state/edgecraft-aggressive.db
 
 `FUND_CONFIG` and `FUND_LEDGER` environment variables override those paths. The retired conservative book (`edgecraft-1k`) stays frozen and verifiable at `state/edgecraft-fund.db`.
 
-It capitalizes only an empty fund, verifies the ledger, requires this UTC session's input and a complete brain journal, applies one atomic fake-money cycle, and verifies the full history again. It contains no broker command.
+It capitalizes only an empty fund, verifies the ledger, requires this UTC session's input and a complete brain journal, applies one atomic fake-money cycle, verifies the full history again, and regenerates `assets/fund-progress.svg`. The separate publish script commits only that public SVG. Neither script contains a broker command.
 
 ## On-demand runs
 

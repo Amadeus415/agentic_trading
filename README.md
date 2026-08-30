@@ -17,6 +17,11 @@ The design principle is simple: **models may propose; typed policy and risk engi
 
 </div>
 
+![Edgecraft paper fund progress](assets/fund-progress.svg)
+
+The chart above is regenerated from the verified append-only ledger after every scheduled
+paper cycle. It is a public project snapshot, not a brokerage statement or investment claim.
+
 > [!IMPORTANT]
 > Edgecraft is an engineering experiment, not investment advice. The active fund is incapable of placing a real order: it has no live mode, broker adapter, credentials, or execution permit.
 
