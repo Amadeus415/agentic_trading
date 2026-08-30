@@ -178,7 +178,7 @@ docs/                                       # accounting contract and Codex prom
 
 ## Research lab
 
-Causal backtest, strategy, cost-stress, and walk-forward tools live in the optional `lab` extra. They are research inputs, not the paper fund's source of cash or execution authority.
+Causal backtest, strategy, and walk-forward tools live in the optional `lab` extra. They are research inputs, not the paper fund's source of cash or execution authority.
 
 ```bash
 uv sync --extra lab   # or: make install, which includes the lab via --extra dev
