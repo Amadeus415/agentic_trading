@@ -6,9 +6,36 @@ readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.11,<3.15"
+keywords = [
+  "autonomous-agents",
+  "paper-trading",
+  "portfolio-management",
+  "quantitative-finance",
+  "trading-simulation",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Financial and Insurance Industry",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Office/Business :: Financial :: Investment",
+  "Typing :: Typed",
+]
 dependencies = [
   "pydantic>=2.11,<3",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Amadeus415/agentic_trading"
+Documentation = "https://github.com/Amadeus415/agentic_trading#readme"
+Issues = "https://github.com/Amadeus415/agentic_trading/issues"
+Source = "https://github.com/Amadeus415/agentic_trading"
 
 [project.optional-dependencies]
 lab = [
