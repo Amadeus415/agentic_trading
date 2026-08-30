@@ -48,16 +48,3 @@ export function getDb(): Database.Database {
   cachedPath = dbPath;
   return db;
 }
-
-/** Close the cached connection (tests / shutdown). */
-export function closeDb(): void {
-  if (cached) {
-    try {
-      cached.close();
-    } catch {
-      // ignore
-    }
-    cached = null;
-    cachedPath = null;
-  }
-}

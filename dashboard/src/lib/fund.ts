@@ -3,11 +3,19 @@
  * All DB access is read-only via src/lib/db.ts.
  */
 import { getDb } from "./db";
+import { buildFundBrain } from "./brain";
+import { buildGrowthSnapshot, growthObjectiveFromMandate } from "./growth";
+import { asNumber } from "./numbers";
 import type {
+  AuditEvent,
   Cycle,
   CycleListItem,
   Fill,
   Fund,
+  FundBrainSnapshot,
+  FundHypothesis,
+  FundQuote,
+  PerformanceHistory,
   FundState,
   PerformancePoint,
   Position,
@@ -21,12 +29,6 @@ function parseJson<T>(raw: string, fallback: T): T {
   } catch {
     return fallback;
   }
-}
-
-function asNumber(value: string | number | null | undefined, fallback = 0): number {
-  if (value === null || value === undefined || value === "") return fallback;
-  const n = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(n) ? n : fallback;
 }
 
 function mapFill(raw: Record<string, unknown>): Fill {
@@ -99,9 +101,9 @@ type CycleRow = {
 
 function rowToCycle(row: CycleRow): Cycle {
   const decision = parseJson<Record<string, unknown>>(row.decision_json, {});
-  const quotes = parseJson<unknown[]>(row.quotes_json, []);
+  const quotes = parseJson<FundQuote[]>(row.quotes_json, []);
   const fillsRaw = parseJson<Record<string, unknown>[]>(row.fills_json, []);
-  const settlements = parseJson<unknown[]>(row.settlements_json, []);
+  const settlementsRaw = parseJson<Record<string, unknown>[]>(row.settlements_json, []);
   const stateRaw = parseJson<Record<string, unknown>>(row.state_json, {});
   const result = parseJson<Record<string, unknown>>(row.result_json, {});
 
@@ -114,11 +116,18 @@ function rowToCycle(row: CycleRow): Cycle {
     request_digest: row.request_digest,
     created_at: row.created_at,
     decision,
-    quotes,
+    quotes: (Array.isArray(quotes) ? quotes : []) as Cycle["quotes"],
     fills: fillsRaw.map(mapFill),
-    settlements,
+    settlements: settlementsRaw.map(mapFill),
     state: mapState(stateRaw),
     result,
+    thesis: String(decision.thesis ?? ""),
+    alternatives: String(decision.alternatives ?? ""),
+    risks: String(decision.risks ?? ""),
+    journal: (decision.journal ?? null) as Cycle["journal"],
+    orders: (Array.isArray(decision.orders) ? decision.orders : []) as Cycle["orders"],
+    evidence: (Array.isArray(decision.evidence) ? decision.evidence : []) as Cycle["evidence"],
+    audit: (result.audit ?? null) as Cycle["audit"],
     decision_json: row.decision_json,
     quotes_json: row.quotes_json,
     fills_json: row.fills_json,
@@ -179,6 +188,10 @@ export function getFund(fundId: string): Fund | null {
   };
 }
 
+export function getDefaultFund(): Fund | null {
+  return listFunds()[0] ?? null;
+}
+
 export function listCycles(fundId: string): Cycle[] {
   const db = getDb();
   const rows = db
@@ -193,6 +206,28 @@ export function listCycles(fundId: string): Cycle[] {
     .all(fundId) as CycleRow[];
 
   return rows.map(rowToCycle);
+}
+
+export function getCycle(fundId: string, cycleKey: string): Cycle | null {
+  return listCycles(fundId).find((cycle) => cycle.cycle_key === cycleKey) ?? null;
+}
+
+export function listEvents(fundId: string): AuditEvent[] {
+  const rows = getDb().prepare(
+    `SELECT sequence, event_type, occurred_at, payload_json, prev_hash, event_hash
+     FROM events WHERE fund_id = ? ORDER BY sequence ASC`,
+  ).all(fundId) as Array<{
+    sequence: number; event_type: string; occurred_at: string; payload_json: string;
+    prev_hash: string; event_hash: string;
+  }>;
+  return rows.map((row) => ({
+    sequence: row.sequence,
+    event_type: row.event_type,
+    occurred_at: row.occurred_at,
+    payload: parseJson<Record<string, unknown>>(row.payload_json, {}),
+    prev_hash: row.prev_hash,
+    event_hash: row.event_hash,
+  }));
 }
 
 /** Latest FundState for a fund, or a synthetic initial state when no cycles exist. */
@@ -236,7 +271,7 @@ export function getLatestState(fundId: string): FundState | null {
 export function extractFillsFromCycles(cycles: Cycle[]): TradeRow[] {
   const rows: TradeRow[] = [];
   for (const cycle of cycles) {
-    for (const fill of cycle.fills) {
+    for (const fill of [...cycle.fills, ...cycle.settlements]) {
       rows.push({
         ...fill,
         fund_id: cycle.fund_id,
@@ -288,7 +323,12 @@ export function buildNavSeries(fund: Fund, cycles: Cycle[]): PerformancePoint[] 
 export function summaryMetrics(
   navSeries: PerformancePoint[],
   positions: Position[],
-  options?: { cash?: number | string; tradeCount?: number; peakNav?: number | string; drawdown?: number | string },
+  options?: {
+    cash?: number | string; peakNav?: number | string; drawdown?: number | string;
+    grossExposure?: number | string; netExposure?: number | string; shortExposure?: number | string;
+    realizedPnl?: number | string; fillCount?: number; tradeCycleCount?: number;
+    holdCycleCount?: number; cycleCount?: number;
+  },
 ): SummaryMetrics {
   const first = navSeries[0];
   const last = navSeries[navSeries.length - 1];
@@ -320,7 +360,16 @@ export function summaryMetrics(
     peakNav,
     totalReturnPct,
     positionCount: positions.filter((p) => asNumber(p.quantity) !== 0).length,
-    tradeCount: options?.tradeCount ?? 0,
+    profitAndLoss: currentNav - initialCash,
+    grossExposure: asNumber(options?.grossExposure),
+    netExposure: asNumber(options?.netExposure),
+    shortExposure: asNumber(options?.shortExposure),
+    realizedPnl: asNumber(options?.realizedPnl),
+    fillCount: options?.fillCount ?? 0,
+    tradeCount: options?.fillCount ?? 0,
+    tradeCycleCount: options?.tradeCycleCount ?? 0,
+    holdCycleCount: options?.holdCycleCount ?? 0,
+    cycleCount: options?.cycleCount ?? 0,
     initialCash,
   };
 }
@@ -339,13 +388,70 @@ export function toCycleListItems(cycles: Cycle[]): CycleListItem[] {
       action: cycle.action,
       created_at: cycle.created_at,
       nav: cycle.state?.nav ?? null,
-      fill_count: cycle.fills?.length ?? 0,
+      fill_count: (cycle.fills?.length ?? 0) + (cycle.settlements?.length ?? 0),
+      order_count: cycle.orders.length,
+      thesis,
+      what_changed: cycle.journal?.what_changed ?? null,
+      risk_approved: cycle.audit?.risk?.approved ?? null,
+      fee_total: cycle.audit?.fee_total ?? null,
       decision_summary: {
         action: String(cycle.decision?.action ?? cycle.action),
         thesis_snippet: snippet,
       },
     };
   });
+}
+
+export function latestHypothesesByInstrument(cycles: Cycle[]): Map<string, FundHypothesis> {
+  const hypotheses = new Map<string, FundHypothesis>();
+  for (const cycle of cycles) {
+    for (const hypothesis of cycle.journal?.hypotheses ?? []) {
+      hypotheses.set(hypothesis.instrument_id, hypothesis);
+    }
+  }
+  return hypotheses;
+}
+
+export function buildPerformanceHistory(
+  fund: Fund,
+  cycles: Cycle[],
+  state: FundState,
+): PerformanceHistory {
+  const navs = [asNumber(fund.initial_cash), ...cycles.map((cycle) => asNumber(cycle.state.nav))];
+  const changes = navs.slice(1).map((nav, index) => nav - navs[index]);
+  const initialCash = asNumber(fund.initial_cash);
+  const currentNav = asNumber(state.nav);
+  return {
+    status: cycles.length < 20 ? "measuring" : "active",
+    initialCash,
+    currentNav,
+    profitAndLoss: currentNav - initialCash,
+    totalReturn: initialCash > 0 ? currentNav / initialCash - 1 : 0,
+    maxDrawdown: Math.max(0, ...cycles.map((cycle) => asNumber(cycle.state.drawdown))),
+    positiveCycleCount: changes.filter((change) => change > 0).length,
+    negativeCycleCount: changes.filter((change) => change < 0).length,
+    holdCount: cycles.filter((cycle) => cycle.action === "hold").length,
+    tradeCount: cycles.filter((cycle) => cycle.action === "trade").length,
+    simulatedFillCount: cycles.reduce((count, cycle) => count + cycle.fills.length + cycle.settlements.length, 0),
+    interpretation: `Raw bankroll performance through ${state.cycle_count} cycles; a longer frozen history and market benchmark are needed before drawing conclusions about skill.`,
+  };
+}
+
+export function fundGrowth(fund: Fund, currentNav: string | number) {
+  return buildGrowthSnapshot(
+    asNumber(fund.initial_cash),
+    asNumber(currentNav),
+    growthObjectiveFromMandate(fund),
+  );
+}
+
+export function fundBrain(
+  fundId: string,
+  state: FundState,
+  cycles: Cycle[],
+  events: AuditEvent[],
+): FundBrainSnapshot {
+  return buildFundBrain(fundId, state, cycles, events);
 }
 
 /** Normalize a NAV series so the first point is 100. */

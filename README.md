@@ -134,7 +134,7 @@ CLI defaults are the active aggressive mandate ledger (`state/edgecraft-aggressi
 
 ## Dashboard
 
-Read-only Next.js UI for NAV, positions, cycles, and paper fills over `state/edgecraft-aggressive.db`.
+Read-only Next.js UI for NAV, positions, journals, hypotheses, the fund brain, and paper fills over `state/edgecraft-aggressive.db`.
 
 ```bash
 make dashboard

@@ -54,8 +54,12 @@ path) and prints `fund_id`, cycle count, and fill count.
 
 | Route | Purpose |
 |:--|:--|
-| `/` | Fund overview: NAV vs SPY-normalized chart, summary stats, open positions |
-| `/trades` | Paper fills and cycle decision metadata (thesis, action, digests) |
+| `/` | Overview: NAV vs SPY, P&L, growth stage, latest thesis, positions + hypotheses |
+| `/trades` | Simulated fills and settlements, with cycle filters |
+| `/cycles` | Completed decision log (action, thesis, what changed, NAV) |
+| `/cycles/[cycleKey]` | Full packet: journal, hypotheses, orders, evidence, fills, risk audit |
+| `/brain` | Ledger-derived memory: activity, adaptive notes, cycle outcomes, instrument W/L |
 
 Pages read the SQLite ledger directly (`src/lib/fund.ts`). There is no JSON API
-and no write path.
+and no write path. Journals, the growth objective, and the fund brain are
+derived from the same immutable cycle rows the CLI uses.

@@ -1,11 +1,24 @@
+import Link from "next/link";
+
+import {
+  actionBadgeClass,
+  cycleHref,
+  num,
+  openPositions,
+  pnlClass,
+  stanceBadgeClass,
+  toneForSigned,
+} from "@/components/display";
 import {
   formatPct,
   formatQty,
   formatTs,
   formatUsd,
 } from "@/components/format";
+import { HypothesisTable } from "@/components/hypothesis-table";
+import { FundEmpty, Panel, ProgressBar } from "@/components/panel";
 import { PerformanceChart } from "@/components/performance-chart";
-import { StatCard, type StatDeltaTone } from "@/components/stat-card";
+import { StatCard } from "@/components/stat-card";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -18,10 +31,13 @@ import {
 import { fetchSpyBenchmarkSeries } from "@/lib/benchmark";
 import {
   buildNavSeries,
+  buildPerformanceHistory,
   extractFillsFromCycles,
+  fundGrowth,
+  getDefaultFund,
   getLatestState,
+  latestHypothesesByInstrument,
   listCycles,
-  listFunds,
   normalizeSeriesTo100,
   summaryMetrics,
 } from "@/lib/fund";
@@ -31,43 +47,11 @@ import { cn } from "@/lib/utils";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function num(value: string | number | null | undefined): number {
-  if (value === null || value === undefined || value === "") return 0;
-  const n = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function toneForSigned(value: number): StatDeltaTone {
-  if (value > 0) return "positive";
-  if (value < 0) return "negative";
-  return "neutral";
-}
-
-function openPositions(positions: Position[]): Position[] {
-  return positions.filter((p) => num(p.quantity) !== 0);
-}
-
-function pnlClass(value: number): string {
-  if (value > 0) return "text-success";
-  if (value < 0) return "text-danger";
-  return "text-muted-foreground";
-}
-
 export default async function OverviewPage() {
-  const funds = listFunds();
-  const fund = funds[0] ?? null;
+  const fund = getDefaultFund();
 
   if (!fund) {
-    return (
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
-        <section className="rounded-lg border border-border bg-card px-4 py-10 text-center">
-          <p className="text-sm font-medium text-foreground">No funds found</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Initialize the paper fund ledger, then refresh this page.
-          </p>
-        </section>
-      </div>
-    );
+    return <FundEmpty />;
   }
 
   const cycles = listCycles(fund.fund_id);
@@ -76,6 +60,31 @@ export default async function OverviewPage() {
   const fundSeries = normalizeSeriesTo100(navSeries);
   const trades = extractFillsFromCycles(cycles);
   const positions = openPositions(state?.positions ?? []);
+  const history = buildPerformanceHistory(
+    fund,
+    cycles,
+    state ?? {
+      fund_id: fund.fund_id,
+      as_of: fund.created_at,
+      cash: fund.initial_cash,
+      positions: [],
+      nav: fund.initial_cash,
+      peak_nav: fund.initial_cash,
+      drawdown: "0",
+      gross_exposure: "0",
+      net_exposure: "0",
+      short_exposure: "0",
+      realized_pnl_cumulative: "0",
+      cycle_count: 0,
+      last_cycle_key: null,
+    },
+  );
+  const growth = fundGrowth(fund, state?.nav ?? fund.initial_cash);
+  const hypotheses = latestHypothesesByInstrument(cycles);
+  const latestCycle = cycles[cycles.length - 1] ?? null;
+  const openHypotheses = positions
+    .map((p) => hypotheses.get(p.instrument_id))
+    .filter((h): h is NonNullable<typeof h> => Boolean(h));
 
   const startAsOf = navSeries[0]?.as_of ?? fund.created_at;
   const endAsOf =
@@ -102,18 +111,24 @@ export default async function OverviewPage() {
     cash: state?.cash,
     peakNav: state?.peak_nav,
     drawdown: state?.drawdown,
-    tradeCount: trades.length,
+    grossExposure: state?.gross_exposure,
+    netExposure: state?.net_exposure,
+    shortExposure: state?.short_exposure,
+    realizedPnl: state?.realized_pnl_cumulative,
+    fillCount: trades.length,
+    tradeCycleCount: history.tradeCount,
+    holdCycleCount: history.holdCount,
+    cycleCount: cycles.length,
   });
 
-  const grossExposure = num(state?.gross_exposure);
   const asOf = state?.as_of ?? endAsOf;
   const returnTone = toneForSigned(metrics.totalReturnPct);
-  const drawdownTone: StatDeltaTone =
-    metrics.drawdown > 0 ? "negative" : "neutral";
+  const pnlTone = toneForSigned(metrics.profitAndLoss);
+  const drawdownTone = metrics.drawdown > 0 ? "negative" : "neutral";
+  const recentCycles = [...cycles].reverse().slice(0, 6);
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
-      {/* Header */}
       <header className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -123,20 +138,26 @@ export default async function OverviewPage() {
             <Badge variant="outline" className="font-mono text-[10px]">
               paper
             </Badge>
+            <Badge variant="outline" className="font-mono text-[10px] capitalize">
+              {history.status}
+            </Badge>
+            <Badge variant="outline" className="font-mono text-[10px] capitalize">
+              {growth.stage}
+            </Badge>
           </div>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Paper fund · $1,000 bankroll
+            Paper fund · $1,000 bankroll · $100k / 10y research objective
           </p>
         </div>
         <p className="font-mono text-xs text-muted-foreground tabular-nums">
           as of {formatTs(asOf)}
+          {state?.last_cycle_key ? ` · ${state.last_cycle_key}` : ""}
         </p>
       </header>
 
-      {/* Stat row */}
       <section
         aria-label="Fund metrics"
-        className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7"
+        className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8"
       >
         <StatCard
           label="NAV"
@@ -144,9 +165,10 @@ export default async function OverviewPage() {
           hint="Mark-to-market"
         />
         <StatCard
-          label="Cash"
-          value={formatUsd(metrics.cash)}
-          hint="Uninvested"
+          label="P&L"
+          value={formatUsd(metrics.profitAndLoss, { signed: true })}
+          deltaTone={pnlTone}
+          hint="Vs $1,000"
         />
         <StatCard
           label="Total return"
@@ -158,26 +180,148 @@ export default async function OverviewPage() {
           label="Drawdown"
           value={formatPct(metrics.drawdown)}
           deltaTone={drawdownTone}
-          hint="From peak NAV"
+          hint={`Peak ${formatUsd(metrics.peakNav)}`}
         />
         <StatCard
-          label="Gross exposure"
-          value={formatUsd(grossExposure)}
-          hint="Long + short"
+          label="Cash"
+          value={formatUsd(metrics.cash)}
+          hint={`${formatPct(metrics.currentNav > 0 ? metrics.cash / metrics.currentNav : 1)} of NAV`}
+        />
+        <StatCard
+          label="Gross / net"
+          value={formatUsd(metrics.grossExposure)}
+          hint={`Net ${formatUsd(metrics.netExposure, { signed: true })}`}
         />
         <StatCard
           label="Open positions"
           value={String(metrics.positionCount)}
-          hint="Non-zero lots"
+          hint={`Short ${formatUsd(metrics.shortExposure)}`}
         />
         <StatCard
-          label="Trade count"
-          value={String(metrics.tradeCount)}
-          hint="Fills to date"
+          label="Cycles"
+          value={String(metrics.cycleCount)}
+          hint={`${metrics.tradeCycleCount} trade · ${metrics.holdCycleCount} hold · ${metrics.fillCount} fills`}
         />
       </section>
 
-      {/* Main chart */}
+      <div className="grid gap-3 lg:grid-cols-3">
+        <Panel
+          micro="Objective"
+          title="Growth to $100k"
+          trailing={growth.stage}
+          className="lg:col-span-1"
+          bodyClassName="flex flex-col gap-3 px-3.5 py-3"
+        >
+          <div className="flex items-end justify-between gap-3">
+            <div>
+              <p className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
+                Simple progress
+              </p>
+              <p className="font-mono text-lg tabular-nums">
+                {formatPct(growth.simpleProgress)}
+              </p>
+            </div>
+            <p className="font-mono text-xs text-muted-foreground tabular-nums">
+              {growth.remainingMultiple.toFixed(1)}× remaining
+            </p>
+          </div>
+          <ProgressBar value={growth.simpleProgress} />
+          <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 font-mono text-xs tabular-nums">
+            <dt className="text-muted-foreground">Log progress</dt>
+            <dd className="text-right">{formatPct(growth.logProgress)}</dd>
+            <dt className="text-muted-foreground">Required CAGR</dt>
+            <dd className="text-right">
+              {formatPct(growth.requiredAnnualReturn)}
+            </dd>
+            <dt className="text-muted-foreground">Realized P&L</dt>
+            <dd className={cn("text-right", pnlClass(metrics.realizedPnl))}>
+              {formatUsd(metrics.realizedPnl, { signed: true })}
+            </dd>
+            <dt className="text-muted-foreground">Up / down cycles</dt>
+            <dd className="text-right">
+              {history.positiveCycleCount} / {history.negativeCycleCount}
+            </dd>
+          </dl>
+          {history.status === "measuring" ? (
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              {history.interpretation}
+            </p>
+          ) : null}
+        </Panel>
+
+        <Panel
+          micro="Latest"
+          title="Decision"
+          trailing={
+            latestCycle ? (
+              <Link
+                href={cycleHref(latestCycle.cycle_key)}
+                className="text-foreground hover:underline"
+              >
+                {latestCycle.cycle_key}
+              </Link>
+            ) : (
+              "—"
+            )
+          }
+          className="lg:col-span-2"
+          bodyClassName="flex flex-col gap-3 px-3.5 py-3"
+        >
+          {latestCycle ? (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "font-mono text-[10px] capitalize",
+                    actionBadgeClass(latestCycle.action),
+                  )}
+                >
+                  {latestCycle.action}
+                </Badge>
+                <span className="font-mono text-xs text-muted-foreground tabular-nums">
+                  {formatTs(latestCycle.as_of)}
+                </span>
+                <span className="font-mono text-xs tabular-nums">
+                  NAV {formatUsd(latestCycle.state.nav)}
+                </span>
+              </div>
+              <p className="text-sm leading-relaxed text-foreground">
+                {latestCycle.thesis || "No thesis recorded."}
+              </p>
+              {latestCycle.journal ? (
+                <dl className="grid gap-2 text-xs sm:grid-cols-2">
+                  <div>
+                    <dt className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
+                      What changed
+                    </dt>
+                    <dd className="mt-0.5 line-clamp-3 text-muted-foreground">
+                      {latestCycle.journal.what_changed}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
+                      Portfolio intent
+                    </dt>
+                    <dd className="mt-0.5 line-clamp-3 text-muted-foreground">
+                      {latestCycle.journal.portfolio_intent}
+                    </dd>
+                  </div>
+                </dl>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Historical cycle — no journal sidecar.
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Capitalized but no cycles applied yet.
+            </p>
+          )}
+        </Panel>
+      </div>
+
       <section
         aria-label="Performance chart"
         className="flex flex-col rounded-lg border border-border bg-card"
@@ -235,31 +379,15 @@ export default async function OverviewPage() {
         </div>
       </section>
 
-      {/* Positions */}
-      <section
-        aria-label="Positions"
-        className="flex flex-col rounded-lg border border-border bg-card"
+      <Panel
+        micro="Holdings"
+        title="Current positions"
+        trailing={`${positions.length} open`}
       >
-        <div className="flex items-center justify-between border-b border-border px-3.5 py-2.5">
-          <div className="flex items-baseline gap-2">
-            <span className="font-mono text-[10px] tracking-widest text-muted-foreground uppercase">
-              Holdings
-            </span>
-            <h2 className="text-sm font-medium text-foreground">
-              Current positions
-            </h2>
-          </div>
-          <span className="font-mono text-xs text-muted-foreground tabular-nums">
-            {positions.length} open
-          </span>
-        </div>
-
         {positions.length === 0 ? (
-          <div className="flex flex-1 items-center justify-center px-4 py-10">
-            <p className="text-center text-sm text-muted-foreground">
-              No open positions — cash only.
-            </p>
-          </div>
+          <p className="px-4 py-10 text-center text-sm text-muted-foreground">
+            No open positions — cash only.
+          </p>
         ) : (
           <Table>
             <TableHeader>
@@ -269,6 +397,9 @@ export default async function OverviewPage() {
                 </TableHead>
                 <TableHead className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
                   Class
+                </TableHead>
+                <TableHead className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
+                  Stance
                 </TableHead>
                 <TableHead className="text-right font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
                   Qty
@@ -282,14 +413,21 @@ export default async function OverviewPage() {
                 <TableHead className="text-right font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
                   Mkt value
                 </TableHead>
+                <TableHead className="text-right font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
+                  Target
+                </TableHead>
+                <TableHead className="text-right font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
+                  Invalidation
+                </TableHead>
                 <TableHead className="pr-3.5 text-right font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
                   Unrealized
                 </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {positions.map((p) => {
+              {positions.map((p: Position) => {
                 const upnl = num(p.unrealized_pnl);
+                const hyp = hypotheses.get(p.instrument_id);
                 return (
                   <TableRow key={p.instrument_id}>
                     <TableCell className="pl-3.5 font-mono text-sm font-medium tabular-nums">
@@ -303,6 +441,21 @@ export default async function OverviewPage() {
                         {p.asset_class || "—"}
                       </Badge>
                     </TableCell>
+                    <TableCell>
+                      {hyp ? (
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "font-mono text-[10px] capitalize",
+                            stanceBadgeClass(hyp.stance),
+                          )}
+                        >
+                          {hyp.stance}
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right font-mono text-sm tabular-nums">
                       {formatQty(p.quantity)}
                     </TableCell>
@@ -314,6 +467,16 @@ export default async function OverviewPage() {
                     </TableCell>
                     <TableCell className="text-right font-mono text-sm tabular-nums">
                       {formatUsd(p.market_value)}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-sm tabular-nums">
+                      {hyp?.target_price != null
+                        ? formatUsd(hyp.target_price)
+                        : "—"}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-sm tabular-nums">
+                      {hyp?.invalidation_price != null
+                        ? formatUsd(hyp.invalidation_price)
+                        : "—"}
                     </TableCell>
                     <TableCell
                       className={cn(
@@ -329,7 +492,95 @@ export default async function OverviewPage() {
             </TableBody>
           </Table>
         )}
-      </section>
+      </Panel>
+
+      {openHypotheses.length > 0 ? (
+        <Panel
+          micro="Theses"
+          title="Open hypotheses"
+          trailing={`${openHypotheses.length}`}
+        >
+          <HypothesisTable hypotheses={openHypotheses} />
+        </Panel>
+      ) : null}
+
+      <Panel
+        micro="Tape"
+        title="Recent cycles"
+        trailing={
+          <Link href="/cycles" className="hover:text-foreground hover:underline">
+            all cycles
+          </Link>
+        }
+      >
+        {recentCycles.length === 0 ? (
+          <p className="px-4 py-10 text-center text-sm text-muted-foreground">
+            No cycles recorded yet.
+          </p>
+        ) : (
+          <Table className="text-xs">
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="pl-3.5 font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
+                  as_of
+                </TableHead>
+                <TableHead className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
+                  cycle_key
+                </TableHead>
+                <TableHead className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
+                  action
+                </TableHead>
+                <TableHead className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
+                  thesis
+                </TableHead>
+                <TableHead className="text-right font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
+                  nav
+                </TableHead>
+                <TableHead className="pr-3.5 text-right font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
+                  fills
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {recentCycles.map((c) => (
+                <TableRow key={c.cycle_key}>
+                  <TableCell className="pl-3.5 font-mono tabular-nums text-muted-foreground">
+                    {formatTs(c.as_of)}
+                  </TableCell>
+                  <TableCell className="font-mono">
+                    <Link
+                      href={cycleHref(c.cycle_key)}
+                      className="hover:underline"
+                    >
+                      {c.cycle_key}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        "font-mono text-[10px] capitalize",
+                        actionBadgeClass(c.action),
+                      )}
+                    >
+                      {c.action}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="max-w-[28rem] truncate text-muted-foreground">
+                    {c.thesis}
+                  </TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">
+                    {formatUsd(c.state.nav)}
+                  </TableCell>
+                  <TableCell className="pr-3.5 text-right font-mono tabular-nums">
+                    {c.fills.length + c.settlements.length}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </Panel>
     </div>
   );
 }

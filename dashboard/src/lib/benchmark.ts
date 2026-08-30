@@ -171,8 +171,3 @@ export async function fetchSpyBenchmarkSeries(
   cache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, series });
   return series;
 }
-
-/** Test helper: clear in-memory cache. */
-export function clearBenchmarkCache(): void {
-  cache.clear();
-}

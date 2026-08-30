@@ -10,13 +10,6 @@ const USD = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 
-const USD_COMPACT = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  notation: "compact",
-  maximumFractionDigits: 2,
-});
-
 const PCT = new Intl.NumberFormat("en-US", {
   style: "percent",
   minimumFractionDigits: 2,
@@ -54,16 +47,14 @@ function toNumber(value: number | string | null | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** Format USD with 2 decimal places. Compact for |value| ≥ 1e6 when compact=true. */
+/** Format USD with 2 decimal places. */
 export function formatUsd(
   value: number | string | null | undefined,
-  options?: { compact?: boolean; signed?: boolean }
+  options?: { signed?: boolean }
 ): string {
   const n = toNumber(value);
   if (n === null) return "—";
-  const abs = Math.abs(n);
-  const formatted =
-    options?.compact && abs >= 1_000_000 ? USD_COMPACT.format(n) : USD.format(n);
+  const formatted = USD.format(n);
   if (options?.signed && n > 0) return `+${formatted}`;
   return formatted;
 }

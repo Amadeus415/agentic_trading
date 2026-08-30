@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Menu, Receipt } from "lucide-react";
+import { BookOpen, Brain, LayoutDashboard, Menu, Receipt } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,8 @@ import {
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/trades", label: "Trades", icon: Receipt },
+  { href: "/cycles", label: "Cycles", icon: BookOpen },
+  { href: "/brain", label: "Brain", icon: Brain },
 ] as const;
 
 function isActive(pathname: string, href: string): boolean {
@@ -86,10 +88,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "/";
   const [mobileOpen, setMobileOpen] = React.useState(false);
 
-  const pageMeta =
-    pathname.startsWith("/trades")
-      ? { title: "Trades", micro: "EXECUTION" }
-      : { title: "Overview", micro: "PERFORMANCE" };
+  const pageMeta = pathname.startsWith("/trades")
+    ? { title: "Trades", micro: "EXECUTION" }
+    : pathname.startsWith("/cycles/")
+      ? { title: "Cycle", micro: "DECISION" }
+      : pathname.startsWith("/cycles")
+        ? { title: "Cycles", micro: "JOURNAL" }
+        : pathname.startsWith("/brain")
+          ? { title: "Brain", micro: "MEMORY" }
+          : { title: "Overview", micro: "PERFORMANCE" };
 
   return (
     <div className="flex min-h-full bg-background">

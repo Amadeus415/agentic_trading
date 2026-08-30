@@ -1,8 +1,17 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { Search, X } from "lucide-react";
 
+import {
+  actionBadgeClass,
+  cycleHref,
+  num,
+  pnlClass,
+  sideBadgeClass,
+  truncateId,
+} from "@/components/display";
 import {
   formatQty,
   formatTs,
@@ -38,53 +47,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { CycleListItem, OrderSide, TradeRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const SIDES: OrderSide[] = ["buy", "sell", "short", "cover"];
+const SIDES: OrderSide[] = ["buy", "sell", "short", "cover", "settle"];
 
 export type CycleTradeMeta = CycleListItem & {
   /** Full thesis from decision payload when present. */
   thesis: string;
 };
-
-function num(value: string | number | null | undefined): number {
-  if (value === null || value === undefined || value === "") return 0;
-  const n = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function pnlClass(value: number): string {
-  if (value > 0) return "text-success";
-  if (value < 0) return "text-danger";
-  return "text-muted-foreground";
-}
-
-function truncateId(id: string, head = 8): string {
-  if (!id) return "—";
-  if (id.length <= head + 4) return id;
-  return `${id.slice(0, head)}…`;
-}
-
-function sideBadgeClass(side: string): string {
-  switch (side) {
-    case "buy":
-      return "border-success/30 bg-success/15 text-success";
-    case "sell":
-      return "border-danger/30 bg-danger/15 text-danger";
-    case "short":
-      return "border-amber-500/30 bg-amber-500/15 text-amber-300";
-    case "cover":
-      return "border-indigo-400/30 bg-indigo-400/15 text-indigo-300";
-    case "settle":
-      return "border-border bg-muted text-muted-foreground";
-    default:
-      return "border-border bg-secondary text-secondary-foreground";
-  }
-}
-
-function actionBadgeClass(action: string): string {
-  if (action === "trade") return "border-indigo-400/30 bg-indigo-400/10 text-indigo-300";
-  if (action === "hold") return "border-border bg-muted text-muted-foreground";
-  return "border-border bg-secondary text-secondary-foreground";
-}
 
 type Summary = {
   total: number;
@@ -501,7 +469,13 @@ export function TradesView({
                           {formatTs(row.as_of)}
                         </TableCell>
                         <TableCell className="max-w-[9rem] truncate font-mono text-muted-foreground">
-                          {row.cycle_key}
+                          <Link
+                            href={cycleHref(row.cycle_key)}
+                            className="hover:text-foreground hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {row.cycle_key}
+                          </Link>
                         </TableCell>
                         <TableCell className="font-mono font-medium tabular-nums">
                           {row.instrument_id}
@@ -601,6 +575,9 @@ export function TradesView({
                     <TableHead className="h-8 font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
                       action
                     </TableHead>
+                    <TableHead className="h-8 font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
+                      thesis
+                    </TableHead>
                     <TableHead className="h-8 text-right font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
                       nav after
                     </TableHead>
@@ -626,7 +603,13 @@ export function TradesView({
                           {formatTs(c.as_of)}
                         </TableCell>
                         <TableCell className="font-mono font-medium">
-                          {c.cycle_key}
+                          <Link
+                            href={cycleHref(c.cycle_key)}
+                            className="hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {c.cycle_key}
+                          </Link>
                         </TableCell>
                         <TableCell>
                           <Badge
@@ -638,6 +621,9 @@ export function TradesView({
                           >
                             {c.action}
                           </Badge>
+                        </TableCell>
+                        <TableCell className="max-w-[28rem] truncate text-muted-foreground">
+                          {c.decision_summary.thesis_snippet || c.thesis || "—"}
                         </TableCell>
                         <TableCell className="text-right font-mono tabular-nums">
                           {c.nav != null ? formatUsd(c.nav) : "—"}
@@ -768,18 +754,25 @@ export function TradesView({
                             selectedCycle.decision_summary.thesis_snippet ||
                             "No thesis recorded for this cycle."}
                         </p>
-                        <Button
-                          type="button"
-                          size="xs"
-                          variant="outline"
-                          className="font-mono"
-                          onClick={() => {
-                            setSelected(null);
-                            selectCycle(selected.cycle_key);
-                          }}
-                        >
-                          Filter fills to cycle
-                        </Button>
+                        <div className="flex flex-wrap gap-1.5">
+                          <Button
+                            type="button"
+                            size="xs"
+                            variant="outline"
+                            className="font-mono"
+                            onClick={() => {
+                              setSelected(null);
+                              selectCycle(selected.cycle_key);
+                            }}
+                          >
+                            Filter fills to cycle
+                          </Button>
+                          <Button size="xs" variant="ghost" className="font-mono" asChild>
+                            <Link href={cycleHref(selected.cycle_key)}>
+                              Open cycle
+                            </Link>
+                          </Button>
+                        </div>
                       </div>
                     ) : (
                       <p className="mt-2 text-sm text-muted-foreground">
