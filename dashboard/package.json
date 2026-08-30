@@ -1,6 +1,7 @@
 {
   "name": "dashboard",
   "version": "0.1.0",
+  "description": "Read-only dashboard for Edgecraft's autonomous paper fund, decision journal, and append-only ledger.",
   "private": true,
   "scripts": {
     "dev": "next dev",
