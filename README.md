@@ -4,7 +4,7 @@
 
 ### An autonomous paper fund pursuing $1,000 → $100,000
 
-Edgecraft is a fully autonomous paper-trading fund with one job: turn $1,000 of fake money into $100,000 without ever touching a real brokerage account. Every day an AI agent (Codex) scans public markets, manages a multi-position stock/crypto/prediction book, and records falsifiable hypotheses before proposing a buy, sell, short, cover, or hold. Deterministic Python decides whether that proposal is allowed. Accepted trades land in an append-only SQLite ledger with the full evidence and decision journal; rejected ones are recorded too, and nothing can be edited or deleted afterward.
+Edgecraft is a fully autonomous paper-trading fund with one job: turn $1,000 of fake money into $100,000 without ever touching a real brokerage account. Several times per weekday an AI agent (Codex) scans public markets, manages a short-term multi-position stock/crypto/prediction book, and records 4–72 hour falsifiable hypotheses before proposing a buy, sell, short, cover, or hold. Deterministic Python decides whether that proposal is allowed. Accepted trades land in an append-only SQLite ledger with the full evidence and decision journal; rejected ones are recorded too, and nothing can be edited or deleted afterward.
 
 The design principle is simple: **models may propose; typed policy and risk engines authorize.** The agent cannot bypass accounting checks, inject cash, reset losses, or place a real order — the codebase has no live execution path at all.
 
@@ -13,7 +13,7 @@ The design principle is simple: **models may propose; typed policy and risk engi
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-0b1220.svg)](LICENSE)
 [![Money: fake](https://img.shields.io/badge/money-100%25%20fake-22c55e)](docs/CODEX_SCHEDULED_TASK.md)
 
-**[Starting prompt](docs/FUND_STARTING_PROMPT.md)** · **[Daily Codex task](docs/CODEX_SCHEDULED_TASK.md)** · **[Accounting contract](docs/FUND_ACCOUNTING.md)** · **[Research lab](#research-lab)**
+**[Starting prompt](docs/FUND_STARTING_PROMPT.md)** · **[Scheduled Codex task](docs/CODEX_SCHEDULED_TASK.md)** · **[Accounting contract](docs/FUND_ACCOUNTING.md)** · **[Research lab](#research-lab)**
 
 </div>
 
@@ -32,11 +32,11 @@ flowchart LR
     B --> A
 ```
 
-In one sentence: Codex proposes a sourced portfolio decision; `paper_fund.py` applies it to a persistent $1,000 fake-money ledger.
+In one sentence: Codex proposes a short-term sourced portfolio decision; `paper_fund.py` applies it to a persistent $1,000 fake-money ledger.
 
-The bankroll is deposited once. There is no daily contribution and no reset. The explicit research objective is to compound $1,000 into $100,000 over ten years—an aggressive 100x target requiring about 58.5% annualized returns, not a promise. The fund can hold cash or take long and short positions in stocks, native crypto, and binary prediction contracts. It may name any syntactically valid instrument; there is no symbol whitelist. Every trade still needs fresh sourced prices, cited evidence, valid inventory, and room inside the checked-in risk envelope.
+The bankroll is deposited once. There is no daily contribution and no reset. The explicit research objective is to compound $1,000 into $100,000 over ten years—an aggressive 100x target requiring about 58.5% annualized returns, not a promise. The fund takes long and short positions in stocks, native crypto, and binary prediction contracts. It may name any syntactically valid instrument; there is no symbol whitelist. Every trade still needs fresh sourced prices, cited evidence, valid inventory, and room inside the checked-in risk envelope. Scheduled cycles cannot rest in 100% cash.
 
-The active book is `edgecraft-aggressive` (`examples/fund.mandate.aggressive.json`): a high-tempo, short-term trader that searches for opportunities every cycle, manages several independent positions when strong ideas exist, can run full-size shorts, and cuts broken theses fast. Activity is not the objective; compounded NAV is. The original conservative book (`edgecraft-1k`) stays frozen and verifiable at `state/edgecraft-fund.db`.
+The active book is `edgecraft-aggressive` (`examples/fund.mandate.aggressive.json`): a high-tempo, short-term trader that searches each UTC session, manages several independent 4–72 hour positions when strong ideas exist, can run full-size shorts, and cuts broken theses fast. Compounded NAV is the objective; idle cash is a miss. The original conservative book (`edgecraft-1k`) stays frozen and verifiable at `state/edgecraft-fund.db`.
 
 Current envelope:
 
@@ -87,12 +87,16 @@ The example is executable fixture data, not a current market decision.
 
 ## Start and operate the paper book
 
-The first run uses the [starting prompt](docs/FUND_STARTING_PROMPT.md). It gives Codex the empty $1,000 book and lets it decide how much to deploy, where, and in which direction. Later runs use the [daily task](docs/CODEX_SCHEDULED_TASK.md) to mark every open position, revisit the thesis, and trade or hold without human approval.
+The first run uses the [starting prompt](docs/FUND_STARTING_PROMPT.md). It gives Codex the empty $1,000 book and requires a researched opening trade. Later runs use the [scheduled task](docs/CODEX_SCHEDULED_TASK.md) to mark every open position, revisit the thesis, and trade or hold without human approval. A scheduled hold is legal only while positions are open.
 
-Codex writes the complete researched packet to:
+Print the current session key, then write the packet there:
+
+```bash
+uv run edgecraft fund-cycle-key
+```
 
 ```text
-state/fund-inputs/YYYY-MM-DD.json
+state/fund-inputs/YYYY-MM-DD-session-us-open.json
 ```
 
 Then the fixed apply path runs:
@@ -153,6 +157,7 @@ See [the accounting contract](docs/FUND_ACCOUNTING.md) for formulas, the decisio
 src/edgecraft/
 ├── paper_fund.py           # typed models, accounting, risk, SQLite audit ledger
 ├── fund_brain.py           # compact outcomes, position hypotheses, and lessons
+├── schedule.py             # UTC session slots and cycle keys
 ├── cli.py                  # fund commands plus optional research-lab commands
 ├── growth.py               # deterministic growth objective and capital stages
 └── observability.py        # structured JSON logging
@@ -160,7 +165,7 @@ src/edgecraft/
 examples/fund.mandate.aggressive.json       # active $1,000 aggressive mandate
 examples/fund.mandate.json                  # retired conservative fixture
 examples/fund-cycle.starting.example.json   # executable three-market fixture
-scripts/run_scheduled_cycle.sh              # fixed daily paper apply path
+scripts/run_scheduled_cycle.sh              # fixed session paper apply path
 scripts/deny_broker_tools.py                # fail-closed Codex fence against broker tools
 tests/test_paper_fund.py                    # accounting and failure invariants
 docs/                                       # accounting contract and Codex prompts

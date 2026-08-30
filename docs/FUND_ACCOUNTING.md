@@ -86,7 +86,7 @@ Each cycle input has two required top-level members, `decision` and `quotes`, pl
 
 `FundDecision` records stable identities, UTC decision time, `trade` or `hold`, thesis/alternatives/risks, an auditable journal, embedded evidence, and zero or more explicit-side orders. A trade requires orders. A hold forbids orders.
 
-Scheduled cycles require `journal` with the observed market regime, opportunity set considered, portfolio intent, what changed, and lessons applied. Its `hypotheses` list records one current entry for every open or ordered instrument: stance, statement, mechanism, catalysts, falsifiers, horizon, confidence, optional target/invalidation prices, and evidence IDs. This is concise, decision-relevant rationale—not private chain-of-thought.
+Scheduled cycles require `journal` with the observed market regime, opportunity set considered, portfolio intent, what changed, and lessons applied. Its `hypotheses` list records one current entry for every open or ordered instrument: stance, statement, mechanism, catalysts, falsifiers, horizon, confidence, optional target/invalidation prices, and evidence IDs. Scheduled hypotheses may not exceed 72 hours. A scheduled `hold` is illegal when the prior book is 100% cash; the agent must submit researched short-term orders instead. Historical cycles without those rules remain replayable through accounting. This is concise, decision-relevant rationale—not private chain-of-thought.
 
 Historical v1 cycles without journals remain replayable. An absent optional journal is omitted from their canonical digest; once a journal is present it is part of the immutable request digest.
 
@@ -103,6 +103,7 @@ The normalized objects are stored verbatim in an immutable cycle row. Their cano
 - A fresh fund has one immutable capitalization event and no positions.
 - Every cycle stores the normalized decision, embedded evidence, quotes, simulated fills, resulting state, and a SHA-256 digest.
 - Scheduled cycles require a structured journal and a refreshed hypothesis for every open or ordered instrument.
+- Scheduled cycles reject an all-cash hold and reject hypotheses with a horizon longer than 72 hours. Accounting replay of older cycles does not re-apply those agent gates.
 - Every completed cycle also stores a structured audit sidecar: risk-check outcomes (observed value vs limit), quote freshness, fee totals, mandate digest, Edgecraft version, optional model/prompt metadata, and the input file SHA-256.
 - Hash-chained `cycle_completed` events retain the full decision, quotes, fills, settlements, state, and audit sidecar—not only a summary—so the event stream alone is a complete audit trail.
 - `(fund_id, cycle_key)` is unique. An identical replay returns the prior result; a different payload under that key is rejected.

@@ -4,9 +4,11 @@
 
 Build a highly active, understandable autonomous **paper hedge fund**. Edgecraft
 starts with exactly $1,000 of fake money and tries to compound it rapidly by
-researching public information, forming falsifiable hypotheses, and managing a
-multi-position long/short book across stocks and native crypto. Prediction
-markets are allowed when the evidence supports a real pricing edge.
+researching public information, forming short-term falsifiable hypotheses, and
+managing a multi-position long/short book across stocks and native crypto.
+Prediction markets are allowed when the evidence supports a real pricing edge.
+The active book is a 4–72 hour trader: it should take several researched
+simulated fills per week, not rest in cash.
 
 This is an aggressive engineering experiment, not a return promise. The system
 may take concentrated and high-variance paper risk inside its checked-in
@@ -20,14 +22,15 @@ account, transfer, or wallet.
 - Search broadly across the public internet and direct public market-data
   sources. Compare opportunities instead of anchoring on a fixed watchlist.
 - Manage a portfolio, not a single bet. Prefer several genuinely independent,
-  high-conviction positions when they exist; do not diversify into weak ideas or
-  churn tiny positions merely to look active.
+  high-conviction short-term positions when they exist; do not diversify into
+  weak ideas or churn tiny positions merely to look active.
 - Be aggressive on opportunity selection and fast on thesis invalidation. High
   risk is acceptable only when the expected payoff, evidence, liquidity, costs,
   and explicit downside make the bet attractive.
-- Treat cash, longs, shorts, and rapid reversals as valid active decisions. A
-  hold is valid when no researched edge survives costs, but the agent must first
-  search a broad opportunity set.
+- Default to researched trades. A sourced catalyst, target, invalidation, and
+  4–72h size is a valid thesis; lack of a calibrated model is not a hold reason.
+  A hold is valid only while existing theses remain intact. Scheduled 100% cash
+  holds are rejected. U.S. equity close is not a reason to stay flat.
 - Learn from the immutable record. Every cycle must revisit open hypotheses,
   inspect prior outcomes and losing exits, state what changed, and record which
   lessons influenced the new portfolio.

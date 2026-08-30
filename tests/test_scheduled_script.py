@@ -3,6 +3,8 @@ import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
+from edgecraft.schedule import scheduled_cycle_key
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "run_scheduled_cycle.sh"
 
@@ -35,7 +37,7 @@ def test_scheduled_script_is_fixed_to_paper_fund(tmp_path):
         "run --no-sync edgecraft fund-run --config examples/fund.mandate.aggressive.json "
         f"--input {input_path} --ledger state/edgecraft-aggressive.db --require-as-of-today "
         "--max-decision-age-seconds 1800 --require-cycle-key "
-        f"{datetime.now(UTC).date()} --require-brain-journal",
+        f"{scheduled_cycle_key(datetime.now(UTC))} --require-brain-journal",
         "run --no-sync edgecraft fund-verify --config examples/fund.mandate.aggressive.json "
         "--ledger state/edgecraft-aggressive.db",
     ]

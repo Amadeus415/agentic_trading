@@ -15,6 +15,7 @@ from edgecraft.fund_brain import build_fund_brain
 from edgecraft.growth import growth_snapshot
 from edgecraft.observability import log_event
 from edgecraft.paper_fund import (
+    MAX_SCHEDULED_HYPOTHESIS_HORIZON_HOURS,
     CycleRuntimeMetadata,
     FundDecision,
     FundMandate,
@@ -24,6 +25,7 @@ from edgecraft.paper_fund import (
     mandate_digest,
     request_digest,
 )
+from edgecraft.schedule import scheduled_cycle_key, scheduled_input_path, scheduled_slot
 
 DEFAULT_FUND_LEDGER = "state/edgecraft-aggressive.db"
 
@@ -60,6 +62,15 @@ def _add_fund_commands(commands: Any) -> None:
         "fund-context",
         parents=[fund],
         help="Print the authoritative state and decision contract for Codex.",
+    )
+    cycle_key = commands.add_parser(
+        "fund-cycle-key",
+        help="Print the current UTC session cycle key for a scheduled packet.",
+    )
+    cycle_key.add_argument(
+        "--plain",
+        action="store_true",
+        help="Print only the cycle key, for shell capture.",
     )
 
     run = commands.add_parser(
@@ -267,9 +278,15 @@ def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
         "ok": True,
         "paper_only": True,
         "one_sentence": (
-            "Codex proposes a daily portfolio decision; deterministic code applies it "
-            "to an append-only $1,000 fake-money ledger."
+            "Codex proposes a short-term sourced portfolio decision; deterministic "
+            "code applies it to an append-only $1,000 fake-money ledger."
         ),
+        "schedule": {
+            "cycle_key": scheduled_cycle_key(),
+            "slot": scheduled_slot(),
+            "input_path": scheduled_input_path(),
+            "max_hypothesis_horizon_hours": MAX_SCHEDULED_HYPOTHESIS_HORIZON_HOURS,
+        },
         "fund_id": fund_id,
         "mandate": mandate.model_dump(mode="json"),
         "state": state.model_dump(mode="json"),
@@ -294,7 +311,17 @@ def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
             "decision_schema": FundDecision.model_json_schema(mode="validation"),
             "quote_schema": FundQuote.model_json_schema(mode="validation"),
             "rules": [
-                "Use action=hold with no orders when evidence is weak.",
+                "This is a short-term active book. Default to researched trades, not cash.",
+                "When the book is 100% cash, action must be trade with short-term orders; "
+                "a scheduled idle-cash hold is rejected.",
+                "A sourced catalyst, target, invalidation price, and size is a valid "
+                "thesis. Lack of a calibrated probability model is not a hold reason.",
+                "U.S. cash-equity close is not a reason to stay flat; native crypto "
+                "and prediction markets remain in scope.",
+                f"Each scheduled hypothesis horizon must be "
+                f"{MAX_SCHEDULED_HYPOTHESIS_HORIZON_HOURS} hours or less.",
+                "Hold is valid only while existing positions' theses remain intact. "
+                "Flattening is a sell or cover, not a hold.",
                 "Pursue the growth objective through evidence-backed asymmetric opportunities; "
                 "the target never overrides deterministic risk checks.",
                 "Use explicit buy, sell, short, or cover sides and positive quantities.",
@@ -308,6 +335,21 @@ def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
                 "fills, fees, mandate digest, and runtime provenance in the hash-chained ledger.",
             ],
         },
+    }
+
+
+def _fund_cycle_key(args: argparse.Namespace) -> dict[str, Any] | str:
+    now = datetime.now(UTC)
+    key = scheduled_cycle_key(now)
+    if args.plain:
+        return key
+    return {
+        "ok": True,
+        "cycle_key": key,
+        "slot": scheduled_slot(now),
+        "input_path": scheduled_input_path(now),
+        "utc_now": now.isoformat().replace("+00:00", "Z"),
+        "max_hypothesis_horizon_hours": MAX_SCHEDULED_HYPOTHESIS_HORIZON_HOURS,
     }
 
 
@@ -668,6 +710,7 @@ COMMAND_HANDLERS: dict[str, CommandHandler] = {
     "fund-validate": _fund_validate,
     "fund-init": _fund_init,
     "fund-context": _fund_context,
+    "fund-cycle-key": _fund_cycle_key,
     "fund-run": _fund_run,
     "fund-show": _fund_show,
     "fund-cycle": _fund_cycle,

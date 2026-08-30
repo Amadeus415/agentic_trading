@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from edgecraft import __version__
 from edgecraft.fund_brain import build_fund_brain
 from edgecraft.paper_fund import (
+    MAX_SCHEDULED_HYPOTHESIS_HORIZON_HOURS,
     AssetClass,
     CycleRuntimeMetadata,
     DecisionAction,
@@ -1370,7 +1371,7 @@ def test_scheduled_journal_requires_hypothesis_for_every_live_instrument(tmp_pat
                 mechanism="Earnings growth can raise value",
                 catalysts=("earnings",),
                 falsifiers=("guidance cut",),
-                expected_horizon_hours=168,
+                expected_horizon_hours=48,
                 confidence=Decimal("0.6"),
                 target_price=Decimal("120"),
                 invalidation_price=Decimal("90"),
@@ -1411,6 +1412,124 @@ def test_scheduled_journal_requires_hypothesis_for_every_live_instrument(tmp_pat
         assert "AAPL" in ledger.list_events(FUND_ID)[-1].payload["reason"]
 
 
+def _idle_journal() -> DecisionJournal:
+    return DecisionJournal(
+        market_regime="Test regime",
+        opportunity_set="Cash and public markets",
+        portfolio_intent="Stay in cash",
+        what_changed="No new trade",
+    )
+
+
+def test_scheduled_all_cash_hold_is_rejected(tmp_path: Path) -> None:
+    hold = _decision(
+        "idle-hold",
+        action=DecisionAction.HOLD,
+        evidence=(_ev("e-idle"),),
+    ).model_copy(update={"journal": _idle_journal()})
+    with _ledger(tmp_path) as ledger:
+        ledger.initialize(FUND_ID, _mandate())
+        with pytest.raises(PaperFundValidationError, match="idle-cash hold"):
+            validate_decision_journal(hold, ledger.get_state(FUND_ID))
+        with pytest.raises(PaperFundValidationError, match="idle-cash hold"):
+            ledger.execute_cycle(hold, [], require_brain_journal=True)
+        assert ledger.get_state(FUND_ID).cycle_count == 0
+        assert ledger.list_events(FUND_ID)[-1].event_type == "cycle_rejected"
+
+
+def test_scheduled_hold_remains_valid_while_positions_are_open(tmp_path: Path) -> None:
+    evidence = _ev("e1", instruments=("AAPL",))
+    hypothesis = FundHypothesis(
+        instrument_id="AAPL",
+        stance=HypothesisStance.LONG,
+        statement="AAPL may rise",
+        mechanism="Earnings growth can raise value",
+        catalysts=("earnings",),
+        falsifiers=("guidance cut",),
+        expected_horizon_hours=24,
+        confidence=Decimal("0.6"),
+        target_price=Decimal("120"),
+        invalidation_price=Decimal("90"),
+        evidence_ids=("e1",),
+    )
+    journal = DecisionJournal(
+        market_regime="Test regime",
+        opportunity_set="AAPL and cash",
+        portfolio_intent="Keep the live short-term long",
+        what_changed="Thesis still intact",
+        hypotheses=(hypothesis,),
+    )
+    with _ledger(tmp_path) as ledger:
+        ledger.initialize(FUND_ID, _mandate())
+        ledger.execute_cycle(
+            _decision(
+                "open-aapl",
+                orders=(_buy("AAPL", "1", AssetClass.STOCK),),
+                evidence=(evidence,),
+            ).model_copy(update={"journal": journal.model_copy(update={"what_changed": "Open"})}),
+            [_quote("AAPL", "100", AssetClass.STOCK)],
+            require_brain_journal=True,
+        )
+        hold = _decision(
+            "keep-aapl",
+            action=DecisionAction.HOLD,
+            evidence=(evidence,),
+            as_of=AS_OF + timedelta(hours=1),
+        ).model_copy(update={"journal": journal})
+        result = ledger.execute_cycle(
+            hold,
+            [
+                _quote(
+                    "AAPL",
+                    "101",
+                    AssetClass.STOCK,
+                    observed_at=AS_OF + timedelta(minutes=59),
+                )
+            ],
+            require_brain_journal=True,
+        )
+        assert result.action is DecisionAction.HOLD
+        assert result.state.positions[0].instrument_id == "AAPL"
+
+
+def test_scheduled_hypothesis_horizon_must_be_short_term(tmp_path: Path) -> None:
+    evidence = _ev("e1", instruments=("AAPL",))
+    journal = DecisionJournal(
+        market_regime="Test regime",
+        opportunity_set="AAPL",
+        portfolio_intent="Open a long-dated view",
+        what_changed="First cycle",
+        hypotheses=(
+            FundHypothesis(
+                instrument_id="AAPL",
+                stance=HypothesisStance.LONG,
+                statement="AAPL may rise",
+                mechanism="Earnings growth can raise value",
+                catalysts=("earnings",),
+                falsifiers=("guidance cut",),
+                expected_horizon_hours=MAX_SCHEDULED_HYPOTHESIS_HORIZON_HOURS + 1,
+                confidence=Decimal("0.6"),
+                target_price=Decimal("120"),
+                invalidation_price=Decimal("90"),
+                evidence_ids=("e1",),
+            ),
+        ),
+    )
+    decision = _decision(
+        "long-horizon",
+        orders=(_buy("AAPL", "1", AssetClass.STOCK),),
+        evidence=(evidence,),
+    ).model_copy(update={"journal": journal})
+    with _ledger(tmp_path) as ledger:
+        ledger.initialize(FUND_ID, _mandate())
+        with pytest.raises(PaperFundValidationError, match="short-term horizon"):
+            ledger.execute_cycle(
+                decision,
+                [_quote("AAPL", "100", AssetClass.STOCK)],
+                require_brain_journal=True,
+            )
+
+
 def test_fund_brain_surfaces_losing_exit_as_future_feedback(tmp_path: Path) -> None:
     evidence = _ev("e1", instruments=("AAPL",))
     with _ledger(tmp_path) as ledger:
@@ -1447,6 +1566,9 @@ def test_fund_brain_surfaces_losing_exit_as_future_feedback(tmp_path: Path) -> N
     assert aapl.realized_pnl == Decimal("-10")
     assert brain.recent_cycles[0].next_cycle_outcome == "negative"
     assert any("AAPL" in prompt for prompt in brain.adaptive_prompts)
+    assert brain.activity.idle_cash is True
+    assert brain.activity.style == "short_term_active"
+    assert any("100% cash" in prompt for prompt in brain.adaptive_prompts)
 
 
 # ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from edgecraft.cli import main
+from edgecraft.schedule import scheduled_cycle_key
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "examples" / "fund.mandate.json"
@@ -43,6 +44,9 @@ def test_fund_cli_initializes_runs_reports_and_verifies(tmp_path, capsys) -> Non
     assert context["growth_objective"]["target_multiple"] == "100"
     assert "decision_schema" in context["input_contract"]
     assert context["brain"]["schema_version"] == "edgecraft.fund-brain.v1"
+    assert context["brain"]["activity"]["style"] == "short_term_active"
+    assert context["schedule"]["max_hypothesis_horizon_hours"] == 72
+    assert any("idle-cash hold is rejected" in rule for rule in context["input_contract"]["rules"])
     assert cycle["paper_only"] is True
     assert cycle["result"]["state"]["cycle_count"] == 1
     assert cycle["result"]["audit"]["risk"]["approved"] is True
@@ -103,3 +107,14 @@ def test_fund_cli_rejects_noncurrent_scheduled_input(tmp_path, capsys) -> None:
     assert exc.value.code == 2
     error = json.loads(capsys.readouterr().err)
     assert "is not today's UTC date" in error["detail"]
+
+
+def test_fund_cycle_key_prints_current_session(capsys) -> None:
+    payload = _run(["fund-cycle-key"], capsys)
+    expected = scheduled_cycle_key()
+    assert payload["ok"] is True
+    assert payload["cycle_key"] == expected
+    assert payload["input_path"] == f"state/fund-inputs/{expected}.json"
+
+    main(["fund-cycle-key", "--plain"])
+    assert capsys.readouterr().out.strip() == expected

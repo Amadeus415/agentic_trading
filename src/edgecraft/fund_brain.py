@@ -26,10 +26,24 @@ class CycleMemory(BaseModel):
     thesis: str
     what_changed: str | None = None
     ending_nav: Decimal
+    ending_position_count: int = Field(ge=0)
     fill_count: int = Field(ge=0)
     fee_total: Decimal = Field(ge=0)
     next_cycle_nav_change: Decimal | None = None
     next_cycle_outcome: str
+
+
+class FundActivityMemory(BaseModel):
+    """Compact activity snapshot used to counteract idle-cash drift."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    style: str = "short_term_active"
+    cash_nav_weight: Decimal
+    open_position_count: int = Field(ge=0)
+    consecutive_all_cash_holds: int = Field(ge=0)
+    recent_trade_cycles: int = Field(ge=0)
+    idle_cash: bool
 
 
 class InstrumentMemory(BaseModel):
@@ -68,6 +82,7 @@ class FundBrainSnapshot(BaseModel):
     recent_cycles: tuple[CycleMemory, ...] = ()
     instruments: tuple[InstrumentMemory, ...] = ()
     recent_rejections: tuple[RejectionMemory, ...] = ()
+    activity: FundActivityMemory
     adaptive_prompts: tuple[str, ...] = ()
 
 
@@ -116,6 +131,7 @@ def build_fund_brain(
             last_activity[instrument_id] = index
 
         ending_nav = Decimal(str(cycle["state"]["nav"]))
+        ending_positions = cycle["state"].get("positions") or []
         next_change: Decimal | None = None
         outcome = "pending"
         if index + 1 < len(cycles):
@@ -135,6 +151,7 @@ def build_fund_brain(
                 thesis=str(decision["thesis"]),
                 what_changed=journal.get("what_changed"),
                 ending_nav=ending_nav,
+                ending_position_count=len(ending_positions),
                 fill_count=len(fills),
                 fee_total=Decimal(str(audit.get("fee_total", "0"))),
                 next_cycle_nav_change=next_change,
@@ -167,6 +184,8 @@ def build_fund_brain(
         if event.event_type == "cycle_rejected"
     ][-rejection_limit:]
 
+    recent = tuple(cycle_memories[-cycle_limit:])
+    activity = _activity_memory(state, recent)
     return FundBrainSnapshot(
         generated_at=(generated_at or datetime.now(UTC)).astimezone(UTC),
         fund_id=fund_id,
@@ -174,10 +193,11 @@ def build_fund_brain(
             "Next-cycle NAV direction includes intervening marks, costs, and portfolio changes; "
             "it is feedback, not causal attribution or proof of skill."
         ),
-        recent_cycles=tuple(cycle_memories[-cycle_limit:]),
+        recent_cycles=recent,
         instruments=instruments,
         recent_rejections=tuple(rejections),
-        adaptive_prompts=_adaptive_prompts(instruments, tuple(rejections)),
+        activity=activity,
+        adaptive_prompts=_adaptive_prompts(instruments, tuple(rejections), activity),
     )
 
 
@@ -197,14 +217,53 @@ def _empty_instrument(instrument_id: str) -> dict[str, Any]:
     }
 
 
+def _activity_memory(
+    state: Any,
+    recent_cycles: tuple[CycleMemory, ...],
+) -> FundActivityMemory:
+    nav = Decimal(str(state.nav))
+    cash_weight = Decimal("1") if nav == ZERO else (Decimal(str(state.cash)) / nav)
+    consecutive = 0
+    for item in reversed(recent_cycles):
+        if item.action == "hold" and item.ending_position_count == 0:
+            consecutive += 1
+            continue
+        break
+    return FundActivityMemory(
+        cash_nav_weight=cash_weight,
+        open_position_count=len(state.positions),
+        consecutive_all_cash_holds=consecutive,
+        recent_trade_cycles=sum(1 for item in recent_cycles if item.action == "trade"),
+        idle_cash=len(state.positions) == 0,
+    )
+
+
 def _adaptive_prompts(
     instruments: tuple[InstrumentMemory, ...],
     rejections: tuple[RejectionMemory, ...],
+    activity: FundActivityMemory,
 ) -> tuple[str, ...]:
     prompts = [
+        "This is a short-term active book: express researched 4-72h views with orders.",
+        "A sourced catalyst, target, invalidation, and size is a valid thesis; "
+        "lack of a calibrated probability model is not a hold reason.",
+        "U.S. cash-equity close is not a reason to stay in cash; native crypto "
+        "and prediction markets remain in scope.",
         "Re-test every open position against its current falsifiers before adding risk.",
         "Compare new opportunities with the opportunity cost of every existing position.",
     ]
+    if activity.idle_cash:
+        prompts.insert(
+            0,
+            "The book is 100% cash. A scheduled hold will be rejected. Submit "
+            "researched short-term buy/sell/short/cover orders with fresh quotes.",
+        )
+        if activity.consecutive_all_cash_holds:
+            prompts.insert(
+                1,
+                f"The last {activity.consecutive_all_cash_holds} completed cycle(s) "
+                "were all-cash holds. Idle cash is a process miss, not prudence.",
+            )
     losing = [item.instrument_id for item in instruments if item.losing_exit_count > 0]
     if losing:
         prompts.append(

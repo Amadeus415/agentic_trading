@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
-# Single fake-money scheduled apply path. Codex researches and writes today's
-# structured input; this script only validates and applies deterministic paper accounting.
+# Single fake-money scheduled apply path. Codex researches and writes this
+# session's structured input; this script only validates and applies
+# deterministic paper accounting.
+#
+# Session slots (UTC) must stay in sync with src/edgecraft/schedule.py:
+#   13-16 session-eu | 16-20 session-us-open | 20-23 session-us-close | else offhours
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -8,8 +12,19 @@ cd "$ROOT"
 
 CONFIG="${FUND_CONFIG:-examples/fund.mandate.aggressive.json}"
 LEDGER="${FUND_LEDGER:-state/edgecraft-aggressive.db}"
-TODAY_UTC="$(date -u +%F)"
-INPUT="${FUND_INPUT:-state/fund-inputs/${TODAY_UTC}.json}"
+HOUR=$((10#$(date -u +%H)))
+DATE_UTC="$(date -u +%F)"
+if (( HOUR >= 13 && HOUR < 16 )); then
+  SLOT="session-eu"
+elif (( HOUR >= 16 && HOUR < 20 )); then
+  SLOT="session-us-open"
+elif (( HOUR >= 20 && HOUR < 23 )); then
+  SLOT="session-us-close"
+else
+  SLOT="session-offhours"
+fi
+CYCLE_KEY="${DATE_UTC}-${SLOT}"
+INPUT="${FUND_INPUT:-state/fund-inputs/${CYCLE_KEY}.json}"
 
 if [[ ! -f "$INPUT" ]]; then
   echo "{\"ok\":false,\"error\":\"missing_fund_input\",\"detail\":\"$INPUT\"}" >&2
@@ -32,6 +47,6 @@ fi
 "${RUN[@]}" fund-init --config "$CONFIG" --ledger "$LEDGER"
 "${RUN[@]}" fund-verify --config "$CONFIG" --ledger "$LEDGER"
 "${RUN[@]}" fund-run --config "$CONFIG" --input "$INPUT" --ledger "$LEDGER" \
-  --require-as-of-today --max-decision-age-seconds 1800 --require-cycle-key "$TODAY_UTC" \
+  --require-as-of-today --max-decision-age-seconds 1800 --require-cycle-key "$CYCLE_KEY" \
   --require-brain-journal
 "${RUN[@]}" fund-verify --config "$CONFIG" --ledger "$LEDGER"

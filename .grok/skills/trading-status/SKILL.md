@@ -18,7 +18,7 @@ All money is simulated. Never imply live brokerage activity.
 |---|---|
 | Mandate | `examples/fund.mandate.aggressive.json` |
 | Ledger | `state/edgecraft-aggressive.db` |
-| Daily inputs | `state/fund-inputs/YYYY-MM-DD.json` |
+| Session inputs | `state/fund-inputs/YYYY-MM-DD-session-*.json` |
 | Docs | `docs/FUND_ACCOUNTING.md` |
 
 Prefer `make` targets. Equivalent CLI uses the same config/ledger.
@@ -54,7 +54,7 @@ point at `make fund-init` — do not invent numbers.
     --ledger state/edgecraft-aggressive.db \
     --cycle-key <last_cycle_key> --audit
   ```
-- **Today's researched input on disk:** if `state/fund-inputs/$(date -u +%Y-%m-%d).json` exists, note action/thesis; if missing, say today's packet is not written yet.
+- **This session's researched input on disk:** run `uv run edgecraft fund-cycle-key` and check that `input_path`; if missing, say this session's packet is not written yet. Older same-day session files may still exist.
 - **Do not** start the dashboard or mutate the ledger for this skill.
 
 ## 2. Present the overview

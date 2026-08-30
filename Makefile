@@ -1,4 +1,4 @@
-.PHONY: install test lint security demo fund-init fund-context fund-show fund-verify scheduled-cycle validate validate-lab dashboard
+.PHONY: install test lint security demo fund-init fund-context fund-cycle-key fund-show fund-verify scheduled-cycle validate validate-lab dashboard
 
 FUND_CONFIG ?= examples/fund.mandate.aggressive.json
 FUND_LEDGER ?= state/edgecraft-aggressive.db
@@ -26,6 +26,9 @@ fund-init:
 fund-context:
 	uv run edgecraft fund-context --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
 
+fund-cycle-key:
+	uv run edgecraft fund-cycle-key
+
 fund-show:
 	uv run edgecraft fund-show --config $(FUND_CONFIG) --ledger $(FUND_LEDGER) --history
 
@@ -36,7 +39,7 @@ fund-verify:
 dashboard:
 	cd dashboard && npm run dev
 
-# Codex writes today's researched input; this applies fake-money accounting only.
+# Codex writes this UTC session's researched input; this applies fake-money accounting only.
 scheduled-cycle:
 	./scripts/run_scheduled_cycle.sh
 

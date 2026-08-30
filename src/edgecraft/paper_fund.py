@@ -41,6 +41,7 @@ ONE = Decimal("1")
 GENESIS_HASH = "0" * 64
 INSTRUMENT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/\-]{0,127}$")
 BUSY_TIMEOUT_MS = 30_000
+MAX_SCHEDULED_HYPOTHESIS_HORIZON_HOURS = 72
 
 
 class PaperFundError(Exception):
@@ -608,7 +609,12 @@ def _initial_state(fund_id: str, cash: Decimal, as_of: datetime) -> FundState:
 
 
 def validate_decision_journal(decision: FundDecision, prior_state: FundState) -> None:
-    """Require the scheduled agent to refresh every live or ordered hypothesis."""
+    """Require the scheduled agent to refresh every live or ordered hypothesis.
+
+    Historical cycles remain replayable through accounting without this check.
+    New scheduled applies also refuse a 100% cash hold and long-dated theses so
+    the active book cannot rest in idle cash.
+    """
     if decision.journal is None:
         raise PaperFundValidationError("scheduled decisions require an auditable journal")
     journal_instruments = {hypothesis.instrument_id for hypothesis in decision.journal.hypotheses}
@@ -619,6 +625,22 @@ def validate_decision_journal(decision: FundDecision, prior_state: FundState) ->
     if missing:
         raise PaperFundValidationError(
             f"journal is missing hypotheses for open or ordered instruments: {missing}"
+        )
+    long_horizon = [
+        f"{item.instrument_id}:{item.expected_horizon_hours}h"
+        for item in decision.journal.hypotheses
+        if item.expected_horizon_hours > MAX_SCHEDULED_HYPOTHESIS_HORIZON_HOURS
+    ]
+    if long_horizon:
+        raise PaperFundValidationError(
+            "scheduled hypotheses must use a short-term horizon of "
+            f"{MAX_SCHEDULED_HYPOTHESIS_HORIZON_HOURS}h or less: {long_horizon}"
+        )
+    if not prior_state.positions and decision.action is DecisionAction.HOLD:
+        raise PaperFundValidationError(
+            "scheduled idle-cash hold is not allowed: the book is 100% cash; "
+            "submit researched short-term orders. U.S. cash-equity close is not "
+            "a reason to stay flat while crypto and prediction markets remain in scope"
         )
 
 
