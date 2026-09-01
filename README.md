@@ -2,48 +2,56 @@
 
 # EDGECRAFT
 
-### An autonomous paper fund pursuing $1,000 → $100,000
+### An autonomous paper fund that starts with $1,000 of fake money
 
-Edgecraft is a fully autonomous paper-trading fund with one job: turn $1,000 of fake money into $100,000 without ever touching a real brokerage account. Several times per weekday an AI agent (Codex) scans public markets, manages a short-term multi-position stock/crypto/prediction book, and records 4–72 hour falsifiable hypotheses before proposing a buy, sell, short, cover, or hold. Deterministic Python decides whether that proposal is allowed. Accepted trades land in an append-only SQLite ledger with the full evidence and decision journal; rejected ones are recorded too, and nothing can be edited or deleted afterward.
-
-The design principle is simple: **models may propose; typed policy and risk engines authorize.** The agent cannot bypass accounting checks, inject cash, reset losses, or place a real order — the codebase has no live execution path at all.
+Edgecraft is a trading experiment, not a brokerage product. Several times a weekday an AI agent researches public markets, writes a short-term thesis, and proposes a portfolio change. Deterministic Python either accepts that proposal or rejects it. Accepted trades are **simulated fills** in an append-only ledger. There is no live mode, no broker adapter, and no path that can touch real money.
 
 [![CI](https://github.com/Amadeus415/agentic_trading/actions/workflows/ci.yml/badge.svg)](https://github.com/Amadeus415/agentic_trading/actions/workflows/ci.yml)
 [![Python 3.11–3.14](https://img.shields.io/badge/python-3.11%E2%80%933.14-0b1220?logo=python&logoColor=white)](pyproject.toml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-0b1220.svg)](LICENSE)
 [![Money: fake](https://img.shields.io/badge/money-100%25%20fake-22c55e)](docs/CODEX_SCHEDULED_TASK.md)
 
-**[Starting prompt](docs/FUND_STARTING_PROMPT.md)** · **[Scheduled Codex task](docs/CODEX_SCHEDULED_TASK.md)** · **[Accounting contract](docs/FUND_ACCOUNTING.md)** · **[Research lab](#research-lab)**
+**[Starting prompt](docs/FUND_STARTING_PROMPT.md)** · **[Scheduled task](docs/CODEX_SCHEDULED_TASK.md)** · **[Accounting contract](docs/FUND_ACCOUNTING.md)** · **[Dashboard](#dashboard)**
 
 </div>
 
-![Edgecraft paper fund progress](assets/fund-progress.svg)
+![Edgecraft paper fund value since the $1,000 start](assets/fund-progress.svg)
 
-The chart above is regenerated from the verified append-only ledger after every scheduled
-paper cycle. It is a public project snapshot, not a brokerage statement or investment claim.
+The chart is regenerated from the verified ledger after every scheduled cycle. The solid line is **fund value** (NAV: cash plus marked positions). The dashed line is the original **$1,000**. It is a public snapshot of this experiment, not a brokerage statement or a claim of skill.
 
 > [!IMPORTANT]
-> Edgecraft is an engineering experiment, not investment advice. The active fund is incapable of placing a real order: it has no live mode, broker adapter, credentials, or execution permit.
+> Edgecraft cannot place a real order. Models may propose; typed policy and accounting code authorize. The agent cannot inject cash, reset losses, edit history, or bypass the risk envelope.
 
-## The whole system
+## How one cycle works
 
 ```mermaid
 flowchart LR
-    C["Codex scans public markets + reads fund memory"] --> D["Hypotheses + sourced portfolio decision"]
-    D --> G{"Typed accounting and risk gates"}
-    G -->|Reject| A["Append-only audit"]
-    G -->|Pass| P["Simulated fill"]
-    P --> B["Persistent compounding paper book"]
-    B --> A
+    A["Agent researches public markets"] --> B["Writes a sourced decision"]
+    B --> C{"Accounting and risk gates"}
+    C -->|Reject| D["Append-only audit"]
+    C -->|Pass| E["Simulated fill"]
+    E --> F["Persistent $1,000 paper book"]
+    F --> D
 ```
 
-In one sentence: Codex proposes a short-term sourced portfolio decision; `paper_fund.py` applies it to a persistent $1,000 fake-money ledger.
+1. **Research.** Codex reads the ledger's memory, searches public sources, and writes one packet for the current UTC session: trade or hold, with quotes, evidence, and a falsifiable 4–72 hour thesis.
+2. **Authorize.** `paper_fund.py` checks cash, inventory, concentration, exposure, fees, freshness, and idempotency. A rejected packet changes nothing.
+3. **Record.** Accepted trades become simulated fills. Every decision, quote, fill, and rejection is hash-chained in SQLite and cannot be edited or deleted.
 
-The bankroll is deposited once. There is no daily contribution and no reset. The explicit research objective is to compound $1,000 into $100,000 over ten years—an aggressive 100x target requiring about 58.5% annualized returns, not a promise. The fund takes long and short positions in stocks, native crypto, and binary prediction contracts. It may name any syntactically valid instrument; there is no symbol whitelist. Every trade still needs fresh sourced prices, cited evidence, valid inventory, and room inside the checked-in risk envelope. Scheduled cycles cannot rest in 100% cash.
+In one sentence: the agent proposes a sourced portfolio decision; typed code applies it to a persistent fake-money book.
 
-The active book is `edgecraft-aggressive` (`examples/fund.mandate.aggressive.json`): a high-tempo, short-term trader that searches each UTC session, manages several independent 4–72 hour positions when strong ideas exist, can run full-size shorts, and cuts broken theses fast. Compounded NAV is the objective; idle cash is a miss. The original conservative book (`edgecraft-1k`) stays frozen and verifiable at `state/edgecraft-fund.db`.
+## The experiment
 
-Current envelope:
+The bankroll is deposited **once**. There is no daily top-up and no reset after losses. The research objective is to compound $1,000 into $100,000 over ten years — about 58.5% annualized as a target, not a promise.
+
+The live book is `edgecraft-aggressive` (`examples/fund.mandate.aggressive.json`). It is a high-tempo 4–72 hour trader:
+
+- long or short stocks, native crypto, and binary prediction contracts
+- any syntactically valid instrument; there is no symbol whitelist
+- several independent high-conviction positions when they exist, not a pile of weak ones
+- scheduled cycles may not sit in 100% cash
+
+Every order still needs a fresh sourced price, cited evidence, valid inventory, and room inside the envelope below. The original conservative book stays frozen at `state/edgecraft-fund.db`.
 
 | Control | Limit |
 |:--|--:|
@@ -57,11 +65,11 @@ Current envelope:
 | Drawdown gate | 50% |
 | Simulated fee / slippage | 5 / 10 bps |
 
-The dollar values are bootstrap floors; limits scale only after the fund earns a higher NAV, never through deposits. Codex chooses the instruments, direction, sizing, and whether to trade; code prevents broken accounting, stale or unsupported inputs, and risk outside the experiment. The growth target cannot override those controls.
+Dollar values are bootstrap floors. Limits scale only after the fund *earns* a higher NAV, never through deposits.
 
 ## Run it
 
-Requirements: Python 3.11–3.14 and [uv](https://docs.astral.sh/uv/).
+Needs Python 3.11–3.14 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 make install
@@ -70,7 +78,7 @@ make fund-init
 make fund-context
 ```
 
-`fund-context` prints the authoritative cash, positions, P&L, target progress, capital stage, mandate, exact JSON schema, and a compact ledger-derived brain. The brain shows recent theses, later NAV direction, costs, winning/losing exits, current unrealized P&L, rejections, and the latest hypothesis for each instrument. It is feedback, not causal performance attribution.
+`fund-context` is what the agent reads before it decides: cash, positions, P&L, mandate, JSON schema, and a compact ledger-derived **brain** (recent theses, later NAV direction, costs, winning/losing exits, current unrealized P&L). The brain is feedback, not proof that the last trade caused the next NAV move.
 
 To exercise all three asset classes with static example data and a disposable ledger:
 
@@ -88,39 +96,26 @@ uv run edgecraft fund-verify \
   --ledger "$tmp_ledger"
 ```
 
-The example is executable fixture data, not a current market decision.
+That example is fixture data, not a current market decision.
 
-## Start and operate the paper book
+## Operate the scheduled book
 
-The first run uses the [starting prompt](docs/FUND_STARTING_PROMPT.md). It gives Codex the empty $1,000 book and requires a researched opening trade. Later runs use the [scheduled task](docs/CODEX_SCHEDULED_TASK.md) to mark every open position, revisit the thesis, and trade or hold without human approval. A scheduled hold is legal only while positions are open.
-
-Print the current session key, then write the packet there:
+The first run uses the [starting prompt](docs/FUND_STARTING_PROMPT.md): empty $1,000 book, researched opening trade required. Later runs use the [scheduled task](docs/CODEX_SCHEDULED_TASK.md): mark every open position, revisit the thesis, then trade or hold without a human approval step. A scheduled hold is legal only while positions are still open.
 
 ```bash
 uv run edgecraft fund-cycle-key
-```
-
-```text
-state/fund-inputs/YYYY-MM-DD-session-us-open.json
-```
-
-Then the fixed apply path runs:
-
-```bash
+# prints: state/fund-inputs/YYYY-MM-DD-session-us-open.json
 ./scripts/run_scheduled_cycle.sh
 ```
 
-The script refuses a missing or non-current input, verifies the existing hash chain before applying anything, runs the deterministic paper cycle, and verifies the entire accounting history again. It contains no broker command.
-
-Inspect the experiment at any time:
+The script refuses a missing or stale packet, verifies the hash chain, applies one fake-money cycle, and verifies the full history again. It contains no broker command.
 
 ```bash
-make fund-show
-make fund-verify
-uv run edgecraft fund-show --history --events
+make fund-show      # current book; includes --history
+make fund-verify    # hash chain + accounting replay
 ```
 
-CLI defaults are the active aggressive mandate ledger (`state/edgecraft-aggressive.db`). Pass `--config` / `--ledger` only to inspect another book.
+CLI defaults are the aggressive mandate and `state/edgecraft-aggressive.db`. Pass `--config` / `--ledger` only to inspect another book.
 
 | Command | Job |
 |:--|:--|
@@ -128,17 +123,17 @@ CLI defaults are the active aggressive mandate ledger (`state/edgecraft-aggressi
 | `fund-init` | Capitalize the fund exactly once |
 | `fund-context` | Agent packet: state, brain, JSON schema |
 | `fund-run` | Apply one researched decision |
-| `fund-show` | Inspect the book (`make fund-show` includes `--history`) |
+| `fund-show` | Inspect the book |
 | `fund-cycle` | One cycle packet (`--audit` for event gaps) |
-| `fund-verify` | Hash-chain and accounting replay (`make fund-verify`) |
+| `fund-verify` | Hash-chain and accounting replay |
+| `fund-visualize` | Rebuild the README chart from the ledger |
 
 ## Dashboard
 
-Read-only Next.js UI for NAV, positions, journals, hypotheses, the fund brain, and paper fills over `state/edgecraft-aggressive.db`.
+Read-only Next.js UI for fund value, positions, journals, hypotheses, the fund brain, and paper fills over `state/edgecraft-aggressive.db`.
 
 ```bash
 make dashboard
-# or: cd dashboard && npm install && npm run dev
 ```
 
 See [dashboard/README.md](dashboard/README.md).
@@ -152,7 +147,7 @@ See [dashboard/README.md](dashboard/README.md).
 - Prediction contracts settle only from a sourced terminal quote of exactly `0` or `1`.
 - A cycle is atomic. A rejected input changes nothing.
 - Replaying the same cycle and payload is a no-op; changing a used cycle key is rejected.
-- The exact normalized decision, evidence, quotes, fills, state, request digest, and chained events are stored in SQLite. Immutable-table triggers reject update and delete operations.
+- The exact normalized decision, evidence, quotes, fills, state, and chained events are stored in SQLite. Immutable-table triggers reject update and delete.
 
 See [the accounting contract](docs/FUND_ACCOUNTING.md) for formulas, the decision packet, and invariants.
 
@@ -162,6 +157,7 @@ See [the accounting contract](docs/FUND_ACCOUNTING.md) for formulas, the decisio
 src/edgecraft/
 ├── paper_fund.py           # typed models, accounting, risk, SQLite audit ledger
 ├── fund_brain.py           # compact outcomes, position hypotheses, and lessons
+├── fund_visualization.py   # GitHub-safe SVG of verified fund value
 ├── schedule.py             # UTC session slots and cycle keys
 ├── cli.py                  # fund commands plus optional research-lab commands
 ├── growth.py               # deterministic growth objective and capital stages
@@ -171,9 +167,9 @@ examples/fund.mandate.aggressive.json       # active $1,000 aggressive mandate
 examples/fund.mandate.json                  # retired conservative fixture
 examples/fund-cycle.starting.example.json   # executable three-market fixture
 scripts/run_scheduled_cycle.sh              # fixed session paper apply path
-scripts/deny_broker_tools.py                # fail-closed Codex fence against broker tools
+scripts/deny_broker_tools.py                # fail-closed fence against broker tools
 tests/test_paper_fund.py                    # accounting and failure invariants
-docs/                                       # accounting contract and Codex prompts
+docs/                                       # accounting contract and agent prompts
 ```
 
 ## Research lab
@@ -193,12 +189,10 @@ uv run edgecraft walk-forward \
   --test-sessions 126
 ```
 
-Options are intentionally not modeled yet. Adding them requires explicit
-contracts for multipliers, expiry, exercise/assignment, spreads, liquidity, and
-worst-case loss; Edgecraft will not pretend an option is ordinary stock.
+Options are out of scope until the domain has explicit contracts for multipliers, expiry, exercise/assignment, spreads, liquidity, and worst-case loss. Edgecraft will not pretend an option is ordinary stock.
 
 ## Security and privacy
 
-Generated ledgers, inputs, caches, and logs stay out of Git. Never include credentials, private account data, form contents, or unnecessary personal information in evidence packets. Use public URLs and concise provenance. Report vulnerabilities through [SECURITY.md](SECURITY.md).
+Generated ledgers, inputs, caches, and logs stay out of Git. Never include credentials, private account data, or unnecessary personal information in evidence packets. Use public URLs and concise provenance. Report vulnerabilities through [SECURITY.md](SECURITY.md).
 
 Edgecraft is released under the [Apache License 2.0](LICENSE).
