@@ -1,47 +1,66 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
-<title id="title">Edgecraft paper fund progress</title>
-<desc id="desc">Verified paper-fund NAV is $1,044.08, a +4.41% return across 12 cycles.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+<title id="title">Edgecraft paper fund value</title>
+<desc id="desc">Verified paper-fund value is $932.13, -6.79% from a $1,000.00 start across 13 sessions. The dashed line is starting capital.</desc>
 <defs>
-  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#07111f"/><stop offset="1" stop-color="#101d35"/></linearGradient>
-  <linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#60a5fa" stop-opacity=".28"/><stop offset="1" stop-color="#60a5fa" stop-opacity="0"/></linearGradient>
-  <filter id="glow"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0b0f17"/><stop offset="1" stop-color="#111827"/></linearGradient>
+  <linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#6366f1" stop-opacity=".28"/><stop offset="1" stop-color="#6366f1" stop-opacity="0"/></linearGradient>
+  <filter id="glow"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
 </defs>
-<rect width="1200" height="630" rx="24" fill="url(#bg)"/>
-<circle cx="1080" cy="45" r="180" fill="#2563eb" opacity=".08"/><circle cx="1040" cy="620" r="230" fill="#10b981" opacity=".06"/>
+<rect width="1200" height="680" rx="28" fill="url(#bg)"/>
+<circle cx="1120" cy="40" r="170" fill="#4f46e5" opacity=".07"/>
+<circle cx="80" cy="640" r="190" fill="#22d3ee" opacity=".05"/>
 <g font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif">
-  <text x="54" y="59" fill="#f8fafc" font-size="27" font-weight="800" letter-spacing="2">EDGECRAFT</text>
-  <text x="54" y="86" fill="#94a3b8" font-size="14" letter-spacing="1.5">AUTONOMOUS PAPER FUND · VERIFIED LEDGER</text>
-  <rect x="946" y="39" width="200" height="42" rx="21" fill="#102a25" stroke="#34d399" stroke-opacity=".45"/>
-  <circle cx="970" cy="60" r="5" fill="#34d399"/><text x="984" y="66" fill="#a7f3d0" font-size="15" font-weight="700">100% FAKE MONEY</text>
+  <text x="48" y="52" fill="#f8fafc" font-size="22" font-weight="800" letter-spacing="2.4">EDGECRAFT</text>
+  <text x="48" y="76" fill="#8b97ab" font-size="14">Autonomous paper fund · started with $1,000.00</text>
+  <rect x="936" y="34" width="216" height="40" rx="20" fill="#102a25" stroke="#34d399" stroke-opacity=".45"/>
+  <circle cx="960" cy="54" r="5" fill="#34d399"/>
+  <text x="974" y="59" fill="#a7f3d0" font-size="14" font-weight="700">100% FAKE MONEY</text>
 
-  <rect x="54" y="119" width="252" height="105" rx="15" fill="#111f34" stroke="#26364e"/>
-  <text x="74" y="150" fill="#7f91aa" font-size="12" font-weight="700" letter-spacing="1">NET ASSET VALUE</text>
-  <text x="74" y="194" fill="#34d399" font-size="30" font-weight="800">$1,044.08</text>
-  <rect x="322" y="119" width="252" height="105" rx="15" fill="#111f34" stroke="#26364e"/>
-  <text x="342" y="150" fill="#7f91aa" font-size="12" font-weight="700" letter-spacing="1">ALL-TIME RETURN</text>
-  <text x="342" y="194" fill="#34d399" font-size="30" font-weight="800">+4.41%</text>
-  <rect x="590" y="119" width="252" height="105" rx="15" fill="#111f34" stroke="#26364e"/>
-  <text x="610" y="150" fill="#7f91aa" font-size="12" font-weight="700" letter-spacing="1">GROSS EXPOSURE</text>
-  <text x="610" y="194" fill="#60a5fa" font-size="30" font-weight="800">$1,217.52</text>
-  <rect x="858" y="119" width="288" height="105" rx="15" fill="#111f34" stroke="#26364e"/>
-  <text x="878" y="150" fill="#7f91aa" font-size="12" font-weight="700" letter-spacing="1">ACTIVITY</text>
-  <text x="878" y="194" fill="#c4b5fd" font-size="30" font-weight="800">12 cycles · 13 fills</text>
+  <text x="48" y="128" fill="#8b97ab" font-size="12" font-weight="700" letter-spacing="1.6">FUND VALUE</text>
+  <text x="48" y="176" fill="#f8fafc" font-size="52" font-weight="800" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">$932.13</text>
+  <text x="48" y="206" fill="#fb7185" font-size="18" font-weight="700" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">-$67.87  (-6.79%) vs start</text>
 
-  <text x="54" y="276" fill="#f8fafc" font-size="17" font-weight="700">NAV AND DEPLOYED CAPITAL</text>
-  <line x1="70" y1="502" x2="1130" y2="502" stroke="#334155"/>
-  <line x1="70" y1="400" x2="1130" y2="400" stroke="#334155" stroke-dasharray="4 8" opacity=".7"/>
-  <line x1="70" y1="297" x2="1130" y2="297" stroke="#334155" stroke-dasharray="4 8" opacity=".7"/>
-  <polygon points="70,502 70.0,479.6 158.3,479.6 246.7,479.6 335.0,479.6 423.3,479.6 511.7,376.1 600.0,406.9 688.3,407.6 776.7,364.2 865.0,416.0 953.3,393.9 1041.7,319.4 1130.0,335.5 1130,502" fill="url(#area)"/>
-  <polyline points="70.0,479.6 158.3,479.6 246.7,479.6 335.0,479.6 423.3,479.6 511.7,376.1 600.0,406.9 688.3,407.6 776.7,364.2 865.0,416.0 953.3,393.9 1041.7,319.4 1130.0,335.5" fill="none" stroke="#60a5fa" stroke-width="3" opacity=".75"/>
-  <polyline points="70.0,361.3 158.3,361.3 246.7,361.3 335.0,361.3 423.3,361.3 511.7,361.4 600.0,362.1 688.3,362.8 776.7,352.0 865.0,352.5 953.3,352.7 1041.7,338.9 1130.0,356.1" fill="none" stroke="#34d399" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
-  <circle cx="1130" cy="356.1" r="6" fill="#34d399"/>
-  <text x="70" y="525" fill="#64748b" font-size="12">Aug 22</text><text x="1093" y="525" fill="#64748b" font-size="12">Aug 31</text>
-  <circle cx="886" cy="272" r="4" fill="#34d399"/><text x="898" y="277" fill="#94a3b8" font-size="12">NAV</text>
-  <circle cx="958" cy="272" r="4" fill="#60a5fa"/><text x="970" y="277" fill="#94a3b8" font-size="12">GROSS EXPOSURE</text>
+  <text x="520" y="128" fill="#8b97ab" font-size="11" font-weight="700" letter-spacing="1.4">PEAK</text><text x="520" y="160" fill="#f8fafc" font-size="18" font-weight="700" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">$1,189.12</text>
+  <text x="748" y="128" fill="#8b97ab" font-size="11" font-weight="700" letter-spacing="1.4">CASH</text><text x="748" y="160" fill="#f8fafc" font-size="18" font-weight="700" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">$446.82</text>
+  <text x="976" y="128" fill="#8b97ab" font-size="11" font-weight="700" letter-spacing="1.4">SESSIONS</text><text x="976" y="160" fill="#f8fafc" font-size="18" font-weight="700" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">13</text>
 
-  <text x="54" y="564" fill="#94a3b8" font-size="13">100× OBJECTIVE</text>
-  <text x="1146" y="564" text-anchor="end" fill="#cbd5e1" font-size="13">$1,044.08 / $100,000.00</text>
-  <rect x="54" y="577" width="1030" height="12" rx="6" fill="#1e293b"/><rect x="54" y="577" width="4" height="12" rx="6" fill="#34d399"/>
-  <text x="1146" y="590" text-anchor="end" fill="#64748b" font-size="12">0.045%</text>
-  <text x="54" y="614" fill="#64748b" font-size="12">Updated 2026-08-31 20:17 UTC · 6 trade cycles · append-only accounting · edgecraft-aggressive</text>
+  <rect x="48" y="228" width="1104" height="368" rx="20" fill="#121826" stroke="#1e293b"/>
+  <text x="72" y="258" fill="#f8fafc" font-size="15" font-weight="700">How the $1,000.00 has moved</text>
+  <circle cx="780" cy="253" r="4" fill="#818cf8"/>
+  <text x="792" y="258" fill="#c5cddb" font-size="12">Fund value</text>
+  <line x1="900" y1="253" x2="928" y2="253" stroke="#94a3b8" stroke-width="2" stroke-dasharray="5 5"/>
+  <text x="936" y="258" fill="#c5cddb" font-size="12">Started at $1,000.00</text>
+
+  <line x1="108" y1="526" x2="1124" y2="526" stroke="#243044"/>
+  <line x1="108" y1="519.4" x2="1124" y2="519.4" stroke="#243044" stroke-dasharray="3 7" opacity=".85"/>
+  <text x="98" y="523.4" text-anchor="end" fill="#8b97ab" font-size="11" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">$900</text>
+  <line x1="108" y1="446.3" x2="1124" y2="446.3" stroke="#243044" stroke-dasharray="3 7" opacity=".85"/>
+  <text x="98" y="450.3" text-anchor="end" fill="#8b97ab" font-size="11" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">$1,000</text>
+  <line x1="108" y1="373.2" x2="1124" y2="373.2" stroke="#243044" stroke-dasharray="3 7" opacity=".85"/>
+  <text x="98" y="377.2" text-anchor="end" fill="#8b97ab" font-size="11" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">$1,100</text>
+  <line x1="108" y1="300.1" x2="1124" y2="300.1" stroke="#243044" stroke-dasharray="3 7" opacity=".85"/>
+  <text x="98" y="304.1" text-anchor="end" fill="#8b97ab" font-size="11" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">$1,200</text>
+  <line x1="108" y1="446.3" x2="1124" y2="446.3" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5 6" opacity=".9"/>
+  <polygon points="108.0,526.0 108.0,446.3 219.1,446.3 307.7,446.3 408.2,446.3 521.3,447.3 609.1,451.5 621.8,455.7 709.7,389.2 820.5,392.2 962.5,393.6 1011.3,308.1 1023.4,414.1 1124.0,495.9 1124.0,526.0" fill="url(#area)"/>
+  <polyline points="108.0,446.3 219.1,446.3 307.7,446.3 408.2,446.3 521.3,447.3 609.1,451.5 621.8,455.7 709.7,389.2 820.5,392.2 962.5,393.6 1011.3,308.1 1023.4,414.1 1124.0,495.9" fill="none" stroke="#818cf8" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+  <circle cx="108.0" cy="446.3" r="2.4" fill="#1e293b" stroke="#818cf8" stroke-width="1.4"/>
+  <circle cx="219.1" cy="446.3" r="2.4" fill="#1e293b" stroke="#818cf8" stroke-width="1.4"/>
+  <circle cx="307.7" cy="446.3" r="2.4" fill="#1e293b" stroke="#818cf8" stroke-width="1.4"/>
+  <circle cx="408.2" cy="446.3" r="2.4" fill="#1e293b" stroke="#818cf8" stroke-width="1.4"/>
+  <circle cx="521.3" cy="447.3" r="3.4" fill="#818cf8" stroke="#818cf8" stroke-width="1.4"/>
+  <circle cx="609.1" cy="451.5" r="3.4" fill="#818cf8" stroke="#818cf8" stroke-width="1.4"/>
+  <circle cx="621.8" cy="455.7" r="2.4" fill="#1e293b" stroke="#818cf8" stroke-width="1.4"/>
+  <circle cx="709.7" cy="389.2" r="3.4" fill="#818cf8" stroke="#818cf8" stroke-width="1.4"/>
+  <circle cx="820.5" cy="392.2" r="3.4" fill="#818cf8" stroke="#818cf8" stroke-width="1.4"/>
+  <circle cx="962.5" cy="393.6" r="3.4" fill="#818cf8" stroke="#818cf8" stroke-width="1.4"/>
+  <circle cx="1011.3" cy="308.1" r="3.4" fill="#818cf8" stroke="#818cf8" stroke-width="1.4"/>
+  <circle cx="1023.4" cy="414.1" r="2.4" fill="#1e293b" stroke="#818cf8" stroke-width="1.4"/>
+  <circle cx="1124.0" cy="495.9" r="3.4" fill="#818cf8" stroke="#818cf8" stroke-width="1.4"/>
+  <circle cx="1011.3" cy="308.1" r="4.5" fill="#f8fafc"/><text x="1001.3" y="292.1" text-anchor="end" fill="#c5cddb" font-size="11" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">peak $1,189.12</text>
+  <circle cx="1124.0" cy="495.9" r="6" fill="#818cf8" stroke="#0b0f17" stroke-width="2"/>
+  <text x="1112.0" y="515.9" text-anchor="end" fill="#c5cddb" font-size="12" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">$932.13</text>
+  <text x="108.0" y="548" text-anchor="start" fill="#8b97ab" font-size="12">Aug 22</text><text x="521.3" y="548" text-anchor="middle" fill="#8b97ab" font-size="12">Aug 26</text><text x="820.5" y="548" text-anchor="middle" fill="#8b97ab" font-size="12">Aug 29</text><text x="1124.0" y="548" text-anchor="end" fill="#8b97ab" font-size="12">Sep 01</text>
+
+  <text x="48" y="630" fill="#8b97ab" font-size="13">Goal: compound toward $100,000.00 over ten years · not a return promise</text>
+  <text x="48" y="654" fill="#64748b" font-size="12">Updated 2026-09-01 20:19 UTC · 3 positions · 7 trades · 16 fills · edgecraft-aggressive</text>
 </g></svg>

@@ -1,12 +1,30 @@
 from __future__ import annotations
 
 import html
+import math
 from datetime import datetime
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 from pathlib import Path
 from typing import Any
 
 from edgecraft.paper_fund import FundMandate, FundState, PaperFundLedger
+
+# GitHub-safe palette. The line stays indigo so a later drawdown does not
+# repaint the whole history as a loss.
+_BG = "#0b0f17"
+_PANEL = "#121826"
+_PANEL_STROKE = "#1e293b"
+_GRID = "#243044"
+_MUTED = "#8b97ab"
+_LABEL = "#c5cddb"
+_INK = "#f8fafc"
+_FUND = "#818cf8"
+_FUND_SOFT = "#6366f1"
+_UP = "#34d399"
+_DOWN = "#fb7185"
+_START = "#94a3b8"
+_MONO = "ui-monospace,SFMono-Regular,Menlo,monospace"
+_SANS = "ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif"
 
 
 def render_fund_progress(
@@ -48,100 +66,260 @@ def _svg(
 ) -> str:
     initial = mandate.initial_cash
     target = mandate.growth_objective.target_nav
-    navs = [initial, *(Decimal(row["nav"]) for row in history)]
-    gross = [Decimal("0"), *(Decimal(row["gross_exposure"]) for row in history)]
-    dates = [state.as_of, *(_parse_time(row["as_of"]) for row in history)]
-    start_time = min(dates)
-    end_time = max(dates)
+    series = _series(initial, state, history)
+    navs = [point["nav"] for point in series]
+    times = [point["time"] for point in series]
     pnl = state.nav - initial
     return_pct = (state.nav / initial - 1) * 100
-    progress = max(Decimal("0"), min(Decimal("1"), (state.nav - initial) / (target - initial)))
     fills = sum(int(row["fill_count"]) for row in history)
     trades = sum(row["action"] == "trade" for row in history)
-
-    chart_x, chart_y, chart_w, chart_h = 70, 297, 1060, 205
-    all_values = navs + gross
-    low = min(all_values)
-    high = max(all_values)
-    padding = max((high - low) * Decimal("0.14"), Decimal("10"))
-    low -= padding
-    high += padding
-    nav_points = _points(navs, chart_x, chart_y, chart_w, chart_h, low, high)
-    gross_points = _points(gross, chart_x, chart_y, chart_w, chart_h, low, high)
-    area_points = (
-        f"{chart_x},{chart_y + chart_h} {gross_points} {chart_x + chart_w},{chart_y + chart_h}"
-    )
     positive = pnl >= 0
-    accent = "#34d399" if positive else "#fb7185"
-    sign = "+" if positive else ""
+    pnl_color = _UP if positive else _DOWN
+    delta_sign = "+" if positive else "-"
+    open_count = sum(1 for position in state.positions if position.quantity != 0)
+    peak = max(navs)
     updated = state.as_of.strftime("%Y-%m-%d %H:%M UTC")
-    start_label = start_time.strftime("%b %d")
-    end_label = end_time.strftime("%b %d")
-    progress_width = int(1030 * float(progress))
+    book_label = (
+        "All cash"
+        if open_count == 0
+        else (f"{open_count} position" if open_count == 1 else f"{open_count} positions")
+    )
 
-    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
-<title id="title">Edgecraft paper fund progress</title>
-<desc id="desc">Verified paper-fund NAV is {_money(state.nav)}, a {sign}{return_pct:.2f}% return across {len(history)} cycles.</desc>
+    chart_x, chart_y, chart_w, chart_h = 108, 278, 1016, 248
+    low, high = _bounds(navs, initial)
+    ticks = _nice_ticks(low, high)
+    xs = _xs(times, chart_x, chart_w)
+    ys = [_y(value, chart_y, chart_h, low, high) for value in navs]
+    start_y = _y(initial, chart_y, chart_h, low, high)
+    nav_points = " ".join(f"{x:.1f},{y:.1f}" for x, y in zip(xs, ys, strict=True))
+    area_points = (
+        f"{xs[0]:.1f},{chart_y + chart_h:.1f} {nav_points} {xs[-1]:.1f},{chart_y + chart_h:.1f}"
+    )
+    grid = _grid(chart_x, chart_y, chart_w, chart_h, ticks, low, high)
+    date_labels = _date_labels(times, xs)
+    dots = _dots(series, xs, ys)
+    peak_mark = _peak_callout(xs, ys, navs, state.nav)
+    last_x, last_y = xs[-1], ys[-1]
+
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+<title id="title">Edgecraft paper fund value</title>
+<desc id="desc">Verified paper-fund value is {_money(state.nav)}, {delta_sign}{abs(return_pct):.2f}% from a {_money(initial)} start across {len(history)} sessions. The dashed line is starting capital.</desc>
 <defs>
-  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#07111f"/><stop offset="1" stop-color="#101d35"/></linearGradient>
-  <linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#60a5fa" stop-opacity=".28"/><stop offset="1" stop-color="#60a5fa" stop-opacity="0"/></linearGradient>
-  <filter id="glow"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="{_BG}"/><stop offset="1" stop-color="#111827"/></linearGradient>
+  <linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop stop-color="{_FUND_SOFT}" stop-opacity=".28"/><stop offset="1" stop-color="{_FUND_SOFT}" stop-opacity="0"/></linearGradient>
+  <filter id="glow"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
 </defs>
-<rect width="1200" height="630" rx="24" fill="url(#bg)"/>
-<circle cx="1080" cy="45" r="180" fill="#2563eb" opacity=".08"/><circle cx="1040" cy="620" r="230" fill="#10b981" opacity=".06"/>
-<g font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif">
-  <text x="54" y="59" fill="#f8fafc" font-size="27" font-weight="800" letter-spacing="2">EDGECRAFT</text>
-  <text x="54" y="86" fill="#94a3b8" font-size="14" letter-spacing="1.5">AUTONOMOUS PAPER FUND · VERIFIED LEDGER</text>
-  <rect x="946" y="39" width="200" height="42" rx="21" fill="#102a25" stroke="#34d399" stroke-opacity=".45"/>
-  <circle cx="970" cy="60" r="5" fill="#34d399"/><text x="984" y="66" fill="#a7f3d0" font-size="15" font-weight="700">100% FAKE MONEY</text>
+<rect width="1200" height="680" rx="28" fill="url(#bg)"/>
+<circle cx="1120" cy="40" r="170" fill="#4f46e5" opacity=".07"/>
+<circle cx="80" cy="640" r="190" fill="#22d3ee" opacity=".05"/>
+<g font-family="{_SANS}">
+  <text x="48" y="52" fill="{_INK}" font-size="22" font-weight="800" letter-spacing="2.4">EDGECRAFT</text>
+  <text x="48" y="76" fill="{_MUTED}" font-size="14">Autonomous paper fund · started with {_money(initial)}</text>
+  <rect x="936" y="34" width="216" height="40" rx="20" fill="#102a25" stroke="#34d399" stroke-opacity=".45"/>
+  <circle cx="960" cy="54" r="5" fill="{_UP}"/>
+  <text x="974" y="59" fill="#a7f3d0" font-size="14" font-weight="700">100% FAKE MONEY</text>
 
-  {_card(54, 119, 252, "NET ASSET VALUE", _money(state.nav), accent)}
-  {_card(322, 119, 252, "ALL-TIME RETURN", f"{sign}{return_pct:.2f}%", accent)}
-  {_card(590, 119, 252, "GROSS EXPOSURE", _money(state.gross_exposure), "#60a5fa")}
-  {_card(858, 119, 288, "ACTIVITY", f"{len(history)} cycles · {fills} fills", "#c4b5fd")}
+  <text x="48" y="128" fill="{_MUTED}" font-size="12" font-weight="700" letter-spacing="1.6">FUND VALUE</text>
+  <text x="48" y="176" fill="{_INK}" font-size="52" font-weight="800" font-family="{_MONO}">{_money(state.nav)}</text>
+  <text x="48" y="206" fill="{pnl_color}" font-size="18" font-weight="700" font-family="{_MONO}">{delta_sign}{_money(abs(pnl))}  ({delta_sign}{abs(return_pct):.2f}%) vs start</text>
 
-  <text x="54" y="276" fill="#f8fafc" font-size="17" font-weight="700">NAV AND DEPLOYED CAPITAL</text>
-  <line x1="70" y1="502" x2="1130" y2="502" stroke="#334155"/>
-  <line x1="70" y1="400" x2="1130" y2="400" stroke="#334155" stroke-dasharray="4 8" opacity=".7"/>
-  <line x1="70" y1="297" x2="1130" y2="297" stroke="#334155" stroke-dasharray="4 8" opacity=".7"/>
+  {_stat(520, 128, "PEAK", _money(peak))}
+  {_stat(748, 128, "CASH", _money(state.cash))}
+  {_stat(976, 128, "SESSIONS", str(len(history)))}
+
+  <rect x="48" y="228" width="1104" height="368" rx="20" fill="{_PANEL}" stroke="{_PANEL_STROKE}"/>
+  <text x="72" y="258" fill="{_INK}" font-size="15" font-weight="700">How the {_money(initial)} has moved</text>
+  <circle cx="780" cy="253" r="4" fill="{_FUND}"/>
+  <text x="792" y="258" fill="{_LABEL}" font-size="12">Fund value</text>
+  <line x1="900" y1="253" x2="928" y2="253" stroke="{_START}" stroke-width="2" stroke-dasharray="5 5"/>
+  <text x="936" y="258" fill="{_LABEL}" font-size="12">Started at {_money(initial)}</text>
+
+  {grid}
+  <line x1="{chart_x}" y1="{start_y:.1f}" x2="{chart_x + chart_w}" y2="{start_y:.1f}" stroke="{_START}" stroke-width="1.5" stroke-dasharray="5 6" opacity=".9"/>
   <polygon points="{area_points}" fill="url(#area)"/>
-  <polyline points="{gross_points}" fill="none" stroke="#60a5fa" stroke-width="3" opacity=".75"/>
-  <polyline points="{nav_points}" fill="none" stroke="{accent}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
-  <circle cx="1130" cy="{_last_y(navs, chart_y, chart_h, low, high):.1f}" r="6" fill="{accent}"/>
-  <text x="70" y="525" fill="#64748b" font-size="12">{start_label}</text><text x="1093" y="525" fill="#64748b" font-size="12">{end_label}</text>
-  <circle cx="886" cy="272" r="4" fill="{accent}"/><text x="898" y="277" fill="#94a3b8" font-size="12">NAV</text>
-  <circle cx="958" cy="272" r="4" fill="#60a5fa"/><text x="970" y="277" fill="#94a3b8" font-size="12">GROSS EXPOSURE</text>
+  <polyline points="{nav_points}" fill="none" stroke="{_FUND}" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+  {dots}
+  {peak_mark}
+  <circle cx="{last_x:.1f}" cy="{last_y:.1f}" r="6" fill="{_FUND}" stroke="{_BG}" stroke-width="2"/>
+  <text x="{last_x - 12:.1f}" y="{last_y + 20:.1f}" text-anchor="end" fill="{_LABEL}" font-size="12" font-family="{_MONO}">{_money(state.nav)}</text>
+  {date_labels}
 
-  <text x="54" y="564" fill="#94a3b8" font-size="13">100× OBJECTIVE</text>
-  <text x="1146" y="564" text-anchor="end" fill="#cbd5e1" font-size="13">{_money(state.nav)} / {_money(target)}</text>
-  <rect x="54" y="577" width="1030" height="12" rx="6" fill="#1e293b"/><rect x="54" y="577" width="{max(progress_width, 4)}" height="12" rx="6" fill="{accent}"/>
-  <text x="1146" y="590" text-anchor="end" fill="#64748b" font-size="12">{float(progress) * 100:.3f}%</text>
-  <text x="54" y="614" fill="#64748b" font-size="12">Updated {updated} · {trades} trade cycles · append-only accounting · {html.escape(fund_id)}</text>
-</g></svg>'''
+  <text x="48" y="630" fill="{_MUTED}" font-size="13">Goal: compound toward {_money(target)} over ten years · not a return promise</text>
+  <text x="48" y="654" fill="#64748b" font-size="12">Updated {updated} · {html.escape(book_label)} · {trades} trades · {fills} fills · {html.escape(fund_id)}</text>
+</g></svg>
+'''
 
 
-def _card(x: int, y: int, width: int, label: str, value: str, color: str) -> str:
-    return f'''<rect x="{x}" y="{y}" width="{width}" height="105" rx="15" fill="#111f34" stroke="#26364e"/>
-  <text x="{x + 20}" y="{y + 31}" fill="#7f91aa" font-size="12" font-weight="700" letter-spacing="1">{label}</text>
-  <text x="{x + 20}" y="{y + 75}" fill="{color}" font-size="30" font-weight="800">{html.escape(value)}</text>'''
+def _series(
+    initial: Decimal, state: FundState, history: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    if not history:
+        point = {"time": state.as_of, "nav": initial, "action": "init"}
+        return [point, {**point, "action": "end"}]
+    points = [
+        {
+            "time": _parse_time(row["as_of"]),
+            "nav": Decimal(row["nav"]),
+            "action": row["action"],
+        }
+        for row in history
+    ]
+    if len(points) == 1:
+        first = points[0]
+        return [first, {**first, "action": "end"}]
+    return points
 
 
-def _points(
-    values: list[Decimal], x: int, y: int, width: int, height: int, low: Decimal, high: Decimal
-) -> str:
-    steps = max(len(values) - 1, 1)
-    return " ".join(
-        f"{x + width * index / steps:.1f},{_last_y([value], y, height, low, high):.1f}"
-        for index, value in enumerate(values)
+def _stat(x: int, y: int, label: str, value: str) -> str:
+    return (
+        f'<text x="{x}" y="{y}" fill="{_MUTED}" font-size="11" font-weight="700" '
+        f'letter-spacing="1.4">{html.escape(label)}</text>'
+        f'<text x="{x}" y="{y + 32}" fill="{_INK}" font-size="18" font-weight="700" '
+        f'font-family="{_MONO}">{html.escape(value)}</text>'
     )
 
 
-def _last_y(values: list[Decimal], y: int, height: int, low: Decimal, high: Decimal) -> float:
-    return y + height - float((values[-1] - low) / (high - low)) * height
+def _bounds(navs: list[Decimal], initial: Decimal) -> tuple[Decimal, Decimal]:
+    low = min([initial, *navs])
+    high = max([initial, *navs])
+    padding = max((high - low) * Decimal("0.16"), Decimal("25"))
+    return low - padding, high + padding
+
+
+def _nice_ticks(low: Decimal, high: Decimal, target: int = 4) -> list[Decimal]:
+    span = max(high - low, Decimal("1"))
+    raw = float(span / Decimal(target))
+    magnitude = 10 ** math.floor(math.log10(raw)) if raw > 0 else 1
+    residual = raw / magnitude
+    if residual <= 1:
+        step_float = magnitude
+    elif residual <= 2:
+        step_float = 2 * magnitude
+    elif residual <= 5:
+        step_float = 5 * magnitude
+    else:
+        step_float = 10 * magnitude
+    step = Decimal(str(step_float))
+    start = (low / step).to_integral_value(rounding=ROUND_FLOOR) * step
+    ticks: list[Decimal] = []
+    value = start
+    guard = 0
+    while value <= high + (step / 2) and guard < 12:
+        if value >= low - (step / 4):
+            ticks.append(value)
+        value += step
+        guard += 1
+    return ticks or [low, high]
+
+
+def _xs(times: list[datetime], x: int, width: int) -> list[float]:
+    start = times[0]
+    span = (times[-1] - start).total_seconds()
+    if span <= 0:
+        step = width / max(len(times) - 1, 1)
+        return [x + step * index for index in range(len(times))]
+    return [x + width * (moment - start).total_seconds() / span for moment in times]
+
+
+def _y(value: Decimal, y: int, height: int, low: Decimal, high: Decimal) -> float:
+    span = high - low
+    if span == 0:
+        return y + height / 2
+    return y + height - float((value - low) / span) * height
+
+
+def _grid(
+    x: int, y: int, width: int, height: int, ticks: list[Decimal], low: Decimal, high: Decimal
+) -> str:
+    parts = [
+        f'<line x1="{x}" y1="{y + height}" x2="{x + width}" y2="{y + height}" stroke="{_GRID}"/>'
+    ]
+    for tick in ticks:
+        tick_y = _y(tick, y, height, low, high)
+        if tick_y < y + 8 or tick_y > y + height - 4:
+            continue
+        parts.append(
+            f'<line x1="{x}" y1="{tick_y:.1f}" x2="{x + width}" y2="{tick_y:.1f}" '
+            f'stroke="{_GRID}" stroke-dasharray="3 7" opacity=".85"/>'
+        )
+        parts.append(
+            f'<text x="{x - 10}" y="{tick_y + 4:.1f}" text-anchor="end" fill="{_MUTED}" '
+            f'font-size="11" font-family="{_MONO}">{_axis_money(tick)}</text>'
+        )
+    return "\n  ".join(parts)
+
+
+def _date_labels(times: list[datetime], xs: list[float]) -> str:
+    chosen = _pick_dates(times, xs)
+    parts = []
+    for index, (x, moment) in enumerate(chosen):
+        anchor = "end" if index == len(chosen) - 1 else "start" if index == 0 else "middle"
+        parts.append(
+            f'<text x="{x:.1f}" y="548" text-anchor="{anchor}" fill="{_MUTED}" '
+            f'font-size="12">{moment.strftime("%b %d")}</text>'
+        )
+    return "".join(parts)
+
+
+def _pick_dates(times: list[datetime], xs: list[float]) -> list[tuple[float, datetime]]:
+    last = len(times) - 1
+    wanted = [0, last // 3, (2 * last) // 3, last]
+    picked: list[tuple[float, datetime]] = []
+    seen_days: set[str] = set()
+    for index in wanted:
+        label = times[index].strftime("%Y-%m-%d")
+        if picked and (xs[index] - picked[-1][0] < 72 or label in seen_days):
+            continue
+        seen_days.add(label)
+        picked.append((xs[index], times[index]))
+    last_point = (xs[-1], times[-1])
+    if not picked or picked[-1][1] != last_point[1]:
+        if picked and last_point[0] - picked[-1][0] < 72:
+            picked[-1] = last_point
+        else:
+            picked.append(last_point)
+    return picked
+
+
+def _dots(series: list[dict[str, Any]], xs: list[float], ys: list[float]) -> str:
+    parts = []
+    for point, x, y in zip(series, xs, ys, strict=True):
+        radius = 3.4 if point["action"] == "trade" else 2.4
+        fill = _FUND if point["action"] == "trade" else "#1e293b"
+        stroke = _FUND
+        parts.append(
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{radius}" fill="{fill}" '
+            f'stroke="{stroke}" stroke-width="1.4"/>'
+        )
+    return "\n  ".join(parts)
+
+
+def _peak_callout(
+    xs: list[float],
+    ys: list[float],
+    navs: list[Decimal],
+    current: Decimal,
+) -> str:
+    peak = max(navs)
+    if peak <= current or len(navs) < 2:
+        return ""
+    index = navs.index(peak)
+    x, y = xs[index], ys[index]
+    label_x = x - 10
+    label_y = max(y - 16, 286)
+    return (
+        f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4.5" fill="{_INK}"/>'
+        f'<text x="{label_x:.1f}" y="{label_y:.1f}" text-anchor="end" fill="{_LABEL}" '
+        f'font-size="11" font-family="{_MONO}">peak {_money(peak)}</text>'
+    )
 
 
 def _money(value: Decimal) -> str:
     return f"${value:,.2f}"
+
+
+def _axis_money(value: Decimal) -> str:
+    return f"${value:,.0f}"
 
 
 def _parse_time(value: str) -> datetime:
