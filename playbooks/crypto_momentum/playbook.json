@@ -1,0 +1,13 @@
+{
+  "id": "crypto_momentum",
+  "version": 1,
+  "thesis": "Large liquid-crypto moves confirmed by volume can continue for 24 to 72 hours before mean reversion dominates.",
+  "universe": ["native spot crypto quoted on Coinbase or Binance"],
+  "trigger": "Large directional move with volume confirmation and a concrete catalyst or flow mechanism.",
+  "entry_rule": "Trade continuation only when code-owned spot data confirms direction and volume context.",
+  "exit_rule": "Hard price invalidation, target, mechanism break, or 72-hour time stop.",
+  "sizing_hints": "Use liquid spot pairs and avoid leverage assumptions.",
+  "required_evidence_types": ["direct exchange data", "volume context", "catalyst source"],
+  "status": "incubating",
+  "prompt_path": "prompt.md"
+}

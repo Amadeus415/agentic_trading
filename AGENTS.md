@@ -18,7 +18,8 @@ account, transfer, or wallet.
 ## Product direction
 
 - Run without a routine human approval step. The agent chooses what to research,
-  what to hold, direction, sizing, entries, exits, and when a thesis is broken.
+  what to hold, direction, entries, exits, and when a thesis is broken. Code
+  sizes complete beliefs from `p_win`, payoff, calibration, costs, and sleeve budget.
 - Search broadly across the public internet and direct public market-data
   sources. Compare opportunities instead of anchoring on a fixed watchlist.
 - Manage a portfolio, not a single bet. Prefer several genuinely independent,
@@ -27,10 +28,10 @@ account, transfer, or wallet.
 - Be aggressive on opportunity selection and fast on thesis invalidation. High
   risk is acceptable only when the expected payoff, evidence, liquidity, costs,
   and explicit downside make the bet attractive.
-- Default to researched trades. A sourced catalyst, target, invalidation, and
-  4–72h size is a valid thesis; lack of a calibrated model is not a hold reason.
-  A hold is valid only while existing theses remain intact. Scheduled 100% cash
-  holds are rejected. U.S. equity close is not a reason to stay flat.
+- Search every active playbook eagerly and submit every positive after-cost edge.
+  A hold is valid only after the journal names the researched candidates and the
+  deterministic sizing gate drops them. Uncertainty is not a hold reason: state
+  `p_win` and let code decide. U.S. equity close is not a reason to stop scanning.
 - Learn from the immutable record. Every cycle must revisit open hypotheses,
   inspect prior outcomes and losing exits, state what changed, and record which
   lessons influenced the new portfolio.
@@ -45,8 +46,8 @@ concise decision-relevant reasoning:
 - market regime and opportunity set considered;
 - portfolio intent and important changes since the prior cycle;
 - one structured hypothesis per open or ordered instrument;
-- mechanism, catalysts, falsifiers, expected horizon, confidence, target, and
-  invalidation price;
+- mechanism, catalysts, falsifiers, expected horizon, `p_win`, target,
+  invalidation price, playbook, and shared driver;
 - alternatives rejected, material risks, and lessons applied from prior cycles.
 
 The next cycle must receive a compact, deterministic memory built from the

@@ -1,0 +1,1 @@
+Before a scheduled macro event, write an if/then map from plausible outcomes to liquid instruments. After release, use only the authoritative value and trade only a material consensus deviation consistent with the map. Return p_win, target, invalidation, horizon, shared event driver, and cited evidence; deterministic code owns size.

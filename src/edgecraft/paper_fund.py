@@ -86,12 +86,25 @@ class HypothesisStance(StrEnum):
     LONG = "long"
     SHORT = "short"
     EXIT = "exit"
-    WATCH = "watch"
 
 
 class QuoteStatus(StrEnum):
     OPEN = "open"
     SETTLED = "settled"
+
+
+class BookLevel(BaseModel):
+    """One public CLOB or displayed-book level used for honest simulated fills."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    price: Decimal = Field(gt=0)
+    size: Decimal = Field(gt=0)
+
+    @field_validator("price", "size", mode="before")
+    @classmethod
+    def _dec(cls, value: Any) -> Decimal:
+        return _as_decimal(value)
 
 
 def _utc_now() -> datetime:
@@ -284,6 +297,8 @@ class FundQuote(BaseModel):
     source_name: str = Field(min_length=1, max_length=200)
     source_url: str = Field(min_length=1, max_length=2000)
     status: QuoteStatus = QuoteStatus.OPEN
+    bids: tuple[BookLevel, ...] = ()
+    asks: tuple[BookLevel, ...] = ()
 
     @field_validator("instrument_id")
     @classmethod
@@ -359,7 +374,15 @@ class FundOrder(BaseModel):
     instrument_id: str = Field(min_length=1, max_length=128)
     asset_class: AssetClass
     side: OrderSide
-    quantity: Decimal = Field(gt=0)
+    quantity: Decimal | None = Field(default=None, gt=0)
+    p_win: Decimal | None = Field(default=None, ge=0, le=1)
+    target_price: Decimal | None = Field(default=None, gt=0)
+    invalidation_price: Decimal | None = Field(default=None, gt=0)
+    horizon_hours: int | None = Field(default=None, ge=1, le=8_760)
+    playbook_id: str | None = Field(default=None, min_length=1, max_length=128)
+    driver: str | None = Field(default=None, min_length=1, max_length=128)
+    borrow_fee_bps_annual: Decimal | None = Field(default=None, ge=0)
+    extra_slippage_bps: Decimal | None = Field(default=None, ge=0)
     rationale: str = Field(min_length=1, max_length=4000)
     evidence_ids: tuple[str, ...] = Field(min_length=1)
 
@@ -370,8 +393,20 @@ class FundOrder(BaseModel):
 
     @field_validator("quantity", mode="before")
     @classmethod
-    def _qty_dec(cls, value: Any) -> Decimal:
-        return _as_decimal(value)
+    def _qty_dec(cls, value: Any) -> Decimal | None:
+        return None if value is None else _as_decimal(value)
+
+    @field_validator(
+        "p_win",
+        "target_price",
+        "invalidation_price",
+        "borrow_fee_bps_annual",
+        "extra_slippage_bps",
+        mode="before",
+    )
+    @classmethod
+    def _belief_decimals(cls, value: Any) -> Decimal | None:
+        return None if value is None else _as_decimal(value)
 
     @field_validator("evidence_ids")
     @classmethod
@@ -395,6 +430,9 @@ class FundHypothesis(BaseModel):
     falsifiers: tuple[str, ...] = Field(min_length=1, max_length=8)
     expected_horizon_hours: int = Field(ge=1, le=8_760)
     confidence: Decimal = Field(ge=0, le=1)
+    p_win: Decimal | None = Field(default=None, ge=0, le=1)
+    playbook_id: str | None = Field(default=None, min_length=1, max_length=128)
+    driver: str | None = Field(default=None, min_length=1, max_length=128)
     target_price: Decimal | None = Field(default=None, gt=0)
     invalidation_price: Decimal | None = Field(default=None, gt=0)
     evidence_ids: tuple[str, ...] = Field(min_length=1)
@@ -404,7 +442,7 @@ class FundHypothesis(BaseModel):
     def _instrument(cls, value: str) -> str:
         return _validate_instrument_id(value)
 
-    @field_validator("confidence", "target_price", "invalidation_price", mode="before")
+    @field_validator("confidence", "p_win", "target_price", "invalidation_price", mode="before")
     @classmethod
     def _decimals(cls, value: Any) -> Decimal | None:
         return None if value is None else _as_decimal(value)
@@ -506,6 +544,15 @@ class FundDecision(BaseModel):
         return self
 
 
+class FundCyclePacket(BaseModel):
+    """Strict model-produced portion of one cycle input."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: FundDecision
+    quotes: tuple[FundQuote, ...]
+
+
 def _require_cited_evidence(
     evidence_by_id: Mapping[str, FundEvidence],
     evidence_ids: Sequence[str],
@@ -538,6 +585,10 @@ class FundPosition(BaseModel):
     mark_price: Decimal | None = None
     market_value: Decimal | None = None
     unrealized_pnl: Decimal | None = None
+    playbook_id: str | None = None
+    driver: str | None = None
+    opened_at: datetime | None = None
+    borrow_fee_bps_annual: Decimal | None = None
 
     @field_validator("quantity", "average_entry", mode="before")
     @classmethod
@@ -563,6 +614,9 @@ class FundFill(BaseModel):
     realized_pnl: Decimal
     quote_id: str
     is_settlement: bool = False
+    playbook_id: str | None = None
+    driver: str | None = None
+    borrow_fee: Decimal = ZERO
 
 
 class FundState(BaseModel):
@@ -612,8 +666,8 @@ def validate_decision_journal(decision: FundDecision, prior_state: FundState) ->
     """Require the scheduled agent to refresh every live or ordered hypothesis.
 
     Historical cycles remain replayable through accounting without this check.
-    New scheduled applies also refuse a 100% cash hold and long-dated theses so
-    the active book cannot rest in idle cash.
+    New scheduled applies retain short horizons while allowing cash when every
+    researched belief falls below the deterministic after-cost edge threshold.
     """
     if decision.journal is None:
         raise PaperFundValidationError("scheduled decisions require an auditable journal")
@@ -636,11 +690,14 @@ def validate_decision_journal(decision: FundDecision, prior_state: FundState) ->
             "scheduled hypotheses must use a short-term horizon of "
             f"{MAX_SCHEDULED_HYPOTHESIS_HORIZON_HOURS}h or less: {long_horizon}"
         )
-    if not prior_state.positions and decision.action is DecisionAction.HOLD:
+    incomplete = [
+        item.instrument_id
+        for item in decision.journal.hypotheses
+        if item.p_win is None or not item.driver or not item.playbook_id
+    ]
+    if incomplete:
         raise PaperFundValidationError(
-            "scheduled idle-cash hold is not allowed: the book is 100% cash; "
-            "submit researched short-term orders. U.S. cash-equity close is not "
-            "a reason to stay flat while crypto and prediction markets remain in scope"
+            "scheduled hypotheses require p_win, driver, and playbook_id: " + ", ".join(incomplete)
         )
 
 
@@ -732,6 +789,14 @@ class CycleRuntimeMetadata(BaseModel):
     input_path: str | None = Field(default=None, max_length=2000)
     input_sha256: str | None = Field(default=None, max_length=128)
     recorded_at: datetime | None = None
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
+    model_cost_usd: Decimal | None = Field(default=None, ge=0)
+
+    @field_validator("model_cost_usd", mode="before")
+    @classmethod
+    def _cost_dec(cls, value: Any) -> Decimal | None:
+        return None if value is None else _as_decimal(value)
 
     @field_validator("recorded_at")
     @classmethod
@@ -753,6 +818,8 @@ class CycleAuditRecord(BaseModel):
     fee_total: Decimal = ZERO
     fill_count: int = Field(ge=0, default=0)
     settlement_count: int = Field(ge=0, default=0)
+    sleeve_allocation: dict[str, Decimal] = Field(default_factory=dict)
+    sizing: dict[str, Any] | None = None
 
     @field_validator("fee_total", mode="before")
     @classmethod
@@ -828,6 +895,31 @@ def _execution_price(quote_price: Decimal, side: OrderSide, slippage_bps: Decima
     if side in (OrderSide.BUY, OrderSide.COVER):
         return quote_price + slip
     return quote_price - slip
+
+
+def _walk_book(levels: Sequence[BookLevel], quantity: Decimal, *, descending: bool) -> Decimal:
+    """Return quantity-weighted average price, consuming displayed size."""
+    ordered = sorted(levels, key=lambda level: level.price, reverse=descending)
+    remaining = quantity
+    cost = ZERO
+    for level in ordered:
+        take = min(remaining, level.size)
+        cost += take * level.price
+        remaining -= take
+        if remaining <= ZERO:
+            return cost / quantity
+    raise PaperFundValidationError("insufficient displayed book depth for simulated fill")
+
+
+def _fill_price(quote: FundQuote, order: FundOrder, mandate: FundMandate) -> Decimal:
+    extra = order.extra_slippage_bps or ZERO
+    if order.side in {OrderSide.BUY, OrderSide.COVER} and quote.asks:
+        price = _walk_book(quote.asks, order.quantity or ZERO, descending=False)
+        return _execution_price(price, order.side, extra)
+    if order.side in {OrderSide.SELL, OrderSide.SHORT} and quote.bids:
+        price = _walk_book(quote.bids, order.quantity or ZERO, descending=True)
+        return _execution_price(price, order.side, extra)
+    return _execution_price(quote.price, order.side, mandate.slippage_bps + extra)
 
 
 def _fee(gross_notional: Decimal, fee_bps: Decimal) -> Decimal:
@@ -914,6 +1006,10 @@ def _apply_fill_to_position(
     side: OrderSide,
     quantity: Decimal,
     execution_price: Decimal,
+    playbook_id: str | None = None,
+    driver: str | None = None,
+    opened_at: datetime | None = None,
+    borrow_fee_bps_annual: Decimal | None = None,
 ) -> FundPosition | None:
     """Return updated position or None if closed. Enforces explicit side rules."""
     if existing is None:
@@ -924,6 +1020,14 @@ def _apply_fill_to_position(
         avg = existing.average_entry
         if existing.asset_class != asset_class:
             raise PaperFundValidationError(f"asset class mismatch for position {instrument_id}")
+        if playbook_id and existing.playbook_id and playbook_id != existing.playbook_id:
+            raise PaperFundValidationError(
+                f"position {instrument_id} belongs to playbook {existing.playbook_id}"
+            )
+        playbook_id = existing.playbook_id or playbook_id
+        driver = existing.driver or driver
+        opened_at = existing.opened_at or opened_at
+        borrow_fee_bps_annual = existing.borrow_fee_bps_annual or borrow_fee_bps_annual
 
     if side is OrderSide.BUY:
         if existing_qty < ZERO:
@@ -939,6 +1043,10 @@ def _apply_fill_to_position(
             asset_class=asset_class,
             quantity=new_qty,
             average_entry=new_avg,
+            playbook_id=playbook_id,
+            driver=driver,
+            opened_at=opened_at,
+            borrow_fee_bps_annual=borrow_fee_bps_annual,
         )
 
     if side is OrderSide.SELL:
@@ -958,6 +1066,10 @@ def _apply_fill_to_position(
             asset_class=asset_class,
             quantity=new_qty,
             average_entry=avg,
+            playbook_id=playbook_id,
+            driver=driver,
+            opened_at=opened_at,
+            borrow_fee_bps_annual=borrow_fee_bps_annual,
         )
 
     if side is OrderSide.SHORT:
@@ -975,6 +1087,10 @@ def _apply_fill_to_position(
             asset_class=asset_class,
             quantity=new_qty,
             average_entry=new_avg,
+            playbook_id=playbook_id,
+            driver=driver,
+            opened_at=opened_at,
+            borrow_fee_bps_annual=borrow_fee_bps_annual,
         )
 
     if side is OrderSide.COVER:
@@ -995,6 +1111,10 @@ def _apply_fill_to_position(
             asset_class=asset_class,
             quantity=new_qty,
             average_entry=avg,
+            playbook_id=playbook_id,
+            driver=driver,
+            opened_at=opened_at,
+            borrow_fee_bps_annual=borrow_fee_bps_annual,
         )
 
     raise PaperFundValidationError(f"unsupported side {side}")
@@ -1007,7 +1127,12 @@ def _execute_order(
     mandate: FundMandate,
     existing: FundPosition | None,
     cash: Decimal,
+    as_of: datetime,
 ) -> tuple[FundFill, FundPosition | None, Decimal, Decimal]:
+    if order.quantity is None:
+        raise PaperFundValidationError(
+            f"order {order.instrument_id} requires quantity or deterministic sizing"
+        )
     if quote.status is QuoteStatus.SETTLED:
         raise PaperFundValidationError(
             f"settled instrument {order.instrument_id} cannot receive new orders"
@@ -1019,7 +1144,7 @@ def _execute_order(
             f"order/quote asset class mismatch for {order.instrument_id}"
         )
 
-    exec_px = _execution_price(quote.price, order.side, mandate.slippage_bps)
+    exec_px = _fill_price(quote, order, mandate)
     if exec_px <= ZERO and order.asset_class is not AssetClass.PREDICTION:
         raise PaperFundValidationError(f"non-positive execution price for {order.instrument_id}")
     if order.asset_class is AssetClass.PREDICTION and not ZERO <= exec_px <= ONE:
@@ -1031,6 +1156,24 @@ def _execute_order(
 
     gross = exec_px * order.quantity
     fee = _fee(gross, mandate.fee_bps)
+    borrow_fee = ZERO
+    if (
+        order.side is OrderSide.COVER
+        and existing is not None
+        and existing.asset_class is AssetClass.STOCK
+        and existing.opened_at is not None
+        and existing.borrow_fee_bps_annual is not None
+    ):
+        held_seconds = max(0, (as_of - existing.opened_at).total_seconds())
+        years = Decimal(str(held_seconds)) / Decimal("31536000")
+        borrow_fee = (
+            existing.average_entry
+            * order.quantity
+            * existing.borrow_fee_bps_annual
+            / BPS_DIVISOR
+            * years
+        )
+        fee += borrow_fee
     realized = ZERO
 
     if order.side is OrderSide.BUY:
@@ -1065,6 +1208,10 @@ def _execute_order(
         side=order.side,
         quantity=order.quantity,
         execution_price=exec_px,
+        playbook_id=order.playbook_id,
+        driver=order.driver,
+        opened_at=as_of if order.borrow_fee_bps_annual is not None else None,
+        borrow_fee_bps_annual=order.borrow_fee_bps_annual,
     )
     fill = FundFill(
         fill_id=str(uuid.uuid4()),
@@ -1080,6 +1227,9 @@ def _execute_order(
         realized_pnl=realized,
         quote_id=quote.quote_id,
         is_settlement=False,
+        playbook_id=order.playbook_id or (existing.playbook_id if existing else None),
+        driver=order.driver or (existing.driver if existing else None),
+        borrow_fee=borrow_fee,
     )
     return fill, new_pos, cash + cash_delta, realized
 
@@ -1125,6 +1275,9 @@ def _settle_position(
         realized_pnl=realized,
         quote_id=quote.quote_id,
         is_settlement=True,
+        playbook_id=position.playbook_id,
+        driver=position.driver,
+        borrow_fee=ZERO,
     )
     return fill, cash_delta, realized
 
@@ -1490,6 +1643,7 @@ def run_cycle_accounting(
             mandate=mandate,
             existing=pos_map.get(order.instrument_id),
             cash=cash,
+            as_of=decision.as_of,
         )
         fills.append(fill)
         realized_cum += realized
@@ -1611,9 +1765,34 @@ def request_digest(
     # part of the signed request and cannot be changed on replay.
     if decision.journal is None:
         decision_payload.pop("journal", None)
+    # Optional belief/sizing fields were added after immutable v1 cycles. Drop
+    # absent defaults so historical request digests remain byte-for-byte stable.
+    for order in decision_payload.get("orders", []):
+        for field in (
+            "p_win",
+            "target_price",
+            "invalidation_price",
+            "horizon_hours",
+            "playbook_id",
+            "driver",
+            "borrow_fee_bps_annual",
+            "extra_slippage_bps",
+        ):
+            if order.get(field) is None:
+                order.pop(field, None)
+    journal = decision_payload.get("journal") or {}
+    for hypothesis in journal.get("hypotheses", []):
+        for field in ("p_win", "playbook_id", "driver"):
+            if hypothesis.get(field) is None:
+                hypothesis.pop(field, None)
+    quote_payloads = [q.model_dump(mode="json") for q in quotes]
+    for quote in quote_payloads:
+        for field in ("bids", "asks"):
+            if not quote.get(field):
+                quote.pop(field, None)
     payload = {
         "decision": decision_payload,
-        "quotes": [q.model_dump(mode="json") for q in quotes],
+        "quotes": quote_payloads,
     }
     return _sha256_hex(_canonical_json(payload))
 
@@ -2034,6 +2213,28 @@ class PaperFundLedger:
             )
         return events
 
+    def record_operational_event(
+        self,
+        fund_id: str,
+        event_type: str,
+        payload: Mapping[str, Any],
+        *,
+        occurred_at: datetime | None = None,
+    ) -> int:
+        """Append a non-accounting lifecycle/operations event to the hash chain."""
+        if not event_type.startswith(("playbook_", "postmortem_", "alert_")):
+            raise PaperFundValidationError("unsupported operational event type")
+        with self._transaction() as conn:
+            if conn.execute("SELECT 1 FROM funds WHERE fund_id = ?", (fund_id,)).fetchone() is None:
+                raise PaperFundValidationError(f"fund {fund_id!r} is not initialized")
+            return self._append_event(
+                conn,
+                fund_id=fund_id,
+                event_type=event_type,
+                payload=dict(payload),
+                occurred_at=occurred_at,
+            )
+
     def execute_cycle(
         self,
         decision: FundDecision,
@@ -2041,6 +2242,7 @@ class PaperFundLedger:
         *,
         runtime: CycleRuntimeMetadata | None = None,
         require_brain_journal: bool = False,
+        decision_audit: dict[str, Any] | None = None,
     ) -> CycleResult:
         """Execute atomically and retain rejected normalized requests in the audit chain."""
         try:
@@ -2049,6 +2251,7 @@ class PaperFundLedger:
                 quotes,
                 runtime=runtime,
                 require_brain_journal=require_brain_journal,
+                decision_audit=decision_audit,
             )
         except (PaperFundValidationError, PaperFundIdempotencyError) as exc:
             self._record_rejection(decision, quotes, exc, runtime=runtime)
@@ -2128,6 +2331,7 @@ class PaperFundLedger:
         *,
         runtime: CycleRuntimeMetadata | None = None,
         require_brain_journal: bool = False,
+        decision_audit: dict[str, Any] | None = None,
     ) -> CycleResult:
         """Execute one atomic cycle, or replay if the exact request was stored."""
         digest = request_digest(decision, quotes)
@@ -2170,6 +2374,8 @@ class PaperFundLedger:
                 fee_total=fee_total,
                 fill_count=len(fills),
                 settlement_count=len(settlements),
+                sleeve_allocation=(decision_audit or {}).get("sleeve_allocation", {}),
+                sizing=(decision_audit or {}).get("sizing"),
             )
 
             result = CycleResult(

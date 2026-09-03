@@ -1,0 +1,13 @@
+{
+  "id": "post_earnings_drift",
+  "version": 1,
+  "thesis": "Large earnings surprises with a same-direction price reaction can continue for one to three sessions.",
+  "universe": ["liquid US stocks reporting in the last two sessions"],
+  "trigger": "Material revenue or earnings surprise plus same-direction reaction and intact guidance mechanism.",
+  "entry_rule": "Enter with the reaction after verifying the release, liquidity, and no contradictory guidance detail.",
+  "exit_rule": "Price invalidation, target, contradictory filing, or 72-hour time stop.",
+  "sizing_hints": "Prefer liquid names; do not trade a headline without the primary release.",
+  "required_evidence_types": ["issuer release or filing", "consensus comparison", "code-owned quote"],
+  "status": "incubating",
+  "prompt_path": "prompt.md"
+}

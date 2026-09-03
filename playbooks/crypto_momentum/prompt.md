@@ -1,0 +1,1 @@
+Scan liquid native crypto for 24-72 hour continuation after an unusually large move confirmed by direct exchange volume. Require a plausible catalyst or flow mechanism. Return p_win, target, invalidation, hard time stop, driver, and cited evidence; deterministic code owns size.

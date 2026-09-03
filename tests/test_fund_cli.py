@@ -39,14 +39,13 @@ def test_fund_cli_initializes_runs_reports_and_verifies(tmp_path, capsys) -> Non
     assert first["initialized"] is True
     assert second["initialized"] is False
     assert context["state"]["cash"] == "1000.00"
-    assert context["growth_objective"]["target_nav"] == "100000.00"
-    assert context["growth_objective"]["stage"] == "bootstrap"
-    assert context["growth_objective"]["target_multiple"] == "100"
+    assert "growth_objective" not in context
+    assert "growth_objective" not in context["mandate"]
     assert "decision_schema" in context["input_contract"]
     assert context["brain"]["schema_version"] == "edgecraft.fund-brain.v1"
     assert context["brain"]["activity"]["style"] == "short_term_active"
     assert context["schedule"]["max_hypothesis_horizon_hours"] == 72
-    assert any("idle-cash hold is rejected" in rule for rule in context["input_contract"]["rules"])
+    assert any("after-cost edge" in rule for rule in context["input_contract"]["rules"])
     assert cycle["paper_only"] is True
     assert cycle["result"]["state"]["cycle_count"] == 1
     assert cycle["result"]["audit"]["risk"]["approved"] is True
@@ -107,6 +106,23 @@ def test_fund_cli_rejects_noncurrent_scheduled_input(tmp_path, capsys) -> None:
     assert exc.value.code == 2
     error = json.loads(capsys.readouterr().err)
     assert "is not today's UTC date" in error["detail"]
+
+
+def test_fund_cli_report_postmortem_and_alerts(tmp_path, capsys) -> None:
+    ledger = tmp_path / "fund.db"
+    common = ["--config", str(CONFIG), "--ledger", str(ledger)]
+    _run(["fund-init", *common], capsys)
+    _run(["fund-run", *common, "--input", str(EXAMPLE), "--require-brain-journal"], capsys)
+    report = _run(["fund-report", *common], capsys)
+    postmortem = _run(["fund-postmortem", *common], capsys)
+    alerts = _run(["fund-alerts", *common], capsys)
+    assert report["schema_version"] == "edgecraft.fund-report.v1"
+    assert report["summary"]["cycles"] == 1
+    assert report["benchmarks"]["spy_buy_and_hold"]["status"] == "unavailable"
+    assert postmortem["schema_version"] == "edgecraft.postmortem.v1"
+    assert postmortem["fund_id"] == "edgecraft-1k"
+    assert alerts["ok"] is True
+    assert alerts["alerts"] == []
 
 
 def test_fund_cycle_key_prints_current_session(capsys) -> None:

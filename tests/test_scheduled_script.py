@@ -37,11 +37,14 @@ def test_scheduled_script_is_fixed_to_paper_fund(tmp_path):
         "run --no-sync edgecraft fund-run --config examples/fund.mandate.aggressive.json "
         f"--input {input_path} --ledger state/edgecraft-aggressive.db --require-as-of-today "
         "--max-decision-age-seconds 1800 --require-cycle-key "
-        f"{scheduled_cycle_key(datetime.now(UTC))} --require-brain-journal",
+        f"{scheduled_cycle_key(datetime.now(UTC))} --require-brain-journal "
+        "--code-owned-quotes --size-beliefs",
         "run --no-sync edgecraft fund-verify --config examples/fund.mandate.aggressive.json "
         "--ledger state/edgecraft-aggressive.db",
         "run --no-sync edgecraft fund-visualize --config examples/fund.mandate.aggressive.json "
         "--ledger state/edgecraft-aggressive.db --output assets/fund-progress.svg",
+        "run --no-sync edgecraft fund-report --config examples/fund.mandate.aggressive.json "
+        "--ledger state/edgecraft-aggressive.db --output state/fund-report.json",
     ]
 
 

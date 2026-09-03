@@ -10,6 +10,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+mkdir -p state
+if [[ "${EDGECRAFT_LEDGER_LOCKED:-0}" != "1" ]] && command -v lockf >/dev/null 2>&1; then
+  export EDGECRAFT_LEDGER_LOCKED=1
+  exec lockf -t 300 -k state/.paper-ledger.lock "$0" "$@"
+fi
+
 CONFIG="${FUND_CONFIG:-examples/fund.mandate.aggressive.json}"
 LEDGER="${FUND_LEDGER:-state/edgecraft-aggressive.db}"
 HOUR=$((10#$(date -u +%H)))
@@ -48,7 +54,9 @@ fi
 "${RUN[@]}" fund-verify --config "$CONFIG" --ledger "$LEDGER"
 "${RUN[@]}" fund-run --config "$CONFIG" --input "$INPUT" --ledger "$LEDGER" \
   --require-as-of-today --max-decision-age-seconds 1800 --require-cycle-key "$CYCLE_KEY" \
-  --require-brain-journal
+  --require-brain-journal --code-owned-quotes --size-beliefs
 "${RUN[@]}" fund-verify --config "$CONFIG" --ledger "$LEDGER"
 "${RUN[@]}" fund-visualize --config "$CONFIG" --ledger "$LEDGER" \
   --output assets/fund-progress.svg
+"${RUN[@]}" fund-report --config "$CONFIG" --ledger "$LEDGER" \
+  --output state/fund-report.json

@@ -1,21 +1,16 @@
 # Paper-fund accounting contract
 
-The paper fund is a deterministic state machine around one $1,000 bankroll. Codex supplies research, a typed decision, and sourced marks. It cannot supply cash or mutate stored state directly.
+The paper fund is a deterministic state machine around one $1,000 bankroll. Codex supplies research, a typed decision, and sourced marks. It cannot supply cash or mutate stored state directly. For how the session, monitor, and evolution loops sit around this contract, see [DESIGN.md](DESIGN.md).
 
 Run `make fund-context` for the current machine-readable JSON Schema. The executable static fixture is [fund-cycle.starting.example.json](../examples/fund-cycle.starting.example.json).
 
 ## Growth objective
 
-The mandate explicitly targets a $100,000 paper NAV over ten years. That is a
-100x objective requiring roughly 58.5% annualized compounding, so it is an
-aggressive research target—not a forecast or guarantee.
-
-`fund-context` and `fund-show --history` report simple progress,
-logarithmic compounding progress, the remaining multiple, and the current
-capital stage (`bootstrap`, `compound`, `scale`, `protect`, or
-`objective_reached`). The objective informs agent reasoning but has no authority
-to bypass accounting, evidence, freshness, drawdown, concentration, or cash
-checks.
+The human-facing README still names $100,000 over ten years as the long-run
+dream. That figure is deliberately absent from `fund-context` and the
+operating prompt so it cannot distort trade selection. `fund-show --history`
+can still report progress for humans. The objective has no authority to bypass
+accounting, evidence, freshness, drawdown, concentration, or cash checks.
 
 Dollar exposure and turnover limits remain the bootstrap floors. When
 `scale_limits_with_nav` is enabled, their effective ceilings grow only with
@@ -41,7 +36,12 @@ Positive quantity is long; negative quantity is short. Every money, price, fee, 
 
 ## Simulated fills
 
-Execution prices include adverse slippage. Fees apply symmetrically.
+When a quote includes displayed bids/asks, the fill walks that book. Otherwise
+execution prices include adverse slippage. A monitor stop that was gapped
+through adds extra adverse slippage. Fees apply symmetrically. Stock borrow
+accrues on cover when the position recorded an annual borrow fee. Historical
+packets without book or borrow fields replay with the original last-plus-slippage
+model.
 
 | Side | Inventory rule | Cash change | Realized P&L when closing |
 |:--|:--|:--|:--|
@@ -84,9 +84,9 @@ Each cycle input has two required top-level members, `decision` and `quotes`, pl
 }
 ```
 
-`FundDecision` records stable identities, UTC decision time, `trade` or `hold`, thesis/alternatives/risks, an auditable journal, embedded evidence, and zero or more explicit-side orders. A trade requires orders. A hold forbids orders.
+`FundDecision` records stable identities, UTC decision time, `trade` or `hold`, thesis/alternatives/risks, an auditable journal, embedded evidence, and zero or more explicit-side orders. A trade requires orders. A hold forbids orders. The sizing pass may turn a proposed trade into a hold when every entry is below the edge threshold.
 
-Scheduled cycles require `journal` with the observed market regime, opportunity set considered, portfolio intent, what changed, and lessons applied. Its `hypotheses` list records one current entry for every open or ordered instrument: stance, statement, mechanism, catalysts, falsifiers, horizon, confidence, optional target/invalidation prices, and evidence IDs. Scheduled hypotheses may not exceed 72 hours. A scheduled `hold` is illegal when the prior book is 100% cash; the agent must submit researched short-term orders instead. Historical cycles without those rules remain replayable through accounting. This is concise, decision-relevant rationale—not private chain-of-thought.
+Scheduled cycles require `journal` with the observed market regime, opportunity set considered, portfolio intent, what changed, and lessons applied. Its `hypotheses` list records one current entry for every open or ordered instrument: stance, mechanism, catalysts, falsifiers, horizon, `p_win`, target/invalidation, playbook, driver, and evidence IDs. Scheduled hypotheses may not exceed 72 hours. Cash is allowed only after researched candidates are measured against costs. Historical packets with `confidence` remain replayable. This is concise decision rationale, not private chain-of-thought.
 
 Historical v1 cycles without journals remain replayable. An absent optional journal is omitted from their canonical digest; once a journal is present it is part of the immutable request digest.
 
@@ -94,7 +94,7 @@ Historical v1 cycles without journals remain replayable. An absent optional jour
 
 `FundQuote` retains a quote ID, instrument ID, asset class, Decimal price, UTC source/observation time, source name/URL, and `open` or `settled` status. Every open position and order needs a fresh quote.
 
-`FundOrder` records instrument, asset class, side, positive fractional quantity, rationale, and evidence IDs. Sides have exact meanings: `buy`, `sell`, `short`, and `cover` are not interchangeable.
+`FundOrder` records instrument, asset class, side, belief fields, rationale, and evidence IDs. Entry quantity may be null and is ignored by belief sizing; exit inventory stays explicit. Sides have exact meanings: `buy`, `sell`, `short`, and `cover` are not interchangeable.
 
 The normalized objects are stored verbatim in an immutable cycle row. Their canonical SHA-256 digest is included in the event chain and recomputed during verification.
 
@@ -103,8 +103,8 @@ The normalized objects are stored verbatim in an immutable cycle row. Their cano
 - A fresh fund has one immutable capitalization event and no positions.
 - Every cycle stores the normalized decision, embedded evidence, quotes, simulated fills, resulting state, and a SHA-256 digest.
 - Scheduled cycles require a structured journal and a refreshed hypothesis for every open or ordered instrument.
-- Scheduled cycles reject an all-cash hold and reject hypotheses with a horizon longer than 72 hours. Accounting replay of older cycles does not re-apply those agent gates.
-- Every completed cycle also stores a structured audit sidecar: risk-check outcomes (observed value vs limit), quote freshness, fee totals, mandate digest, Edgecraft version, optional model/prompt metadata, and the input file SHA-256.
+- Scheduled cycles reject hypotheses beyond 72 hours. They allow cash only after the sizing audit records why proposed entries missed the after-cost edge threshold.
+- Every completed cycle also stores a structured audit sidecar: risk-check outcomes (observed value vs limit), quote freshness, fee totals, mandate digest, Edgecraft version, optional model/prompt metadata, input file SHA-256, sleeve weights, and the sizing audit.
 - Hash-chained `cycle_completed` events retain the full decision, quotes, fills, settlements, state, and audit sidecar—not only a summary—so the event stream alone is a complete audit trail.
 - `(fund_id, cycle_key)` is unique. An identical replay returns the prior result; a different payload under that key is rejected.
 - Cycles apply in one SQLite transaction. Validation failure persists no cycle and changes no balance.

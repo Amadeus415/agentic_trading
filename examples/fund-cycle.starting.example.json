@@ -24,6 +24,9 @@
           "falsifiers": ["Example price falls below 450"],
           "expected_horizon_hours": 48,
           "confidence": "0.55",
+          "p_win": "0.55",
+          "playbook_id": "macro_reaction",
+          "driver": "broad-equity",
           "target_price": "550",
           "invalidation_price": "450",
           "evidence_ids": ["example-stock"]
@@ -37,6 +40,9 @@
           "falsifiers": ["Example price falls below 85000"],
           "expected_horizon_hours": 24,
           "confidence": "0.50",
+          "p_win": "0.50",
+          "playbook_id": "crypto_momentum",
+          "driver": "crypto-beta",
           "target_price": "120000",
           "invalidation_price": "85000",
           "evidence_ids": ["example-crypto"]
@@ -50,6 +56,9 @@
           "falsifiers": ["Example contract falls below 0.35"],
           "expected_horizon_hours": 48,
           "confidence": "0.50",
+          "p_win": "0.50",
+          "playbook_id": "resolution_arbitrage",
+          "driver": "event-resolution",
           "target_price": "0.70",
           "invalidation_price": "0.35",
           "evidence_ids": ["example-prediction"]

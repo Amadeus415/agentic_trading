@@ -1,0 +1,13 @@
+{
+  "id": "macro_reaction",
+  "version": 1,
+  "thesis": "A scheduled macro release that deviates from consensus can create a short-lived, mechanically explainable cross-asset reaction.",
+  "universe": ["liquid index ETFs", "native crypto", "event contracts"],
+  "trigger": "Scheduled release with a pre-written directional map and a material consensus deviation.",
+  "entry_rule": "Trade only the pre-mapped reaction after the authoritative release is public.",
+  "exit_rule": "Price invalidation, reversal of the mapped mechanism, target, or 24-hour time stop.",
+  "sizing_hints": "One driver budget across all instruments expressing the same event.",
+  "required_evidence_types": ["authoritative release", "consensus", "code-owned quote"],
+  "status": "incubating",
+  "prompt_path": "prompt.md"
+}

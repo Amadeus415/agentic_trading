@@ -1,4 +1,4 @@
-.PHONY: install test lint security demo fund-init fund-context fund-cycle-key fund-show fund-verify fund-visualize scheduled-cycle validate validate-lab dashboard
+.PHONY: install test lint security demo fund-init fund-context fund-cycle-key fund-show fund-report fund-report-file fund-verify fund-visualize fund-monitor fund-alerts scheduled-cycle validate validate-lab dashboard
 
 FUND_CONFIG ?= examples/fund.mandate.aggressive.json
 FUND_LEDGER ?= state/edgecraft-aggressive.db
@@ -31,6 +31,18 @@ fund-cycle-key:
 
 fund-show:
 	uv run edgecraft fund-show --config $(FUND_CONFIG) --ledger $(FUND_LEDGER) --history
+
+fund-report:
+	uv run edgecraft fund-report --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
+
+fund-report-file:
+	uv run edgecraft fund-report --config $(FUND_CONFIG) --ledger $(FUND_LEDGER) --output state/fund-report.json
+
+fund-monitor:
+	uv run edgecraft monitor --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
+
+fund-alerts:
+	uv run edgecraft fund-alerts --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
 
 fund-verify:
 	uv run edgecraft fund-verify --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)

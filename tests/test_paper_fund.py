@@ -14,6 +14,7 @@ from edgecraft.fund_brain import build_fund_brain
 from edgecraft.paper_fund import (
     MAX_SCHEDULED_HYPOTHESIS_HORIZON_HOURS,
     AssetClass,
+    BookLevel,
     CycleRuntimeMetadata,
     DecisionAction,
     DecisionJournal,
@@ -1373,6 +1374,9 @@ def test_scheduled_journal_requires_hypothesis_for_every_live_instrument(tmp_pat
                 falsifiers=("guidance cut",),
                 expected_horizon_hours=48,
                 confidence=Decimal("0.6"),
+                p_win=Decimal("0.6"),
+                playbook_id="post_earnings_drift",
+                driver="earnings",
                 target_price=Decimal("120"),
                 invalidation_price=Decimal("90"),
                 evidence_ids=("e1",),
@@ -1421,7 +1425,7 @@ def _idle_journal() -> DecisionJournal:
     )
 
 
-def test_scheduled_all_cash_hold_is_rejected(tmp_path: Path) -> None:
+def test_scheduled_all_cash_hold_is_allowed_when_journaled(tmp_path: Path) -> None:
     hold = _decision(
         "idle-hold",
         action=DecisionAction.HOLD,
@@ -1429,12 +1433,10 @@ def test_scheduled_all_cash_hold_is_rejected(tmp_path: Path) -> None:
     ).model_copy(update={"journal": _idle_journal()})
     with _ledger(tmp_path) as ledger:
         ledger.initialize(FUND_ID, _mandate())
-        with pytest.raises(PaperFundValidationError, match="idle-cash hold"):
-            validate_decision_journal(hold, ledger.get_state(FUND_ID))
-        with pytest.raises(PaperFundValidationError, match="idle-cash hold"):
-            ledger.execute_cycle(hold, [], require_brain_journal=True)
-        assert ledger.get_state(FUND_ID).cycle_count == 0
-        assert ledger.list_events(FUND_ID)[-1].event_type == "cycle_rejected"
+        validate_decision_journal(hold, ledger.get_state(FUND_ID))
+        result = ledger.execute_cycle(hold, [], require_brain_journal=True)
+        assert result.state.cycle_count == 1
+        assert ledger.list_events(FUND_ID)[-1].event_type == "cycle_completed"
 
 
 def test_scheduled_hold_remains_valid_while_positions_are_open(tmp_path: Path) -> None:
@@ -1448,6 +1450,9 @@ def test_scheduled_hold_remains_valid_while_positions_are_open(tmp_path: Path) -
         falsifiers=("guidance cut",),
         expected_horizon_hours=24,
         confidence=Decimal("0.6"),
+        p_win=Decimal("0.6"),
+        playbook_id="post_earnings_drift",
+        driver="earnings",
         target_price=Decimal("120"),
         invalidation_price=Decimal("90"),
         evidence_ids=("e1",),
@@ -1492,6 +1497,76 @@ def test_scheduled_hold_remains_valid_while_positions_are_open(tmp_path: Path) -
         assert result.state.positions[0].instrument_id == "AAPL"
 
 
+def test_scheduled_hypotheses_require_p_win_driver_and_playbook(tmp_path: Path) -> None:
+    evidence = _ev("e1", instruments=("AAPL",))
+    journal = DecisionJournal(
+        market_regime="Test regime",
+        opportunity_set="AAPL",
+        portfolio_intent="Open",
+        what_changed="First cycle",
+        hypotheses=(
+            FundHypothesis(
+                instrument_id="AAPL",
+                stance=HypothesisStance.LONG,
+                statement="AAPL may rise",
+                mechanism="Earnings growth can raise value",
+                catalysts=("earnings",),
+                falsifiers=("guidance cut",),
+                expected_horizon_hours=24,
+                confidence=Decimal("0.6"),
+                target_price=Decimal("120"),
+                invalidation_price=Decimal("90"),
+                evidence_ids=("e1",),
+            ),
+        ),
+    )
+    decision = _decision(
+        "bare-confidence",
+        orders=(_buy("AAPL", "1", AssetClass.STOCK),),
+        evidence=(evidence,),
+    ).model_copy(update={"journal": journal})
+    with _ledger(tmp_path) as ledger:
+        ledger.initialize(FUND_ID, _mandate())
+        with pytest.raises(PaperFundValidationError, match="p_win, driver, and playbook_id"):
+            ledger.execute_cycle(
+                decision,
+                [_quote("AAPL", "100", AssetClass.STOCK)],
+                require_brain_journal=True,
+            )
+
+
+def test_prediction_fill_walks_displayed_book_when_present(tmp_path: Path) -> None:
+    evidence = _ev("e1", instruments=("polymarket:1:YES",))
+    quote = FundQuote(
+        quote_id="q-book",
+        instrument_id="polymarket:1:YES",
+        asset_class=AssetClass.PREDICTION,
+        price=Decimal("0.40"),
+        observed_at=AS_OF - timedelta(minutes=1),
+        source_timestamp=AS_OF - timedelta(minutes=1),
+        source_name="clob",
+        source_url="https://example.test/book",
+        asks=(
+            BookLevel(price="0.41", size="10"),
+            BookLevel(price="0.45", size="100"),
+        ),
+    )
+    with _ledger(tmp_path) as ledger:
+        ledger.initialize(FUND_ID, _mandate())
+        result = ledger.execute_cycle(
+            _decision(
+                "book-walk",
+                orders=(_buy("polymarket:1:YES", "50", AssetClass.PREDICTION),),
+                evidence=(evidence,),
+            ),
+            [quote],
+        )
+    fill = result.fills[0]
+    assert fill.execution_price == Decimal("0.442")
+    assert fill.quote_price == Decimal("0.40")
+    assert result.state.positions[0].opened_at is None
+
+
 def test_scheduled_hypothesis_horizon_must_be_short_term(tmp_path: Path) -> None:
     evidence = _ev("e1", instruments=("AAPL",))
     journal = DecisionJournal(
@@ -1509,6 +1584,9 @@ def test_scheduled_hypothesis_horizon_must_be_short_term(tmp_path: Path) -> None
                 falsifiers=("guidance cut",),
                 expected_horizon_hours=MAX_SCHEDULED_HYPOTHESIS_HORIZON_HOURS + 1,
                 confidence=Decimal("0.6"),
+                p_win=Decimal("0.6"),
+                playbook_id="post_earnings_drift",
+                driver="earnings",
                 target_price=Decimal("120"),
                 invalidation_price=Decimal("90"),
                 evidence_ids=("e1",),

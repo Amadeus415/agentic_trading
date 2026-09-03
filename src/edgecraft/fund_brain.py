@@ -244,9 +244,10 @@ def _adaptive_prompts(
     activity: FundActivityMemory,
 ) -> tuple[str, ...]:
     prompts = [
-        "This is a short-term active book: express researched 4-72h views with orders.",
-        "A sourced catalyst, target, invalidation, and size is a valid thesis; "
-        "lack of a calibrated probability model is not a hold reason.",
+        "This is a short-term active book: scan every active playbook and express every "
+        "positive after-cost 4-72h edge with an order.",
+        "State p_win, target, invalidation, driver, and playbook. Uncertainty is not itself "
+        "a reason to hold; quantify it and let deterministic sizing decide.",
         "U.S. cash-equity close is not a reason to stay in cash; native crypto "
         "and prediction markets remain in scope.",
         "Re-test every open position against its current falsifiers before adding risk.",
@@ -255,14 +256,16 @@ def _adaptive_prompts(
     if activity.idle_cash:
         prompts.insert(
             0,
-            "The book is 100% cash. A scheduled hold will be rejected. Submit "
-            "researched short-term buy/sell/short/cover orders with fresh quotes.",
+            "The book is 100% cash. Search all active playbooks aggressively and submit every "
+            "belief that clears estimated costs; cash is valid only when each candidate's "
+            "logged expected value is below the deterministic threshold.",
         )
         if activity.consecutive_all_cash_holds:
             prompts.insert(
                 1,
                 f"The last {activity.consecutive_all_cash_holds} completed cycle(s) "
-                "were all-cash holds. Idle cash is a process miss, not prudence.",
+                "were all-cash holds. Broaden the scan and audit rejected candidates for "
+                "research timidity without manufacturing a trade.",
             )
     losing = [item.instrument_id for item in instruments if item.losing_exit_count > 0]
     if losing:

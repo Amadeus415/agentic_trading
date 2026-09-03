@@ -1,0 +1,1 @@
+Find prediction contracts expiring within 72 hours whose exact settlement rule can be checked against a named public source. Read the rule literally. Never replace its authoritative source with a correlated market price. Return p_win, target, invalidation, horizon, driver, and direct evidence; deterministic code owns size.

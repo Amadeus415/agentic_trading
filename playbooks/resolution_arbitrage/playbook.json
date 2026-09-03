@@ -1,0 +1,13 @@
+{
+  "id": "resolution_arbitrage",
+  "version": 1,
+  "thesis": "Near-expiry prediction contracts can be mispriced when an authoritative public datum already determines or tightly constrains settlement.",
+  "universe": ["prediction contracts expiring within 72 hours"],
+  "trigger": "The exact settlement rule maps to a named, queryable public source.",
+  "entry_rule": "Trade only when authoritative data and the exact rule imply probability above the after-cost threshold.",
+  "exit_rule": "Settlement, rule invalidation, target, stop, or 72-hour time stop.",
+  "sizing_hints": "Use binary fractional Kelly and never substitute a context source for the settlement source.",
+  "required_evidence_types": ["exact settlement rule", "authoritative settlement source", "CLOB depth"],
+  "status": "incubating",
+  "prompt_path": "prompt.md"
+}
