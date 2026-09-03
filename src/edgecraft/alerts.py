@@ -72,5 +72,5 @@ def send_webhook(url: str, alerts: list[dict[str, Any]]) -> None:
         headers={"Content-Type": "application/json", "User-Agent": "Edgecraft-paper-fund/1.0"},
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=15):  # noqa: S310
+    with urllib.request.urlopen(request, timeout=15):  # nosec B310  # noqa: S310
         return

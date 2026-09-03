@@ -33,7 +33,7 @@ def _get_json(url: str) -> Any:
     if parsed.scheme != "https":
         raise MarketDataError("market-data URLs must use HTTPS")
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request, timeout=15) as response:  # noqa: S310
+    with urllib.request.urlopen(request, timeout=15) as response:  # nosec B310  # noqa: S310
         return json.loads(response.read().decode("utf-8"))
 
 
@@ -42,7 +42,7 @@ def _get_text(url: str) -> str:
     if parsed.scheme != "https":
         raise MarketDataError("market-data URLs must use HTTPS")
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request, timeout=15) as response:  # noqa: S310
+    with urllib.request.urlopen(request, timeout=15) as response:  # nosec B310  # noqa: S310
         return response.read().decode("utf-8")
 
 
