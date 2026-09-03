@@ -11,13 +11,23 @@ Edgecraft is a trading experiment, not a brokerage product. Several times a week
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-0b1220.svg)](LICENSE)
 [![Money: fake](https://img.shields.io/badge/money-100%25%20fake-22c55e)](docs/CODEX_SCHEDULED_TASK.md)
 
-**[Starting prompt](docs/FUND_STARTING_PROMPT.md)** · **[Scheduled task](docs/CODEX_SCHEDULED_TASK.md)** · **[Accounting contract](docs/FUND_ACCOUNTING.md)** · **[Dashboard](#dashboard)**
+**[Design](docs/DESIGN.md)** · **[Operations](docs/OPERATIONS.md)** · **[Scheduled task](docs/CODEX_SCHEDULED_TASK.md)** · **[Accounting contract](docs/FUND_ACCOUNTING.md)** · **[Dashboard](#dashboard)**
 
 </div>
 
 ![Edgecraft paper fund value since the $1,000 start](assets/fund-progress.svg)
 
 The chart is regenerated from the verified ledger after every scheduled cycle. The solid line is **fund value** (NAV: cash plus marked positions). The dashed line is the original **$1,000**. It is a public snapshot of this experiment, not a brokerage statement or a claim of skill.
+
+| Verified ledger at 2026-09-03 | Value |
+|:--|--:|
+| NAV | $916.93 |
+| Closed round trips | 13 |
+| After-cost expectancy | −$6.17 / trade |
+| Hit rate | 46.2% |
+| Confidence calibration | Measured; sample still too small |
+
+Run `edgecraft fund-report` for the full calibration table, playbook/model cuts, benchmarks, and sparse-mark caveats. These numbers come from the append-only ledger; they are not a performance claim.
 
 > [!IMPORTANT]
 > Edgecraft cannot place a real order. Models may propose; typed policy and accounting code authorize. The agent cannot inject cash, reset losses, edit history, or bypass the risk envelope.
@@ -42,14 +52,14 @@ In one sentence: the agent proposes a sourced portfolio decision; typed code app
 
 ## The experiment
 
-The bankroll is deposited **once**. There is no daily top-up and no reset after losses. The research objective is to compound $1,000 into $100,000 over ten years — about 58.5% annualized as a target, not a promise.
+The bankroll is deposited **once**. There is no daily top-up and no reset after losses. $100,000 remains the long-run dream shown to humans; it is deliberately absent from the operating prompt so it cannot distort trade selection.
 
 The live book is `edgecraft-aggressive` (`examples/fund.mandate.aggressive.json`). It is a high-tempo 4–72 hour trader:
 
 - long or short stocks, native crypto, and binary prediction contracts
 - any syntactically valid instrument; there is no symbol whitelist
 - several independent high-conviction positions when they exist, not a pile of weak ones
-- scheduled cycles may not sit in 100% cash
+- four focused playbooks are scanned every session; cash is allowed only after candidates fail the after-cost sizing gate
 
 Every order still needs a fresh sourced price, cited evidence, valid inventory, and room inside the envelope below. The original conservative book stays frozen at `state/edgecraft-fund.db`.
 
@@ -100,7 +110,7 @@ That example is fixture data, not a current market decision.
 
 ## Operate the scheduled book
 
-The first run uses the [starting prompt](docs/FUND_STARTING_PROMPT.md): empty $1,000 book, researched opening trade required. Later runs use the [scheduled task](docs/CODEX_SCHEDULED_TASK.md): mark every open position, revisit the thesis, then trade or hold without a human approval step. A scheduled hold is legal only while positions are still open.
+The first run uses the [starting prompt](docs/FUND_STARTING_PROMPT.md). Later runs use the [scheduled task](docs/CODEX_SCHEDULED_TASK.md): snapshot code-owned marks, scan every playbook, state beliefs, then let deterministic sizing trade or hold without human approval. Production runs from a clean local clone using subscription-backed Codex Scheduled Tasks; after a push to `main`, the next task fast-forwards the runtime before it acts. See [operations](docs/OPERATIONS.md).
 
 ```bash
 uv run edgecraft fund-cycle-key
@@ -122,7 +132,13 @@ CLI defaults are the aggressive mandate and `state/edgecraft-aggressive.db`. Pas
 | `fund-validate` | Parse the checked-in mandate |
 | `fund-init` | Capitalize the fund exactly once |
 | `fund-context` | Agent packet: state, brain, JSON schema |
+| `fund-snapshot` | Fetch and cache code-owned public marks |
 | `fund-run` | Apply one researched decision |
+| `monitor` | Enforce target, stop, settlement, and time exits without a model |
+| `fund-report` | After-cost attribution, calibration, and benchmarks |
+| `fund-report-file` | Refresh the canonical JSON consumed by the dashboard |
+| `fund-postmortem` / `fund-evolve` | Typed, evidence-gated playbook evolution |
+| `fund-alerts` | Drawdown, rejection, accounting, and chain health |
 | `fund-show` | Inspect the book |
 | `fund-cycle` | One cycle packet (`--audit` for event gaps) |
 | `fund-verify` | Hash-chain and accounting replay |
@@ -149,27 +165,37 @@ See [dashboard/README.md](dashboard/README.md).
 - Replaying the same cycle and payload is a no-op; changing a used cycle key is rejected.
 - The exact normalized decision, evidence, quotes, fills, state, and chained events are stored in SQLite. Immutable-table triggers reject update and delete.
 
-See [the accounting contract](docs/FUND_ACCOUNTING.md) for formulas, the decision packet, and invariants.
+See [the design](docs/DESIGN.md) for how the loops, types, and modules fit, and [the accounting contract](docs/FUND_ACCOUNTING.md) for formulas, the decision packet, and invariants.
 
 ## Repository map
 
 ```text
 src/edgecraft/
 ├── paper_fund.py           # typed models, accounting, risk, SQLite audit ledger
+├── sizing.py               # fractional Kelly from beliefs, not model quantities
+├── monitor.py              # code-only stops, targets, and time exits
+├── marketdata/             # public quote providers and disk cache
+├── attribution.py          # after-cost expectancy, calibration, benchmarks
+├── playbooks.py            # versioned playbook specs and research prompts
+├── allocator.py            # sleeve weights from after-cost records
+├── evolution.py            # typed postmortems and lifecycle transitions
 ├── fund_brain.py           # compact outcomes, position hypotheses, and lessons
 ├── fund_visualization.py   # GitHub-safe SVG of verified fund value
 ├── schedule.py             # UTC session slots and cycle keys
 ├── cli.py                  # fund commands plus optional research-lab commands
-├── growth.py               # deterministic growth objective and capital stages
 └── observability.py        # structured JSON logging
 
+playbooks/                                  # starting sleeves and research prompts
 examples/fund.mandate.aggressive.json       # active $1,000 aggressive mandate
 examples/fund.mandate.json                  # retired conservative fixture
 examples/fund-cycle.starting.example.json   # executable three-market fixture
 scripts/run_scheduled_cycle.sh              # fixed session paper apply path
+scripts/prepare_local_runtime.sh             # clean pull, sync, verify, report
+scripts/run_local_monitor.sh                 # model-free hourly safety loop
+scripts/install_local_monitor.sh             # macOS LaunchAgent installer
 scripts/deny_broker_tools.py                # fail-closed fence against broker tools
-tests/test_paper_fund.py                    # accounting and failure invariants
-docs/                                       # accounting contract and agent prompts
+docs/DESIGN.md                              # how the paper fund actually works
+docs/PLAN.md                                # roadmap from audited simulator to evolving fund
 ```
 
 ## Research lab
