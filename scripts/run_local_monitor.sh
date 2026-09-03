@@ -11,7 +11,7 @@ if [[ "${EDGECRAFT_LEDGER_LOCKED:-0}" != "1" ]] && command -v lockf >/dev/null 2
   exec lockf -t 300 -k state/.paper-ledger.lock "$0" "$@"
 fi
 
-RUN=(uv run --no-sync edgecraft)
+RUN=("$ROOT/.venv/bin/edgecraft")
 CONFIG="examples/fund.mandate.aggressive.json"
 LEDGER="state/edgecraft-aggressive.db"
 
