@@ -45,7 +45,7 @@ lab = [
   "yfinance>=0.2.65,<2",
 ]
 dev = [
-  "pytest>=8.4,<10",
+  "pytest>=9.0.3,<10",
   "pytest-cov>=6.2,<8",
   "ruff>=0.12,<1",
   "numpy>=2.2,<3",
