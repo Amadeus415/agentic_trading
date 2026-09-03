@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, Brain, LayoutDashboard, Menu, Receipt } from "lucide-react";
+import { BookOpen, Brain, ChartNoAxesCombined, LayoutDashboard, Menu, Receipt } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import {
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/trades", label: "Trades", icon: Receipt },
+  { href: "/attribution", label: "Attribution", icon: ChartNoAxesCombined },
   { href: "/cycles", label: "Cycles", icon: BookOpen },
   { href: "/brain", label: "Brain", icon: Brain },
 ] as const;
@@ -90,7 +91,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const pageMeta = pathname.startsWith("/trades")
     ? { title: "Trades", micro: "EXECUTION" }
-    : pathname.startsWith("/cycles/")
+    : pathname.startsWith("/attribution")
+      ? { title: "Attribution", micro: "EDGE" }
+      : pathname.startsWith("/cycles/")
       ? { title: "Cycle", micro: "DECISION" }
       : pathname.startsWith("/cycles")
         ? { title: "Cycles", micro: "JOURNAL" }

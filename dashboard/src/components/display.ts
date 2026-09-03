@@ -49,8 +49,6 @@ export function stanceBadgeClass(stance: string): string {
       return "border-amber-500/30 bg-amber-500/15 text-amber-300";
     case "exit":
       return "border-danger/30 bg-danger/15 text-danger";
-    case "watch":
-      return "border-border bg-muted text-muted-foreground";
     default:
       return "border-border bg-secondary text-secondary-foreground";
   }

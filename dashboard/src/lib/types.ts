@@ -2,8 +2,7 @@
 
 export type OrderSide = "buy" | "sell" | "short" | "cover" | "settle";
 export type AssetClass = "stock" | "crypto" | "prediction" | string;
-export type DecisionAction = "trade" | "hold" | string;
-export type HypothesisStance = "long" | "short" | "exit" | "watch" | string;
+export type HypothesisStance = "long" | "short" | "exit" | string;
 export type QuoteStatus = "open" | "settled" | string;
 
 /** Row from the funds table. */
@@ -99,6 +98,9 @@ export interface FundHypothesis {
   falsifiers: string[];
   expected_horizon_hours: number;
   confidence: string;
+  p_win?: string | null;
+  playbook_id?: string | null;
+  driver?: string | null;
   target_price: string | null;
   invalidation_price: string | null;
   evidence_ids: string[];
