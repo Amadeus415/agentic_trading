@@ -115,8 +115,22 @@ def size_decision(
         item.instrument_id: item
         for item in (decision.journal.hypotheses if decision.journal is not None else ())
     }
+    enforce_sleeves = sleeve_weights is not None
     sleeve_weights = sleeve_weights or {}
     driver_used: dict[str, Decimal] = {}
+    sleeve_used: dict[str, Decimal] = {}
+    instrument_used: dict[str, Decimal] = {}
+    # Count the existing book before admitting new risk. Exits deliberately do
+    # not release budget until the next cycle, so order ordering cannot bypass caps.
+    for position in state.positions:
+        mark = quote_by_id.get(position.instrument_id)
+        price = mark.price if mark else (position.mark_price or position.average_entry)
+        exposure = abs(position.quantity * price)
+        driver = position.driver or "untagged"
+        sleeve = position.playbook_id or "unassigned"
+        driver_used[driver] = driver_used.get(driver, ZERO) + exposure
+        sleeve_used[sleeve] = sleeve_used.get(sleeve, ZERO) + exposure
+        instrument_used[position.instrument_id] = exposure
     accepted: list[dict[str, Any]] = []
     dropped: list[dict[str, Any]] = []
     orders: list[FundOrder] = []
@@ -147,7 +161,7 @@ def size_decision(
         calibrated = calibration_haircut(
             p_win, calibration, minimum_count=config.calibration_minimum_count
         )
-        trading_cost = (mandate.fee_bps + mandate.slippage_bps * Decimal("2")) / BPS
+        trading_cost = (mandate.fee_bps + mandate.slippage_bps) * Decimal("2") / BPS
         minimum_edge = config.minimum_edge_bps / BPS
         if order.asset_class is AssetClass.PREDICTION:
             if order.side is OrderSide.BUY:
@@ -185,17 +199,38 @@ def size_decision(
             full_kelly = max(ZERO, (payoff_ratio * calibrated - (ONE - calibrated)) / payoff_ratio)
         weight = full_kelly * config.fractional_kelly
         playbook_id = order.playbook_id or (hypothesis.playbook_id if hypothesis else None)
+        driver = order.driver or (hypothesis.driver if hypothesis else None) or "untagged"
+        if position and (
+            playbook_id != position.playbook_id or driver != (position.driver or "untagged")
+        ):
+            dropped.append(
+                {"instrument_id": order.instrument_id, "reason": "existing_position_attribution"}
+            )
+            continue
+        if enforce_sleeves and playbook_id not in sleeve_weights:
+            dropped.append({"instrument_id": order.instrument_id, "reason": "unknown_playbook"})
+            continue
         if playbook_id in sleeve_weights:
             weight = min(weight, sleeve_weights[playbook_id])
         weight = min(weight, mandate.max_single_position_weight)
         if order.asset_class is AssetClass.PREDICTION:
             weight = min(weight, config.maximum_prediction_weight)
-        driver = order.driver or (hypothesis.driver if hypothesis else None) or "untagged"
         remaining_driver = max(
             ZERO,
             state.nav * config.maximum_driver_weight - driver_used.get(driver, ZERO),
         )
-        notional = min(state.nav * weight, remaining_driver)
+        position_limit = mandate.max_single_position_weight
+        if order.asset_class is AssetClass.PREDICTION:
+            position_limit = min(position_limit, config.maximum_prediction_weight)
+        remaining_position = max(
+            ZERO, state.nav * position_limit - instrument_used.get(order.instrument_id, ZERO)
+        )
+        remaining_sleeve = (
+            max(ZERO, state.nav * sleeve_weights[playbook_id] - sleeve_used.get(playbook_id, ZERO))
+            if enforce_sleeves
+            else state.nav
+        )
+        notional = min(state.nav * weight, remaining_driver, remaining_sleeve, remaining_position)
         quantity = _round_quantity(notional / quote.price, order.asset_class)
         if quantity <= ZERO:
             dropped.append(
@@ -204,6 +239,11 @@ def size_decision(
             continue
         actual_notional = quantity * quote.price
         driver_used[driver] = driver_used.get(driver, ZERO) + actual_notional
+        sleeve = playbook_id or "unassigned"
+        sleeve_used[sleeve] = sleeve_used.get(sleeve, ZERO) + actual_notional
+        instrument_used[order.instrument_id] = (
+            instrument_used.get(order.instrument_id, ZERO) + actual_notional
+        )
         orders.append(
             order.model_copy(
                 update={

@@ -134,3 +134,38 @@ def test_fund_cycle_key_prints_current_session(capsys) -> None:
 
     main(["fund-cycle-key", "--plain"])
     assert capsys.readouterr().out.strip() == expected
+
+
+def test_evolved_prompt_reaches_next_research_context_without_changing_parent(
+    tmp_path, capsys
+) -> None:
+    common = ["--config", str(CONFIG), "--ledger", str(tmp_path / "fund.db")]
+    _run(["fund-init", *common], capsys)
+    before = _run(["fund-context", *common], capsys)
+    review = _run(["fund-postmortem", *common], capsys)
+    review["proposals"] = [
+        {
+            "proposal_id": "volume-test",
+            "kind": "research_prompt_edit",
+            "playbook_id": "crypto_momentum",
+            "rationale": "Check volume confirmation.",
+            "patch": {"prompt": "Require independently sourced volume confirmation."},
+            "backtestable": False,
+        }
+    ]
+    review_path = tmp_path / "review.json"
+    review_path.write_text(json.dumps(review))
+    result = _run(["fund-evolve", *common, "--postmortem", str(review_path)], capsys)
+    after = _run(["fund-context", *common], capsys)
+    candidate_id = result["transitions"][0]["playbook_id"]
+    candidate = next(book for book in after["playbooks"] if book["spec"]["id"] == candidate_id)
+    assert candidate["prompt"] == review["proposals"][0]["patch"]["prompt"]
+    assert all(book in after["playbooks"] for book in before["playbooks"])
+    assert (
+        next(sleeve for sleeve in after["sleeves"] if sleeve["playbook_id"] == candidate_id)[
+            "weight"
+        ]
+        == "0"
+    )
+    assert after["review"]["completed_reviews"] == 1
+    assert result["verification"]["ok"]

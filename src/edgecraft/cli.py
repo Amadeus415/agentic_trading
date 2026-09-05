@@ -46,7 +46,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _fund_parent() -> argparse.ArgumentParser:
     parent = argparse.ArgumentParser(add_help=False)
-    parent.add_argument("--config", required=True, type=Path)
+    parent.add_argument(
+        "--config", default=Path("examples/fund.mandate.aggressive.json"), type=Path
+    )
     parent.add_argument("--ledger", default=DEFAULT_FUND_LEDGER)
     return parent
 
@@ -360,8 +362,7 @@ def _fund_init(args: argparse.Namespace) -> dict[str, Any]:
 def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
     from edgecraft.allocator import allocate_sleeves
     from edgecraft.attribution import build_fund_report
-    from edgecraft.evolution import latest_playbook_statuses
-    from edgecraft.playbooks import load_playbooks
+    from edgecraft.evolution import effective_playbooks, latest_playbook_statuses
 
     fund_id, mandate = _load_fund_config(args.config)
     with PaperFundLedger(args.ledger) as ledger:
@@ -370,7 +371,7 @@ def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
         brain = build_fund_brain(ledger, fund_id)
         report = build_fund_report(ledger, fund_id, mandate)
         status_overrides = latest_playbook_statuses(ledger, fund_id)
-    playbooks = load_playbooks()
+        playbooks = effective_playbooks(ledger, fund_id)
     allocations = allocate_sleeves(
         playbooks,
         report["round_trips"],
@@ -398,6 +399,7 @@ def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
         "performance": _pnl_snapshot(initial, state.nav),
         "recent_cycles": cycles,
         "brain": brain.model_dump(mode="json"),
+        "review": report["review"],
         "playbooks": [item.model_dump(mode="json") for item in playbooks],
         "sleeves": [
             {
@@ -587,8 +589,7 @@ def _fund_run(args: argparse.Namespace) -> dict[str, Any]:
     if args.size_beliefs:
         from edgecraft.allocator import allocate_sleeves
         from edgecraft.attribution import build_fund_report
-        from edgecraft.evolution import latest_playbook_statuses
-        from edgecraft.playbooks import load_playbooks
+        from edgecraft.evolution import effective_playbooks, latest_playbook_statuses
         from edgecraft.sizing import size_decision
 
         with PaperFundLedger(args.ledger) as sizing_ledger:
@@ -596,8 +597,9 @@ def _fund_run(args: argparse.Namespace) -> dict[str, Any]:
             fund_report = build_fund_report(sizing_ledger, fund_id, mandate)
             calibration = fund_report["calibration"]
             status_overrides = latest_playbook_statuses(sizing_ledger, fund_id)
+            playbooks = effective_playbooks(sizing_ledger, fund_id)
         allocations = allocate_sleeves(
-            load_playbooks(),
+            playbooks,
             fund_report["round_trips"],
             status_overrides=status_overrides,
         )
@@ -970,10 +972,10 @@ def _fund_evolve(args: argparse.Namespace) -> dict[str, Any]:
     from edgecraft.evolution import (
         Postmortem,
         apply_postmortem,
+        effective_playbooks,
         latest_playbook_statuses,
         reconcile_allocator_lifecycle,
     )
-    from edgecraft.playbooks import load_playbooks
 
     fund_id, mandate = _load_fund_config(args.config)
     postmortem = Postmortem.model_validate_json(args.postmortem.read_text(encoding="utf-8"))
@@ -983,7 +985,7 @@ def _fund_evolve(args: argparse.Namespace) -> dict[str, Any]:
         transitions = apply_postmortem(ledger, postmortem)
         report = build_fund_report(ledger, fund_id, mandate)
         allocations = allocate_sleeves(
-            load_playbooks(),
+            effective_playbooks(ledger, fund_id),
             report["round_trips"],
             status_overrides=latest_playbook_statuses(ledger, fund_id),
         )

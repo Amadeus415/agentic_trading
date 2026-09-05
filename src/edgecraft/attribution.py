@@ -357,6 +357,8 @@ def build_fund_report(
     ledger: PaperFundLedger, fund_id: str, mandate: FundMandate
 ) -> dict[str, Any]:
     """Build the read-only performance and attribution report used by CLI/UI."""
+    from edgecraft.evolution import latest_playbook_statuses, review_status
+
     rows = build_attribution(ledger, fund_id)
     cycles = ledger.list_full_cycles(fund_id)
     trades = _round_trips(cycles)
@@ -387,6 +389,8 @@ def build_fund_report(
         "schema_version": "edgecraft.fund-report.v1",
         "fund_id": fund_id,
         "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "review": review_status(ledger, fund_id, trades),
+        "playbook_statuses": latest_playbook_statuses(ledger, fund_id),
         "summary": {
             **_aggregate_trades(trades),
             "hypotheses": len(rows),
@@ -424,15 +428,8 @@ def build_fund_report(
         "attribution": rows,
         "round_trips": trades,
         "graduation": {
-            "eligible": all(
-                (
-                    len(trades) >= 200,
-                    expectancy_low is not None and expectancy_low > ZERO,
-                    sharpe is not None and Decimal(sharpe) > ONE,
-                    max_calibration_error < Decimal("0.10"),
-                    cost_share is not None and cost_share < Decimal("0.20"),
-                )
-            ),
+            "eligible": False,
+            "reason": "Live readiness is not established: daily total-return benchmarking, execution realism, and complete operating costs are still required.",
             "closed_trades_200": len(trades) >= 200,
             "expectancy_ci_above_zero": expectancy_low is not None and expectancy_low > ZERO,
             "sharpe_above_one": sharpe is not None and Decimal(sharpe) > ONE,

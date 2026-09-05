@@ -12,6 +12,7 @@ from edgecraft.paper_fund import (
     FundHypothesis,
     FundMandate,
     FundOrder,
+    FundPosition,
     FundQuote,
     FundState,
     HypothesisStance,
@@ -190,4 +191,64 @@ def test_calibration_haircut_can_drop_an_overconfident_trade() -> None:
         calibration=({"bucket": "60-70%", "count": 5, "realized_win_rate": "0.20"},),
     )
     assert result.decision.action is DecisionAction.HOLD
+    assert result.dropped[0]["reason"] == "below_edge_threshold"
+
+
+def test_sleeve_budget_is_shared_across_orders_and_existing_inventory() -> None:
+    state = _state().model_copy(
+        update={
+            "positions": (
+                FundPosition(
+                    instrument_id="HELD",
+                    asset_class=AssetClass.STOCK,
+                    quantity="0.3",
+                    average_entry="100",
+                    mark_price="100",
+                    playbook_id="momentum",
+                    driver="growth",
+                ),
+            )
+        }
+    )
+    hypotheses = tuple(
+        _belief(symbol, HypothesisStance.LONG, "110", "95", "growth") for symbol in ("A", "B")
+    )
+    result = size_decision(
+        decision=_decision(
+            tuple(_order(symbol, AssetClass.STOCK, OrderSide.BUY) for symbol in ("A", "B")),
+            hypotheses,
+        ),
+        quotes=tuple(_quote(symbol, "100", AssetClass.STOCK) for symbol in ("A", "B")),
+        state=state,
+        mandate=FundMandate(),
+        sleeve_weights={"momentum": Decimal("0.05")},
+    )
+    assert sum(Decimal(item["notional"]) for item in result.accepted) <= Decimal("20")
+    assert len(result.decision.orders) == 1
+
+
+def test_unknown_playbook_cannot_bypass_allocator() -> None:
+    result = size_decision(
+        decision=_decision(
+            (_order("A", AssetClass.STOCK, OrderSide.BUY),),
+            (_belief("A", HypothesisStance.LONG, "110", "95", "growth"),),
+        ),
+        quotes=(_quote("A", "100", AssetClass.STOCK),),
+        state=_state(),
+        mandate=FundMandate(),
+        sleeve_weights={},
+    )
+    assert result.dropped[0]["reason"] == "unknown_playbook"
+
+
+def test_round_trip_charges_both_entry_and_exit_fees() -> None:
+    belief = _belief("A", HypothesisStance.LONG, "101", "99", "growth").model_copy(
+        update={"p_win": Decimal("0.66")}
+    )
+    result = size_decision(
+        decision=_decision((_order("A", AssetClass.STOCK, OrderSide.BUY),), (belief,)),
+        quotes=(_quote("A", "100", AssetClass.STOCK),),
+        state=_state(),
+        mandate=FundMandate(fee_bps="10", slippage_bps="10"),
+    )
     assert result.dropped[0]["reason"] == "below_edge_threshold"

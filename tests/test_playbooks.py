@@ -57,3 +57,19 @@ def test_shadow_sleeve_records_but_does_not_receive_capital() -> None:
     )
     assert allocations[0].status == "shadow"
     assert allocations[0].weight == Decimal("0")
+
+
+def test_retirement_is_sticky_and_active_sleeve_without_positive_score_does_not_crash() -> None:
+    playbooks = load_playbooks(ROOT / "playbooks")[:3]
+    retired, active, profitable = (book.spec.id for book in playbooks)
+    trades = [{"playbook_id": retired, "realized_pnl_after_cost": "2"}] * 25
+    trades += [{"playbook_id": profitable, "realized_pnl_after_cost": "2"}] * 25
+    result = allocate_sleeves(
+        playbooks,
+        trades,
+        status_overrides={retired: "retired", active: "active", profitable: "active"},
+    )
+    assert result[0].status == "retired"
+    assert result[0].weight == 0
+    assert result[1].weight == 0
+    assert result[2].weight > 0

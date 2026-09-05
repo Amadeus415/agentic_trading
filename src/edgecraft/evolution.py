@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from edgecraft.allocator import SleeveAllocation
 from edgecraft.paper_fund import PaperFundLedger
+from edgecraft.playbooks import LoadedPlaybook, PlaybookSpec, load_playbooks
 
 
 class ChangeKind(StrEnum):
@@ -82,7 +84,52 @@ def latest_playbook_statuses(ledger: PaperFundLedger, fund_id: str) -> dict[str,
     for event in ledger.list_events(fund_id):
         if event.event_type == "playbook_transition":
             latest[str(event.payload["playbook_id"])] = str(event.payload["to_status"])
+        if event.event_type == "postmortem_completed":
+            for transition in event.payload.get("transitions", []):
+                latest[transition["playbook_id"]] = transition["to_status"]
     return latest
+
+
+def effective_playbooks(
+    ledger: PaperFundLedger, fund_id: str, root: Path = Path("playbooks")
+) -> tuple[LoadedPlaybook, ...]:
+    """Checked-in seeds plus immutable experiment versions from completed reviews."""
+    books = {book.spec.id: book for book in load_playbooks(root)}
+    for event in ledger.list_events(fund_id):
+        if event.event_type == "postmortem_completed":
+            for raw in event.payload.get("playbooks", []):
+                book = LoadedPlaybook.model_validate(raw)
+                books[book.spec.id] = book
+    return tuple(books.values())
+
+
+def review_status(
+    ledger: PaperFundLedger,
+    fund_id: str,
+    trades: list[dict[str, Any]],
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Review after seven days or twenty additional closed round trips."""
+    now = now or datetime.now(UTC)
+    events = ledger.list_events(fund_id)
+    reviews = [event for event in events if event.event_type == "postmortem_completed"]
+    last = reviews[-1] if reviews else None
+    anchor = last.occurred_at if last else events[0].occurred_at
+    since = sum(
+        datetime.fromisoformat(trade["closed_at"].replace("Z", "+00:00")) > anchor
+        for trade in trades
+    )
+    deadline = anchor + timedelta(days=7)
+    return {
+        "due": now >= deadline or since >= 20,
+        "last_review_at": last.occurred_at.isoformat() if last else None,
+        "next_review_at": deadline.isoformat(),
+        "closed_trades_since_review": since,
+        "trade_threshold": 20,
+        "reason": "trade_count" if since >= 20 else ("weekly" if now >= deadline else "not_due"),
+        "completed_reviews": len(reviews),
+    }
 
 
 def build_postmortem(report: dict[str, Any]) -> Postmortem:
@@ -93,7 +140,13 @@ def build_postmortem(report: dict[str, Any]) -> Postmortem:
         for item in calibration
         if float(item["calibration_error"]) >= 0.10
     )
-    cuts = report["cuts"]["playbook_id"]
+    from edgecraft.attribution import _aggregate_trades
+
+    trades = report["round_trips"]
+    cuts = {
+        name: _aggregate_trades([trade for trade in trades if trade["playbook_id"] == name])
+        for name in {trade["playbook_id"] for trade in trades}
+    }
     worked = tuple(
         f"{name}: expectancy {metrics['expectancy_after_cost']}"
         for name, metrics in cuts.items()
@@ -163,40 +216,94 @@ def validate_proposal(proposal: ChangeProposal) -> ValidationResult:
 def apply_postmortem(
     ledger: PaperFundLedger,
     postmortem: Postmortem,
+    *,
+    root: Path = Path("playbooks"),
 ) -> list[dict[str, Any]]:
-    """Record proposals and permitted lifecycle transitions; never edit policy."""
+    """Validate the whole review, then append versions and transitions atomically."""
+    payload = postmortem.model_dump(mode="json")
+    review_id = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+    prior_events = ledger.list_events(postmortem.fund_id)
+    if any(event.payload.get("review_id") == review_id for event in prior_events):
+        return []
+    seen = {
+        proposal["proposal_id"]
+        for event in prior_events
+        if event.event_type == "postmortem_completed"
+        for proposal in event.payload.get("proposals", [])
+    }
+    ids = [proposal.proposal_id for proposal in postmortem.proposals]
+    if len(ids) != len(set(ids)) or seen.intersection(ids):
+        raise ValueError("proposal IDs must be unique and cannot be reused")
+    books = {book.spec.id: book for book in effective_playbooks(ledger, postmortem.fund_id, root)}
     transitions: list[dict[str, Any]] = []
-    ledger.record_operational_event(
-        postmortem.fund_id,
-        "postmortem_completed",
-        postmortem.model_dump(mode="json"),
-        occurred_at=postmortem.generated_at,
-    )
+    versions: list[dict[str, Any]] = []
     for proposal in postmortem.proposals:
         validation = validate_proposal(proposal)
+        parent = books.get(proposal.playbook_id)
+        if parent is None and proposal.kind is not ChangeKind.NEW_PLAYBOOK:
+            raise ValueError(f"unknown playbook: {proposal.playbook_id}")
+        target_id = proposal.playbook_id
         if proposal.kind is ChangeKind.RETIRE_PLAYBOOK:
+            if proposal.patch:
+                raise ValueError("retirement has no patch")
             targets = ["retired"]
-        elif not validation.passed:
-            targets = ["proposed"]
-        elif proposal.backtestable:
-            targets = ["validated", "incubating"]
         else:
-            targets = ["shadow"]
+            allowed = {
+                ChangeKind.RESEARCH_PROMPT_EDIT: {"prompt"},
+                ChangeKind.UNIVERSE_EDIT: {"universe"},
+                ChangeKind.PLAYBOOK_PARAM: {"trigger", "entry_rule", "exit_rule", "sizing_hints"},
+                ChangeKind.NEW_PLAYBOOK: {
+                    "thesis",
+                    "universe",
+                    "trigger",
+                    "entry_rule",
+                    "exit_rule",
+                    "sizing_hints",
+                    "required_evidence_types",
+                    "prompt",
+                },
+            }[proposal.kind]
+            if not proposal.patch or set(proposal.patch) - allowed:
+                raise ValueError(f"unsupported patch fields for {proposal.kind.value}")
+            spec = parent.spec.model_dump(mode="json") if parent else {}
+            prompt = proposal.patch.get("prompt", parent.prompt if parent else "")
+            if not isinstance(prompt, str) or not prompt.strip():
+                raise ValueError("experiment requires a nonempty research prompt")
+            digest = hashlib.sha256(proposal.model_dump_json().encode()).hexdigest()[:12]
+            target_id = f"{proposal.playbook_id[:48]}_{digest}"
+            targets = (
+                ["proposed"]
+                if not validation.passed
+                else ["validated", "incubating"]
+                if proposal.backtestable
+                else ["shadow"]
+            )
+            spec.update({key: value for key, value in proposal.patch.items() if key != "prompt"})
+            spec.update(
+                id=target_id, version=(parent.spec.version + 1 if parent else 1), status=targets[-1]
+            )
+            version = LoadedPlaybook(
+                spec=PlaybookSpec.model_validate(spec),
+                prompt=prompt.strip(),
+                prompt_hash=hashlib.sha256(prompt.strip().encode()).hexdigest(),
+                directory="ledger",
+            )
+            versions.append(version.model_dump(mode="json"))
         for target in targets:
             transition = {
                 "proposal_id": proposal.proposal_id,
-                "playbook_id": proposal.playbook_id,
+                "playbook_id": target_id,
+                "parent_playbook_id": proposal.playbook_id,
                 "kind": proposal.kind.value,
                 "to_status": target,
                 "validation": validation.model_dump(mode="json"),
             }
-            ledger.record_operational_event(
-                postmortem.fund_id,
-                "playbook_transition",
-                transition,
-                occurred_at=postmortem.generated_at,
-            )
             transitions.append(transition)
+    ledger.record_operational_event(
+        postmortem.fund_id,
+        "postmortem_completed",
+        {**payload, "review_id": review_id, "transitions": transitions, "playbooks": versions},
+    )
     return transitions
 
 

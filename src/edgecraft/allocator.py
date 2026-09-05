@@ -58,7 +58,14 @@ def allocate_sleeves(
         pnl = by_playbook.get(playbook.spec.id, [])
         mean, lower = _statistics(pnl)
         status = status_overrides.get(playbook.spec.id, playbook.spec.status.value)
-        if len(pnl) >= 60 and (lower is None or lower <= ZERO):
+        if status in {
+            PlaybookStatus.RETIRED.value,
+            PlaybookStatus.SHADOW.value,
+            PlaybookStatus.PROPOSED.value,
+            PlaybookStatus.VALIDATED.value,
+        }:
+            pass
+        elif len(pnl) >= 60 and (lower is None or lower <= ZERO):
             status = PlaybookStatus.RETIRED.value
         elif len(pnl) >= 30 and (lower is None or lower <= ZERO):
             status = PlaybookStatus.FROZEN.value
@@ -78,7 +85,7 @@ def allocate_sleeves(
             weight = Decimal("0.05")
             reason = "incubation budget"
         elif status == PlaybookStatus.ACTIVE.value and score_total > ZERO:
-            weight = min(Decimal("0.40"), active_scores[playbook.spec.id] / score_total)
+            weight = min(Decimal("0.40"), active_scores.get(playbook.spec.id, ZERO) / score_total)
             reason = "positive after-cost evidence"
         else:
             weight = ZERO
@@ -95,4 +102,10 @@ def allocate_sleeves(
                 reason=reason,
             )
         )
+    # Numerous experiments must share the same fund, never mint extra capital.
+    total_weight = sum((item.weight for item in allocations), ZERO)
+    if total_weight > 1:
+        from dataclasses import replace
+
+        allocations = [replace(item, weight=item.weight / total_weight) for item in allocations]
     return tuple(allocations)
