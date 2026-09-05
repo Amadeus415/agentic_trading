@@ -40,14 +40,14 @@ export default function AttributionPage() {
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Closed round trips" value={String(summary.closed_trades)} />
-        <StatCard label="Hit rate" value={formatPct(Number(summary.hit_rate ?? 0))} />
+        <StatCard label="Hit rate" value={summary.hit_rate == null ? "—" : formatPct(Number(summary.hit_rate))} />
         <StatCard
           label="Expectancy"
-          value={formatUsd(Number(summary.expectancy_after_cost ?? 0))}
+          value={summary.expectancy_after_cost == null ? "—" : formatUsd(Number(summary.expectancy_after_cost))}
         />
         <StatCard
           label="Profit factor"
-          value={summary.profit_factor === "Infinity" ? "∞" : summary.profit_factor ?? "—"}
+          value={summary.profit_factor === "Infinity" ? "∞" : summary.profit_factor == null ? "—" : Number(summary.profit_factor).toFixed(2)}
         />
       </section>
 
@@ -91,6 +91,16 @@ export default function AttributionPage() {
             )}
           </TableBody>
         </Table>
+      </Panel>
+
+      <Panel micro="LEARNING" title="Strategy changes" bodyClassName="space-y-3 p-3.5">
+        <p className="text-xs text-muted-foreground">
+          {report.review?.completed_reviews ?? 0} completed reviews. Experiments use separate IDs;
+          shadow experiments receive no trading capital. Status alone is not proof of improvement.
+        </p>
+        {Object.entries(report.playbook_statuses ?? {}).map(([id, status]) => (
+          <p key={id} className="text-xs"><span className="font-mono">{id}</span> · {status}</p>
+        ))}
       </Panel>
 
       <Panel micro="SLEEVES" title="Playbook results" bodyClassName="space-y-3 p-3.5">

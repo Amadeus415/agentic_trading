@@ -7,6 +7,14 @@ import { resolveFundDbPath } from "./db";
 export type FundReport = {
   fund_id: string;
   generated_at: string;
+  review?: {
+    due: boolean;
+    next_review_at: string;
+    closed_trades_since_review: number;
+    trade_threshold: number;
+    completed_reviews: number;
+  };
+  playbook_statuses?: Record<string, string>;
   summary: {
     closed_trades: number;
     hit_rate: string | null;
@@ -31,9 +39,10 @@ export type FundReport = {
 };
 
 export function readFundReport(): FundReport | null {
-  const reportPath = path.join(path.dirname(resolveFundDbPath()), "fund-report.json");
+  const reportPath = process.env.EDGECRAFT_FUND_REPORT?.trim() || path.join(path.dirname(resolveFundDbPath()), "fund-report.json");
   try {
-    return JSON.parse(fs.readFileSync(reportPath, "utf8")) as FundReport;
+    // Local runtime data must be read at request time, never bundled into a release.
+    return JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ reportPath, "utf8")) as FundReport;
   } catch {
     return null;
   }

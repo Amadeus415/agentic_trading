@@ -1,6 +1,6 @@
 /**
  * SPY (S&P 500 proxy) daily closes from Yahoo Finance chart API.
- * Normalized to 100 at the fund start timestamp; failure returns null.
+ * Completed daily price closes only; dividends are excluded. Failure returns null.
  */
 import type { PerformancePoint } from "./types";
 
@@ -61,6 +61,7 @@ async function fetchSpyCloses(
       },
       // Avoid Next fetch caching surprises for live market data.
       cache: "no-store",
+      signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) {
       return null;
@@ -77,7 +78,9 @@ async function fetchSpyCloses(
       const close = closes[i];
       if (close == null || !Number.isFinite(close)) continue;
       out.push({
-        as_of: new Date(ts * 1000).toISOString(),
+        // Yahoo daily bar timestamps denote the session start. Use 21:00 UTC
+        // as a conservative availability cutoff (16:00 ET or one hour later).
+        as_of: new Date(new Date(ts * 1000).setUTCHours(21, 0, 0, 0)).toISOString(),
         close,
       });
     }
@@ -87,87 +90,44 @@ async function fetchSpyCloses(
   }
 }
 
-/**
- * Fetch SPY daily closes aligned to [startAsOf, endAsOf], normalized to 100
- * at the first usable close on/after the fund start. Returns null on failure.
- */
+/** Normalize against the last completed close known at inception, never a future close. */
+export function alignBenchmark(
+  closes: Array<{ as_of: string; close: number }>,
+  startAsOf: string,
+  endAsOf: string,
+): PerformancePoint[] | null {
+  const start = Date.parse(startAsOf);
+  const end = Date.parse(endAsOf);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+  const rows = closes.filter(row => Number.isFinite(row.close) && row.close > 0 &&
+    Number.isFinite(Date.parse(row.as_of)) && Date.parse(row.as_of) <= end)
+    .sort((a, b) => Date.parse(a.as_of) - Date.parse(b.as_of));
+  const base = rows.filter(row => Date.parse(row.as_of) <= start).at(-1);
+  if (!base) return null;
+  return [
+    { as_of: startAsOf, value: 100, nav: base.close },
+    ...rows.filter(row => Date.parse(row.as_of) > start).map(row => ({
+      as_of: row.as_of, value: row.close / base.close * 100, nav: row.close,
+    })),
+  ];
+}
+
+/** Price-return proxy over the fund observation window, with no look-ahead. */
 export async function fetchSpyBenchmarkSeries(
   startAsOf: string,
-  endAsOf?: string,
+  endAsOf: string = new Date().toISOString(),
 ): Promise<PerformancePoint[] | null> {
+  const start = Date.parse(startAsOf);
+  const end = Math.min(Date.parse(endAsOf), Date.now());
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
   const period1 = toUnixSeconds(startAsOf);
-  // Yahoo period2 is exclusive-ish; pad a day so "today" is included.
-  const endMs = endAsOf ? Date.parse(endAsOf) : Date.now();
-  const period2 = Math.floor((Number.isFinite(endMs) ? endMs : Date.now()) / 1000) + 86_400;
-
-  // Start a few days early so we have a close at/before fund inception.
-  const fetchStart = Math.max(0, period1 - 7 * 86_400);
-
-  const key = cacheKey(period1, period2);
+  const period2 = Math.floor(end / 1000);
+  const key = `${cacheKey(period1, period2)}:${end}`;
   const hit = cache.get(key);
-  if (hit && hit.expiresAt > Date.now()) {
-    return hit.series;
-  }
-
-  const closes = await fetchSpyCloses(fetchStart, period2);
-  if (!closes || closes.length === 0) {
-    cache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, series: null });
-    return null;
-  }
-
-  // Base = first close on or after fund start; fall back to last close before start.
-  let baseClose: number | null = null;
-  for (const row of closes) {
-    if (toUnixSeconds(row.as_of) >= period1) {
-      baseClose = row.close;
-      break;
-    }
-  }
-  if (baseClose == null) {
-    // Use the last available close before start as base.
-    for (let i = closes.length - 1; i >= 0; i--) {
-      if (toUnixSeconds(closes[i].as_of) <= period1) {
-        baseClose = closes[i].close;
-        break;
-      }
-    }
-  }
-  if (baseClose == null || baseClose === 0) {
-    cache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, series: null });
-    return null;
-  }
-
-  const series: PerformancePoint[] = [];
-  for (const row of closes) {
-    const t = toUnixSeconds(row.as_of);
-    if (t < period1) continue;
-    if (t > period2) continue;
-    series.push({
-      as_of: row.as_of,
-      value: (row.close / baseClose) * 100,
-      nav: row.close,
-    });
-  }
-
-  // Ensure a point at fund start if the first daily bar is later.
-  if (series.length === 0) {
-    // No bars in range — still emit base at start for UI alignment.
-    series.push({
-      as_of: startAsOf,
-      value: 100,
-      nav: baseClose,
-    });
-  } else if (toUnixSeconds(series[0].as_of) > period1) {
-    series.unshift({
-      as_of: startAsOf,
-      value: 100,
-      nav: baseClose,
-    });
-  } else {
-    // Force first aligned point to exactly 100.
-    series[0] = { ...series[0], value: 100 };
-  }
-
+  if (hit && hit.expiresAt > Date.now()) return hit.series;
+  const closes = await fetchSpyCloses(Math.max(0, period1 - 7 * 86400), period2 + 1);
+  const series = closes ? alignBenchmark(closes, startAsOf, new Date(end).toISOString()) : null;
+  if (cache.size > 100) cache.clear();
   cache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, series });
   return series;
 }

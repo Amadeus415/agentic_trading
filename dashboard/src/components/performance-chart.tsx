@@ -53,11 +53,6 @@ function buildChartData(
   const sorted = [...times].filter((t) => t > 0).sort((a, b) => a - b);
   if (sorted.length === 0) return [];
 
-  // Ensure at least two x-points so a single NAV still draws a flat segment.
-  if (sorted.length === 1) {
-    sorted.push(sorted[0] + 86_400_000);
-  }
-
   const fundByT = new Map(
     fundSeries.map((p) => [toMs(p.as_of), p.value] as const),
   );
@@ -78,17 +73,6 @@ function buildChartData(
       fund: lastFund,
       benchmark: benchmarkSeries ? lastBench : null,
     });
-  }
-
-  // If fund only has one real observation, pin both ends to that value.
-  if (fundSeries.length === 1 && rows.length >= 2) {
-    const v = fundSeries[0].value;
-    rows[0].fund = v;
-    rows[rows.length - 1].fund = v;
-    if (!rows[0].as_of || rows[0].t !== toMs(fundSeries[0].as_of)) {
-      rows[0].as_of = fundSeries[0].as_of;
-      rows[0].t = toMs(fundSeries[0].as_of);
-    }
   }
 
   return rows;
@@ -278,7 +262,7 @@ export function PerformanceChart({
             labelFormatter={(label) => String(label)}
           />
           <Area
-            type="monotone"
+            type="stepAfter"
             dataKey="fund"
             name="fundArea"
             stroke="none"
@@ -290,7 +274,7 @@ export function PerformanceChart({
           />
           {hasBenchmark ? (
             <Line
-              type="monotone"
+              type="stepAfter"
               dataKey="benchmark"
               name="S&P 500"
               stroke="#71717a"
@@ -302,7 +286,7 @@ export function PerformanceChart({
             />
           ) : null}
           <Line
-            type="monotone"
+            type="stepAfter"
             dataKey="fund"
             name="Edgecraft"
             stroke="#818cf8"

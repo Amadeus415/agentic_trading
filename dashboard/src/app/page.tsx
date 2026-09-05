@@ -16,7 +16,7 @@ import {
   formatUsd,
 } from "@/components/format";
 import { HypothesisTable } from "@/components/hypothesis-table";
-import { FundEmpty, Panel, ProgressBar } from "@/components/panel";
+import { FundEmpty, Panel } from "@/components/panel";
 import { PerformanceChart } from "@/components/performance-chart";
 import { StatCard } from "@/components/stat-card";
 import { Badge } from "@/components/ui/badge";
@@ -33,7 +33,6 @@ import {
   buildNavSeries,
   buildPerformanceHistory,
   extractFillsFromCycles,
-  fundGrowth,
   getDefaultFund,
   getLatestState,
   latestHypothesesByInstrument,
@@ -43,6 +42,7 @@ import {
 } from "@/lib/fund";
 import type { Position } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { readFundReport } from "@/lib/report";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -79,7 +79,7 @@ export default async function OverviewPage() {
       last_cycle_key: null,
     },
   );
-  const growth = fundGrowth(fund, state?.nav ?? fund.initial_cash);
+  const report = readFundReport();
   const hypotheses = latestHypothesesByInstrument(cycles);
   const latestCycle = cycles[cycles.length - 1] ?? null;
   const openHypotheses = positions
@@ -141,12 +141,9 @@ export default async function OverviewPage() {
             <Badge variant="outline" className="font-mono text-[10px] capitalize">
               {history.status}
             </Badge>
-            <Badge variant="outline" className="font-mono text-[10px] capitalize">
-              {growth.stage}
-            </Badge>
           </div>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Paper fund · $1,000 bankroll · $100k / 10y research objective
+            Autonomous paper fund · $1,000 bankroll · measured against the S&P 500
           </p>
         </div>
         <p className="font-mono text-xs text-muted-foreground tabular-nums">
@@ -204,49 +201,21 @@ export default async function OverviewPage() {
         />
       </section>
 
+      <section className="grid gap-3 sm:grid-cols-3">
+        <StatCard label="SPY price return" value={benchmarkSeries?.length ? formatPct((benchmarkSeries.at(-1)!.value - 100) / 100) : "Unavailable"} hint="S&P 500 ETF proxy; dividends excluded" />
+        <StatCard label="Ahead / behind SPY" value={benchmarkSeries?.length ? `${((fundSeries.at(-1)!.value - benchmarkSeries.at(-1)!.value)).toFixed(2)} pp` : "Unavailable"} hint="Fund return less SPY price return" />
+        <StatCard label="Closed trade expectancy" value={report?.summary.expectancy_after_cost != null ? formatUsd(report.summary.expectancy_after_cost) : "Unmeasured"} hint="After simulated trading costs" />
+      </section>
+
       <div className="grid gap-3 lg:grid-cols-3">
-        <Panel
-          micro="Objective"
-          title="Growth to $100k"
-          trailing={growth.stage}
-          className="lg:col-span-1"
-          bodyClassName="flex flex-col gap-3 px-3.5 py-3"
-        >
-          <div className="flex items-end justify-between gap-3">
-            <div>
-              <p className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                Simple progress
-              </p>
-              <p className="font-mono text-lg tabular-nums">
-                {formatPct(growth.simpleProgress)}
-              </p>
-            </div>
-            <p className="font-mono text-xs text-muted-foreground tabular-nums">
-              {growth.remainingMultiple.toFixed(1)}× remaining
-            </p>
-          </div>
-          <ProgressBar value={growth.simpleProgress} />
-          <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 font-mono text-xs tabular-nums">
-            <dt className="text-muted-foreground">Log progress</dt>
-            <dd className="text-right">{formatPct(growth.logProgress)}</dd>
-            <dt className="text-muted-foreground">Required CAGR</dt>
-            <dd className="text-right">
-              {formatPct(growth.requiredAnnualReturn)}
-            </dd>
-            <dt className="text-muted-foreground">Realized P&L</dt>
-            <dd className={cn("text-right", pnlClass(metrics.realizedPnl))}>
-              {formatUsd(metrics.realizedPnl, { signed: true })}
-            </dd>
-            <dt className="text-muted-foreground">Up / down cycles</dt>
-            <dd className="text-right">
-              {history.positiveCycleCount} / {history.negativeCycleCount}
-            </dd>
-          </dl>
-          {history.status === "measuring" ? (
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              {history.interpretation}
-            </p>
-          ) : null}
+        <Panel micro="Learning" title="The next experiment" className="lg:col-span-1" bodyClassName="space-y-3 p-3.5">
+          <p className="text-sm">{report?.review ? (report.review.due ? "Review due" : "Collecting trade outcomes") : "Refresh the fund report to see review status."}</p>
+          {report?.review ? <>
+            <p className="text-xs text-muted-foreground">{report.review.closed_trades_since_review} / {report.review.trade_threshold} closed trades since review. Review every seven days or twenty closed trades, whichever comes first.</p>
+            <p className="text-xs text-muted-foreground">Next time deadline: {formatTs(report.review.next_review_at)}</p>
+            <p className="text-xs text-muted-foreground">{report.review.completed_reviews} completed reviews. New versions keep their own track records.</p>
+          </> : null}
+          <Link href="/attribution" className="text-xs underline">See trade results and strategy changes</Link>
         </Panel>
 
         <Panel
@@ -337,7 +306,8 @@ export default async function OverviewPage() {
               </h2>
             </div>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              SPY is the proxy; both series normalized to 100 at fund inception.
+              SPY price-return proxy, excluding dividends. Completed daily closes only;
+              both series start at 100 and stop at the fund observation cutoff.
             </p>
           </div>
           <div className="flex items-center gap-3 pt-1 font-mono text-[10px] text-muted-foreground uppercase">
