@@ -48,9 +48,10 @@ The monitor calls `scripts/run_local_monitor.sh`. It verifies first, fetches all
 open-position marks, refuses partial action if any fetch fails, applies
 mechanical exits, verifies again, refreshes the report, and checks alerts.
 
-The weekly evolution task writes one typed postmortem and calls `fund-evolve`
-once. It may append evidence-gated playbook lifecycle events; it cannot modify
-the mandate, accounting, paper-only boundary, or cash.
+Trading tasks check whether a review is due after seven days or 20 additional closed trades.
+The Sunday evolution task is a regular fallback. Both follow [EVOLUTION.md](EVOLUTION.md):
+one typed postmortem, one `fund-evolve` call. Accepted reviews persist separate
+research versions in the ledger; tracked files, mandate, accounting, and cash stay unchanged.
 
 ## Install or repair
 
@@ -81,7 +82,7 @@ For a full source release check:
 ```bash
 make validate
 make security
-cd dashboard && npm run lint && npm run build && node scripts/smoke-db.mjs
+cd dashboard && npm run lint && npm test && npm run build && node scripts/smoke-db.mjs
 ```
 
 All fills are simulated. None of these commands contains a broker, wallet,

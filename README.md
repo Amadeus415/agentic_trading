@@ -1,224 +1,73 @@
-<div align="center">
+# Edgecraft
 
-# EDGECRAFT
+**Can an autonomous fund powered by a Codex subscription beat the S&P 500?**
 
-### An autonomous paper fund that starts with $1,000 of fake money
+That's the experiment. Edgecraft starts with $1,000 of simulated money, researches public markets, takes short-term positions, and learns from the results. The ambition is aggressive growth: find opportunities often, act quickly, and improve the process over time.
 
-Edgecraft is a trading experiment, not a brokerage product. Several times a weekday an AI agent researches public markets, writes a short-term thesis, and proposes a portfolio change. Deterministic Python either accepts that proposal or rejects it. Accepted trades are **simulated fills** in an append-only ledger. There is no live mode, no broker adapter, and no path that can touch real money.
+All trades are paper trades. There is no real-money execution path.
 
-[![CI](https://github.com/Amadeus415/agentic_trading/actions/workflows/ci.yml/badge.svg)](https://github.com/Amadeus415/agentic_trading/actions/workflows/ci.yml)
-[![Python 3.11–3.14](https://img.shields.io/badge/python-3.11%E2%80%933.14-0b1220?logo=python&logoColor=white)](pyproject.toml)
-[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-0b1220.svg)](LICENSE)
-[![Money: fake](https://img.shields.io/badge/money-100%25%20fake-22c55e)](docs/CODEX_SCHEDULED_TASK.md)
+## How it works
 
-**[Design](docs/DESIGN.md)** · **[Operations](docs/OPERATIONS.md)** · **[Scheduled task](docs/CODEX_SCHEDULED_TASK.md)** · **[Accounting contract](docs/FUND_ACCOUNTING.md)** · **[Dashboard](#dashboard)**
+Three loops run one fund:
 
-</div>
+1. **Trade.** Codex researches stocks, crypto, and prediction markets. It explains each idea, estimates its probability, and gives it a target, a stop, and a 4–72 hour horizon. Python fetches prices, sizes positions, checks limits, and records simulated fills.
+2. **Manage.** An hourly Python monitor checks existing positions and enforces exits. It needs no model call.
+3. **Learn.** After seven days or 20 additional closed trades, Codex reviews outcomes and proposes changes. New strategy versions keep separate records. Validated experiments start small; untested prompt changes stay in shadow with no capital.
 
-![Edgecraft paper fund value since the $1,000 start](assets/fund-progress.svg)
+Codex does the research. Code owns the money math. An append-only SQLite ledger remembers what happened, including losses. The initial bankroll is deposited once.
 
-The chart is regenerated from the verified ledger after every scheduled cycle. The solid line is **fund value** (NAV: cash plus marked positions). The dashed line is the original **$1,000**. It is a public snapshot of this experiment, not a brokerage statement or a claim of skill.
+Being active means searching broadly and taking worthwhile opportunities. More trades alone don't make a better fund: every entry must clear estimated costs, and cash is a valid result when nothing qualifies.
 
-| Verified ledger at 2026-09-03 | Value |
-|:--|--:|
-| NAV | $916.93 |
-| Closed round trips | 13 |
-| After-cost expectancy | −$6.17 / trade |
-| Hit rate | 46.2% |
-| Confidence calibration | Measured; sample still too small |
+## Try it
 
-Run `edgecraft fund-report` for the full calibration table, playbook/model cuts, benchmarks, and sparse-mark caveats. These numbers come from the append-only ledger; they are not a performance claim.
-
-> [!IMPORTANT]
-> Edgecraft cannot place a real order. Models may propose; typed policy and accounting code authorize. The agent cannot inject cash, reset losses, edit history, or bypass the risk envelope.
-
-## How one cycle works
-
-```mermaid
-flowchart LR
-    A["Agent researches public markets"] --> B["Writes a sourced decision"]
-    B --> C{"Accounting and risk gates"}
-    C -->|Reject| D["Append-only audit"]
-    C -->|Pass| E["Simulated fill"]
-    E --> F["Persistent $1,000 paper book"]
-    F --> D
-```
-
-1. **Research.** Codex reads the ledger's memory, searches public sources, and writes one packet for the current UTC session: trade or hold, with quotes, evidence, and a falsifiable 4–72 hour thesis.
-2. **Authorize.** `paper_fund.py` checks cash, inventory, concentration, exposure, fees, freshness, and idempotency. A rejected packet changes nothing.
-3. **Record.** Accepted trades become simulated fills. Every decision, quote, fill, and rejection is hash-chained in SQLite and cannot be edited or deleted.
-
-In one sentence: the agent proposes a sourced portfolio decision; typed code applies it to a persistent fake-money book.
-
-## The experiment
-
-The bankroll is deposited **once**. There is no daily top-up and no reset after losses. $100,000 remains the long-run dream shown to humans; it is deliberately absent from the operating prompt so it cannot distort trade selection.
-
-The live book is `edgecraft-aggressive` (`examples/fund.mandate.aggressive.json`). It is a high-tempo 4–72 hour trader:
-
-- long or short stocks, native crypto, and binary prediction contracts
-- any syntactically valid instrument; there is no symbol whitelist
-- several independent high-conviction positions when they exist, not a pile of weak ones
-- four focused playbooks are scanned every session; cash is allowed only after candidates fail the after-cost sizing gate
-
-Every order still needs a fresh sourced price, cited evidence, valid inventory, and room inside the envelope below. The original conservative book stays frozen at `state/edgecraft-fund.db`.
-
-| Control | Limit |
-|:--|--:|
-| Initial fake cash | $1,000 once |
-| Gross exposure | max($1,500, 3.00 × earned NAV) |
-| Absolute net exposure | max($1,000, 2.00 × earned NAV) |
-| Short exposure | max($500, 1.00 × earned NAV) |
-| One position | 60% of NAV |
-| Turnover per cycle | max($1,000, 4.00 × earned NAV) |
-| Orders per cycle | 30 |
-| Drawdown gate | 50% |
-| Simulated fee / slippage | 5 / 10 bps |
-
-Dollar values are bootstrap floors. Limits scale only after the fund *earns* a higher NAV, never through deposits.
-
-## Run it
-
-Needs Python 3.11–3.14 and [uv](https://docs.astral.sh/uv/).
+You need Python 3.11–3.14, [uv](https://docs.astral.sh/uv/), and Node.js 22+ for the dashboard.
 
 ```bash
 make install
 make validate
 make fund-init
 make fund-context
-```
-
-`fund-context` is what the agent reads before it decides: cash, positions, P&L, mandate, JSON schema, and a compact ledger-derived **brain** (recent theses, later NAV direction, costs, winning/losing exits, current unrealized P&L). The brain is feedback, not proof that the last trade caused the next NAV move.
-
-To exercise all three asset classes with static example data and a disposable ledger:
-
-```bash
-tmp_ledger="$(mktemp -d)/edgecraft-example.db"
-uv run edgecraft fund-init \
-  --config examples/fund.mandate.json \
-  --ledger "$tmp_ledger"
-uv run edgecraft fund-run \
-  --config examples/fund.mandate.json \
-  --input examples/fund-cycle.starting.example.json \
-  --ledger "$tmp_ledger"
-uv run edgecraft fund-verify \
-  --config examples/fund.mandate.json \
-  --ledger "$tmp_ledger"
-```
-
-That example is fixture data, not a current market decision.
-
-## Operate the scheduled book
-
-The first run uses the [starting prompt](docs/FUND_STARTING_PROMPT.md). Later runs use the [scheduled task](docs/CODEX_SCHEDULED_TASK.md): snapshot code-owned marks, scan every playbook, state beliefs, then let deterministic sizing trade or hold without human approval. Production runs from a clean local clone using subscription-backed Codex Scheduled Tasks; after a push to `main`, the next task fast-forwards the runtime before it acts. See [operations](docs/OPERATIONS.md).
-
-```bash
-uv run edgecraft fund-cycle-key
-# prints: state/fund-inputs/YYYY-MM-DD-session-us-open.json
-./scripts/run_scheduled_cycle.sh
-```
-
-The script refuses a missing or stale packet, verifies the hash chain, applies one fake-money cycle, and verifies the full history again. It contains no broker command.
-
-```bash
-make fund-show      # current book; includes --history
-make fund-verify    # hash chain + accounting replay
-```
-
-CLI defaults are the aggressive mandate and `state/edgecraft-aggressive.db`. Pass `--config` / `--ledger` only to inspect another book.
-
-| Command | Job |
-|:--|:--|
-| `fund-validate` | Parse the checked-in mandate |
-| `fund-init` | Capitalize the fund exactly once |
-| `fund-context` | Agent packet: state, brain, JSON schema |
-| `fund-snapshot` | Fetch and cache code-owned public marks |
-| `fund-run` | Apply one researched decision |
-| `monitor` | Enforce target, stop, settlement, and time exits without a model |
-| `fund-report` | After-cost attribution, calibration, and benchmarks |
-| `fund-report-file` | Refresh the canonical JSON consumed by the dashboard |
-| `fund-postmortem` / `fund-evolve` | Typed, evidence-gated playbook evolution |
-| `fund-alerts` | Drawdown, rejection, accounting, and chain health |
-| `fund-show` | Inspect the book |
-| `fund-cycle` | One cycle packet (`--audit` for event gaps) |
-| `fund-verify` | Hash-chain and accounting replay |
-| `fund-visualize` | Rebuild the README chart from the ledger |
-
-## Dashboard
-
-Read-only Next.js UI for fund value, positions, journals, hypotheses, the fund brain, and paper fills over `state/edgecraft-aggressive.db`.
-
-```bash
+cd dashboard && npm ci && cd ..
 make dashboard
 ```
 
-See [dashboard/README.md](dashboard/README.md).
-
-## Accounting model
-
-- Positions have signed fractional quantities: positive is long, negative is short.
-- `buy` cannot cover, `sell` cannot open a short, `short` cannot reduce a long, and `cover` cannot open a long.
-- NAV is cash plus signed marked positions. Gross exposure uses absolute market values.
-- Fees and adverse slippage are charged on every simulated fill.
-- Prediction contracts settle only from a sourced terminal quote of exactly `0` or `1`.
-- A cycle is atomic. A rejected input changes nothing.
-- Replaying the same cycle and payload is a no-op; changing a used cycle key is rejected.
-- The exact normalized decision, evidence, quotes, fills, state, and chained events are stored in SQLite. Immutable-table triggers reject update and delete.
-
-See [the design](docs/DESIGN.md) for how the loops, types, and modules fit, and [the accounting contract](docs/FUND_ACCOUNTING.md) for formulas, the decision packet, and invariants.
-
-## Repository map
-
-```text
-src/edgecraft/
-├── paper_fund.py           # typed models, accounting, risk, SQLite audit ledger
-├── sizing.py               # fractional Kelly from beliefs, not model quantities
-├── monitor.py              # code-only stops, targets, and time exits
-├── marketdata/             # public quote providers and disk cache
-├── attribution.py          # after-cost expectancy, calibration, benchmarks
-├── playbooks.py            # versioned playbook specs and research prompts
-├── allocator.py            # sleeve weights from after-cost records
-├── evolution.py            # typed postmortems and lifecycle transitions
-├── fund_brain.py           # compact outcomes, position hypotheses, and lessons
-├── fund_visualization.py   # GitHub-safe SVG of verified fund value
-├── schedule.py             # UTC session slots and cycle keys
-├── cli.py                  # fund commands plus optional research-lab commands
-└── observability.py        # structured JSON logging
-
-playbooks/                                  # starting sleeves and research prompts
-examples/fund.mandate.aggressive.json       # active $1,000 aggressive mandate
-examples/fund.mandate.json                  # retired conservative fixture
-examples/fund-cycle.starting.example.json   # executable three-market fixture
-scripts/run_scheduled_cycle.sh              # fixed session paper apply path
-scripts/prepare_local_runtime.sh             # clean pull, sync, verify, report
-scripts/run_local_monitor.sh                 # model-free hourly safety loop
-scripts/install_local_monitor.sh             # macOS LaunchAgent installer
-scripts/deny_broker_tools.py                # fail-closed fence against broker tools
-docs/DESIGN.md                              # how the paper fund actually works
-docs/PLAN.md                                # roadmap from audited simulator to evolving fund
-```
-
-## Research lab
-
-Causal backtest, strategy, and walk-forward tools live in the optional `lab` extra. They are research inputs, not the paper fund's source of cash or execution authority.
+Open [localhost:3000](http://localhost:3000). The dashboard shows fund value against SPY (an S&P 500 ETF), positions, trades, decision evidence, and learning progress. An empty ledger starts empty; setup does not invent trades.
 
 ```bash
-uv sync --extra lab   # or: make install, which includes the lab via --extra dev
-make demo
-make validate-lab
-uv run edgecraft strategies
-uv run edgecraft backtest --config examples/research.json --data-source synthetic
-uv run edgecraft walk-forward \
-  --config examples/research.json \
-  --data-source synthetic \
-  --train-sessions 504 \
-  --test-sessions 126
+make fund-show         # current book and history
+make fund-verify       # replay the accounting and verify the audit chain
+make fund-report-file  # refresh trade results and learning status
 ```
 
-Options are out of scope until the domain has explicit contracts for multipliers, expiry, exercise/assignment, spreads, liquidity, and worst-case loss. Edgecraft will not pretend an option is ordinary stock.
+For unattended trading, use a separate clean runtime checkout and the existing Codex schedules. Read [Operations](docs/OPERATIONS.md) for setup and [the trading instructions](docs/CODEX_SCHEDULED_TASK.md) for the exact cycle. Research uses ChatGPT-authenticated Codex, subject to subscription limits; the monitor is ordinary local Python. Local scheduled tasks require the host and app to be available ([OpenAI documentation](https://learn.chatgpt.com/docs/automations?surface=app)).
 
-## Security and privacy
+## What is proven so far?
 
-Generated ledgers, inputs, caches, and logs stay out of Git. Never include credentials, private account data, or unnecessary personal information in evidence packets. Use public URLs and concise provenance. Report vulnerabilities through [SECURITY.md](SECURITY.md).
+The accounting, audit trail, public-data adapters, scheduled trading path, and read-only dashboard are implemented. They are useful engineering foundations. **A profitable trading edge is not established.**
 
-Edgecraft is released under the [Apache License 2.0](LICENSE).
+The September 4, 2026 runtime audit found $916.66 NAV, 16 closed trades, and −$5.21 average after-cost profit per trade. That is a dated observation, not a live scoreboard. Use the dashboard for the current book.
+
+The learning loop can persist new research versions and allocate small paper sleeves using recorded outcomes. It does not yet establish that a prompt change caused better returns. Shadow promotion, stronger experiment validation, and realistic execution need more work. The dashboard's SPY comparison uses completed daily price closes; dividends are excluded, so it is not a total-return performance claim.
+
+Read [the assessment and next steps](docs/PLAN.md) for the remaining gaps and concrete success criteria.
+
+## The code is organized around the fund
+
+| Location | Responsibility |
+| --- | --- |
+| `src/edgecraft/paper_fund.py` | Money, positions, limits, and immutable ledger |
+| `src/edgecraft/marketdata/`, `sizing.py`, `monitor.py` | Public prices, position size, and exits |
+| `src/edgecraft/attribution.py`, `evolution.py`, `allocator.py` | Results, experiments, and strategy budgets |
+| `playbooks/` | Four starting strategies and their research prompts |
+| `scripts/` | Scheduled trading and local monitoring |
+| `dashboard/` | Read-only view of the fund |
+
+The optional research lab contains backtests and walk-forward tools. It supports research; it does not run a second fund. Detailed contracts live in [Design](docs/DESIGN.md) and [Accounting](docs/FUND_ACCOUNTING.md).
+
+## Where this could go
+
+The project should become an open, reproducible demonstration of an agent operating a persistent system: making decisions, measuring outcomes, and testing improvements. That is already a stronger engineering story than claiming an AI can pick stocks.
+
+Real money is a later, separate project decision. First build a long forward record with realistic costs, controlled drawdowns, and consistent outperformance against a dividend-aware S&P benchmark. Then evaluate a broker's paper environment and a tiny, explicitly authorized live pilot. A profitable simulation does not automatically authorize real orders.
+
+Source is public; ledgers, generated research, caches, and credentials stay out of Git. [Apache 2.0](LICENSE) · [Security](SECURITY.md).
