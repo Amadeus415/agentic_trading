@@ -25,10 +25,10 @@ Every scheduled research task begins with:
 ./scripts/prepare_local_runtime.sh
 ```
 
-That command refuses a dirty runtime, fast-forwards `main` from `origin`, syncs
-the locked environment, verifies the ledger, and regenerates the canonical JSON
-report. A push to `main` therefore reaches the autonomous fund on its next
-scheduled run without deploying secrets.
+That command refuses a dirty runtime, uses its installed environment, verifies
+the ledger, and regenerates the canonical JSON report. It requires neither
+GitHub nor the package cache. Deploy code and locked dependencies explicitly
+with `./scripts/prepare_local_runtime.sh --update`; a push alone is not a deployment.
 
 ## Cadences
 
@@ -59,7 +59,7 @@ From the clean runtime:
 
 ```bash
 codex login status
-./scripts/prepare_local_runtime.sh
+./scripts/prepare_local_runtime.sh --update
 ./scripts/install_local_monitor.sh
 launchctl print gui/$(id -u)/com.edgecraft.paper-monitor
 ```
@@ -69,6 +69,10 @@ created and inspected in the Codex app. Keep every task pointed at the runtime
 checkout, not the development checkout.
 
 ## Health checks
+
+Run these in `agentic_trading_runtime/`. The development checkout's ledger is an
+older copy and must not be used for operational status. A cash-only monitor can
+succeed without adding a cycle; inspect trading-task failures separately.
 
 ```bash
 make fund-show

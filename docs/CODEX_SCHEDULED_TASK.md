@@ -38,6 +38,13 @@ Save the packet to the printed `input_path`. The apply script requires that exac
 
 ## Operating loop
 
+Use the installed `.venv/bin/edgecraft` for scheduled CLI commands (including
+commands shown below as `uv run edgecraft`), and pass
+`EDGECRAFT=.venv/bin/edgecraft` to Make targets. Preparation runs offline by
+default; `--update` is an operator deployment step. Market snapshots and the
+single apply still require permitted public network access. Resolve any network
+permission issue before the apply; never bypass a failed apply or invent marks.
+
 1. Initialize or reopen the immutable $1,000 paper fund.
 2. Read the current state, ledger-derived brain, session key, and machine-readable input schema. If `review.due` is true, complete [the review](EVOLUTION.md) once before research, then refresh context.
 3. Run `fund-snapshot` for open positions and every shortlisted candidate; these cached public marks own fills.

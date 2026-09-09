@@ -649,8 +649,8 @@ make fund-alerts
 
 Production is a clean local clone on `main`. Subscription-backed Codex Scheduled
 Tasks run session research and weekly evolution; a macOS LaunchAgent runs the
-model-free hourly monitor. `prepare_local_runtime.sh` fast-forwards from
-`origin/main` before research, so a push becomes active at the next run. The
+model-free hourly monitor. `prepare_local_runtime.sh` checks the installed
+runtime offline; operators deploy `origin/main` with its `--update` option. The
 ledger, cached marks, generated packets, and logs remain gitignored local state.
 
 `fund-alerts` covers chain failure, accounting failure, 15% / 30%
