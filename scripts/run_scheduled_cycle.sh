@@ -37,7 +37,9 @@ if [[ ! -f "$INPUT" ]]; then
   exit 2
 fi
 
-if command -v uv >/dev/null 2>&1; then
+if [[ -x "${ROOT}/.venv/bin/edgecraft" ]]; then
+  RUN=("${ROOT}/.venv/bin/edgecraft")
+elif command -v uv >/dev/null 2>&1; then
   # Scheduled runs must not resolve dependencies or require package-network access.
   RUN=(uv run --no-sync edgecraft)
 else

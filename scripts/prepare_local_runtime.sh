@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# Fast-forward a dedicated local runtime checkout to origin/main and install its
-# locked dependencies. Generated state is gitignored and remains untouched.
+# Check the installed runtime offline. Deploy code/dependencies with --update.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+
+if [[ $# -gt 1 || ( $# -eq 1 && "$1" != "--update" ) ]]; then
+  echo "Usage: $0 [--update]" >&2
+  exit 2
+fi
 
 if [[ "$(git branch --show-current)" != "main" ]]; then
   echo "Local runtime must stay on the main branch." >&2
@@ -17,15 +21,24 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   exit 2
 fi
 
-git pull --ff-only origin main
-uv sync --frozen
-uv run --no-sync edgecraft fund-init \
+if [[ "${1:-}" == "--update" ]]; then
+  git pull --ff-only origin main
+  uv sync --frozen
+fi
+
+RUN="$ROOT/.venv/bin/edgecraft"
+if [[ ! -x "$RUN" ]]; then
+  echo "Runtime environment missing; run $0 --update during deployment." >&2
+  exit 2
+fi
+
+"$RUN" fund-init \
   --config examples/fund.mandate.aggressive.json \
   --ledger state/edgecraft-aggressive.db
-uv run --no-sync edgecraft fund-verify \
+"$RUN" fund-verify \
   --config examples/fund.mandate.aggressive.json \
   --ledger state/edgecraft-aggressive.db
-uv run --no-sync edgecraft fund-report \
+"$RUN" fund-report \
   --config examples/fund.mandate.aggressive.json \
   --ledger state/edgecraft-aggressive.db \
   --output state/fund-report.json

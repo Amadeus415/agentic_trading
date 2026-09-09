@@ -2,6 +2,7 @@
 
 FUND_CONFIG ?= examples/fund.mandate.aggressive.json
 FUND_LEDGER ?= state/edgecraft-aggressive.db
+EDGECRAFT ?= $(if $(wildcard .venv/bin/edgecraft),.venv/bin/edgecraft,uv run --no-sync edgecraft)
 
 install:
 	uv sync --extra dev
@@ -21,34 +22,34 @@ demo:
 	uv run edgecraft backtest --config examples/research.json --data-source synthetic
 
 fund-init:
-	uv run edgecraft fund-init --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
+	$(EDGECRAFT) fund-init --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
 
 fund-context:
-	uv run edgecraft fund-context --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
+	$(EDGECRAFT) fund-context --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
 
 fund-cycle-key:
-	uv run edgecraft fund-cycle-key
+	$(EDGECRAFT) fund-cycle-key
 
 fund-show:
-	uv run edgecraft fund-show --config $(FUND_CONFIG) --ledger $(FUND_LEDGER) --history
+	$(EDGECRAFT) fund-show --config $(FUND_CONFIG) --ledger $(FUND_LEDGER) --history
 
 fund-report:
-	uv run edgecraft fund-report --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
+	$(EDGECRAFT) fund-report --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
 
 fund-report-file:
-	uv run edgecraft fund-report --config $(FUND_CONFIG) --ledger $(FUND_LEDGER) --output state/fund-report.json
+	$(EDGECRAFT) fund-report --config $(FUND_CONFIG) --ledger $(FUND_LEDGER) --output state/fund-report.json
 
 fund-monitor:
-	uv run edgecraft monitor --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
+	$(EDGECRAFT) monitor --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
 
 fund-alerts:
-	uv run edgecraft fund-alerts --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
+	$(EDGECRAFT) fund-alerts --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
 
 fund-verify:
-	uv run edgecraft fund-verify --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
+	$(EDGECRAFT) fund-verify --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
 
 fund-visualize:
-	uv run edgecraft fund-visualize --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
+	$(EDGECRAFT) fund-visualize --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
 
 # Read-only Next.js dashboard over the paper ledger (Node/npm required).
 dashboard:

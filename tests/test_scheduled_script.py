@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -7,6 +8,14 @@ from edgecraft.schedule import scheduled_cycle_key
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "run_scheduled_cycle.sh"
+
+
+def isolated_script(tmp_path):
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    script = scripts / SCRIPT.name
+    shutil.copy2(SCRIPT, script)
+    return script
 
 
 def test_scheduled_script_is_fixed_to_paper_fund(tmp_path):
@@ -25,7 +34,7 @@ def test_scheduled_script_is_fixed_to_paper_fund(tmp_path):
         "FUND_INPUT": str(input_path),
     }
 
-    result = subprocess.run([str(SCRIPT)], cwd=ROOT, env=env, check=False)
+    result = subprocess.run([str(isolated_script(tmp_path))], env=env, check=False)
 
     assert result.returncode == 0
     calls = trace.read_text().splitlines()
@@ -66,7 +75,7 @@ def test_scheduled_script_stops_after_failed_preflight_verification(tmp_path):
         "FUND_INPUT": str(input_path),
     }
 
-    result = subprocess.run([str(SCRIPT)], cwd=ROOT, env=env, check=False)
+    result = subprocess.run([str(isolated_script(tmp_path))], env=env, check=False)
 
     assert result.returncode == 1
     calls = trace.read_text().splitlines()
@@ -87,6 +96,32 @@ def test_scheduled_script_refuses_missing_input(tmp_path):
         "FUND_INPUT": str(tmp_path / "missing.json"),
     }
 
-    result = subprocess.run([str(SCRIPT)], cwd=ROOT, env=env, check=False)
+    result = subprocess.run([str(isolated_script(tmp_path))], env=env, check=False)
+
+    assert result.returncode == 2
+
+
+def test_preparation_uses_installed_environment_without_network(tmp_path):
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    script = scripts / "prepare_local_runtime.sh"
+    shutil.copy2(ROOT / "scripts" / script.name, script)
+    subprocess.run(["git", "init", "-b", "main", str(tmp_path)], check=True)
+    binary = tmp_path / ".venv" / "bin" / "edgecraft"
+    binary.parent.mkdir(parents=True)
+    trace = tmp_path / "trace"
+    binary.write_text('#!/bin/sh\nprintf "%s\\n" "$1" >> "$TRACE"\n')
+    binary.chmod(0o755)
+    result = subprocess.run(
+        [str(script)],
+        env={**os.environ, "TRACE": str(trace), "PATH": "/usr/bin:/bin"},
+        check=False,
+    )
+    assert result.returncode == 0
+    assert trace.read_text().splitlines() == ["fund-init", "fund-verify", "fund-report"]
+
+    # A missing installation must fail instead of silently downloading packages.
+    binary.unlink()
+    result = subprocess.run([str(script)], capture_output=True, text=True, check=False)
 
     assert result.returncode == 2
