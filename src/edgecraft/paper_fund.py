@@ -86,6 +86,7 @@ class HypothesisStance(StrEnum):
     LONG = "long"
     SHORT = "short"
     EXIT = "exit"
+    FLAT = "flat"
 
 
 class QuoteStatus(StrEnum):

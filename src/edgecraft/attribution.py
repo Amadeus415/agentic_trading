@@ -134,6 +134,13 @@ def _outcome_for_hypothesis(
     outcome = terminal[0][1] if terminal else "open"
     resolved_at = terminal[0][0] if terminal else None
 
+    # A flat hypothesis documents a researched candidate that was rejected.
+    # It is useful audit evidence, but it is not a directional prediction and
+    # must never enter hit-rate or calibration statistics.
+    if stance == "flat":
+        outcome = "rejected"
+        resolved_at = started
+
     prices = [price for _, price in in_window]
     mfe = mae = None
     if entry_price is not None and prices and entry_price != ZERO and stance in {"long", "short"}:
@@ -144,7 +151,7 @@ def _outcome_for_hypothesis(
 
     won = outcome == "target_hit" or (outcome == "manually_closed" and realized > ZERO)
     lost = outcome == "stop_hit" or (outcome == "manually_closed" and realized < ZERO)
-    scored = outcome != "open" and (won or lost or outcome == "expired")
+    scored = stance != "flat" and outcome != "open" and (won or lost or outcome == "expired")
     return {
         "hypothesis_id": f"{cycle['cycle_key']}:{instrument}",
         "cycle_key": cycle["cycle_key"],

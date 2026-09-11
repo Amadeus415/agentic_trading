@@ -1357,6 +1357,27 @@ def test_default_mandate_is_paper_thousand() -> None:
     assert AssetClass.PREDICTION in m.supported_asset_classes
 
 
+def test_journal_accepts_flat_researched_candidate() -> None:
+    hypothesis = FundHypothesis(
+        instrument_id="MSFT",
+        stance="flat",
+        statement="Research did not clear the after-cost threshold.",
+        mechanism="The observed catalyst was already reflected in the price.",
+        catalysts=("earnings",),
+        falsifiers=("material guidance revision",),
+        expected_horizon_hours=24,
+        confidence=Decimal("0.49"),
+        p_win=Decimal("0.49"),
+        playbook_id="post_earnings_drift",
+        driver="earnings",
+        target_price=Decimal("110"),
+        invalidation_price=Decimal("90"),
+        evidence_ids=("e1",),
+    )
+
+    assert hypothesis.stance is HypothesisStance.FLAT
+
+
 def test_scheduled_journal_requires_hypothesis_for_every_live_instrument(tmp_path: Path) -> None:
     evidence = _ev("e1", instruments=("AAPL",))
     journal = DecisionJournal(
