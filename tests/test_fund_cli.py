@@ -108,6 +108,33 @@ def test_fund_cli_rejects_noncurrent_scheduled_input(tmp_path, capsys) -> None:
     assert "is not today's UTC date" in error["detail"]
 
 
+def test_sized_run_derives_orders_and_action_from_directional_research(tmp_path, capsys) -> None:
+    ledger = tmp_path / "fund.db"
+    input_path = tmp_path / "research-only.json"
+    payload = json.loads(EXAMPLE.read_text())
+    payload["decision"]["action"] = "hold"
+    payload["decision"]["orders"] = []
+    input_path.write_text(json.dumps(payload))
+    common = ["--config", str(CONFIG), "--ledger", str(ledger)]
+    _run(["fund-init", *common], capsys)
+
+    result = _run(
+        [
+            "fund-run",
+            *common,
+            "--input",
+            str(input_path),
+            "--require-brain-journal",
+            "--size-beliefs",
+        ],
+        capsys,
+    )
+
+    assert result["result"]["action"] == "trade"
+    assert {fill["instrument_id"] for fill in result["result"]["fills"]} == {"BTC-USD"}
+    assert result["audit"]["sizing"]["accepted"][0]["instrument_id"] == "BTC-USD"
+
+
 def test_fund_cli_report_postmortem_and_alerts(tmp_path, capsys) -> None:
     ledger = tmp_path / "fund.db"
     common = ["--config", str(CONFIG), "--ledger", str(ledger)]

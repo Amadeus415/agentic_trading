@@ -556,7 +556,13 @@ def _fund_run(args: argparse.Namespace) -> dict[str, Any]:
     raw = json.loads(raw_text)
     if not isinstance(raw, dict):
         raise ValueError("fund cycle input must be a JSON object")
-    decision = FundDecision.model_validate(raw.get("decision"))
+    raw_decision = raw.get("decision")
+    if args.size_beliefs and isinstance(raw_decision, dict):
+        # The scheduled model researches; deterministic sizing owns the final
+        # trade-versus-cash decision. Canonicalize the advisory action before
+        # validation so model wording cannot block the sizing pass.
+        raw_decision = {**raw_decision, "action": "trade" if raw_decision.get("orders") else "hold"}
+    decision = FundDecision.model_validate(raw_decision)
     quotes = [FundQuote.model_validate(item) for item in raw.get("quotes", [])]
     quote_audit: list[dict[str, Any]] = []
     if args.code_owned_quotes:

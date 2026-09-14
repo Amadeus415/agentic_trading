@@ -438,6 +438,14 @@ class FundHypothesis(BaseModel):
     invalidation_price: Decimal | None = Field(default=None, gt=0)
     evidence_ids: tuple[str, ...] = Field(min_length=1)
 
+    @field_validator("stance", mode="before")
+    @classmethod
+    def _normalize_non_actionable_stance(cls, value: Any) -> Any:
+        # Research agents commonly say "hold" for a candidate that should stay
+        # out of the book. Store one canonical value so harmless wording cannot
+        # invalidate an otherwise executable scheduled packet.
+        return HypothesisStance.FLAT if value == "hold" else value
+
     @field_validator("instrument_id")
     @classmethod
     def _instrument(cls, value: str) -> str:

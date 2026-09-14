@@ -1378,6 +1378,27 @@ def test_journal_accepts_flat_researched_candidate() -> None:
     assert hypothesis.stance is HypothesisStance.FLAT
 
 
+def test_journal_normalizes_hold_candidate_to_flat() -> None:
+    hypothesis = FundHypothesis(
+        instrument_id="MSFT",
+        stance="hold",
+        statement="Research remains below the after-cost threshold.",
+        mechanism="The catalyst is already reflected in the price.",
+        catalysts=("earnings",),
+        falsifiers=("material guidance revision",),
+        expected_horizon_hours=24,
+        confidence=Decimal("0.49"),
+        p_win=Decimal("0.49"),
+        playbook_id="post_earnings_drift",
+        driver="earnings",
+        target_price=Decimal("110"),
+        invalidation_price=Decimal("90"),
+        evidence_ids=("e1",),
+    )
+
+    assert hypothesis.stance is HypothesisStance.FLAT
+
+
 def test_scheduled_journal_requires_hypothesis_for_every_live_instrument(tmp_path: Path) -> None:
     evidence = _ev("e1", instruments=("AAPL",))
     journal = DecisionJournal(

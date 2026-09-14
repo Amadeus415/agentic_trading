@@ -10,11 +10,13 @@ from typing import Any
 from edgecraft.monitor import stock_market_is_open
 from edgecraft.paper_fund import (
     AssetClass,
+    DecisionAction,
     FundDecision,
     FundMandate,
     FundOrder,
     FundQuote,
     FundState,
+    HypothesisStance,
     OrderSide,
     PaperFundValidationError,
 )
@@ -38,6 +40,73 @@ class SizingResult:
     decision: FundDecision
     accepted: tuple[dict[str, Any], ...]
     dropped: tuple[dict[str, Any], ...]
+
+
+def _candidate_orders(
+    decision: FundDecision,
+    quotes: Sequence[FundQuote],
+    state: FundState,
+) -> tuple[FundOrder, ...]:
+    """Turn complete directional research into deterministic candidate orders.
+
+    Scheduled research supplies beliefs; Python owns whether those beliefs
+    become trades. Explicit orders remain supported for compatibility and
+    inventory exits, while omitted entry orders are derived from hypotheses.
+    """
+    orders = list(decision.orders)
+    explicit = {order.instrument_id for order in orders}
+    quote_by_id = {quote.instrument_id: quote for quote in quotes}
+    position_by_id = {position.instrument_id: position for position in state.positions}
+
+    for hypothesis in decision.journal.hypotheses if decision.journal else ():
+        if hypothesis.instrument_id in explicit:
+            continue
+        position = position_by_id.get(hypothesis.instrument_id)
+        if hypothesis.stance is HypothesisStance.FLAT:
+            continue
+        if hypothesis.stance is HypothesisStance.EXIT:
+            if position is None:
+                continue
+            side = OrderSide.SELL if position.quantity > ZERO else OrderSide.COVER
+            orders.append(
+                FundOrder(
+                    instrument_id=hypothesis.instrument_id,
+                    asset_class=position.asset_class,
+                    side=side,
+                    quantity=abs(position.quantity),
+                    rationale=hypothesis.statement,
+                    evidence_ids=hypothesis.evidence_ids,
+                )
+            )
+            continue
+        if position is not None:
+            # A directional hypothesis matching existing inventory means
+            # maintain it. Reversals require an explicit exit and a later entry
+            # so one research label cannot cross the book accidentally.
+            continue
+        quote = quote_by_id.get(hypothesis.instrument_id)
+        if quote is None:
+            raise PaperFundValidationError(
+                f"directional candidate requires a quote: {hypothesis.instrument_id}"
+            )
+        side = OrderSide.BUY if hypothesis.stance is HypothesisStance.LONG else OrderSide.SHORT
+        orders.append(
+            FundOrder(
+                instrument_id=hypothesis.instrument_id,
+                asset_class=quote.asset_class,
+                side=side,
+                quantity=None,
+                p_win=hypothesis.p_win or hypothesis.confidence,
+                target_price=hypothesis.target_price,
+                invalidation_price=hypothesis.invalidation_price,
+                horizon_hours=hypothesis.expected_horizon_hours,
+                playbook_id=hypothesis.playbook_id,
+                driver=hypothesis.driver,
+                rationale=hypothesis.statement,
+                evidence_ids=hypothesis.evidence_ids,
+            )
+        )
+    return tuple(orders)
 
 
 def calibration_haircut(
@@ -110,6 +179,7 @@ def size_decision(
     whenever the packet supplies a complete belief, making sizing repeatable.
     """
     config = config or SizingConfig()
+    decision = decision.model_copy(update={"orders": _candidate_orders(decision, quotes, state)})
     quote_by_id = {quote.instrument_id: quote for quote in quotes}
     hypotheses = {
         item.instrument_id: item
@@ -275,6 +345,6 @@ def size_decision(
             }
         )
 
-    action = decision.action if orders else decision.action.__class__.HOLD
+    action = DecisionAction.TRADE if orders else DecisionAction.HOLD
     sized = decision.model_copy(update={"orders": tuple(orders), "action": action})
     return SizingResult(decision=sized, accepted=tuple(accepted), dropped=tuple(dropped))

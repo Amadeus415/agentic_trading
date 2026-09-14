@@ -68,7 +68,12 @@ def _decision(
                 source_name="test",
                 source_url="https://example.test",
                 claim="test catalyst",
-                instrument_ids=tuple(order.instrument_id for order in orders),
+                instrument_ids=tuple(
+                    dict.fromkeys(
+                        [order.instrument_id for order in orders]
+                        + [hypothesis.instrument_id for hypothesis in hypotheses]
+                    )
+                ),
             ),
         ),
         journal=DecisionJournal(
@@ -192,6 +197,81 @@ def test_calibration_haircut_can_drop_an_overconfident_trade() -> None:
     )
     assert result.decision.action is DecisionAction.HOLD
     assert result.dropped[0]["reason"] == "below_edge_threshold"
+
+
+def test_directional_research_becomes_candidate_order_and_trade() -> None:
+    hypothesis = _belief("LONG", HypothesisStance.LONG, "110", "95", "growth")
+    advisory_hold = _decision(
+        (_order("LONG", AssetClass.STOCK, OrderSide.BUY),),
+        (hypothesis,),
+    ).model_copy(update={"action": DecisionAction.HOLD, "orders": ()})
+
+    result = size_decision(
+        decision=advisory_hold,
+        quotes=(_quote("LONG", "100", AssetClass.STOCK),),
+        state=_state(),
+        mandate=FundMandate(),
+    )
+
+    assert result.decision.action is DecisionAction.TRADE
+    assert len(result.decision.orders) == 1
+    assert result.decision.orders[0].side is OrderSide.BUY
+    assert result.accepted[0]["instrument_id"] == "LONG"
+
+
+def test_flat_research_does_not_suppress_directional_candidate() -> None:
+    directional = _belief("LONG", HypothesisStance.LONG, "110", "95", "growth")
+    rejected = _belief("FLAT", HypothesisStance.FLAT, "110", "95", "weak-signal")
+    advisory_hold = _decision(
+        (_order("LONG", AssetClass.STOCK, OrderSide.BUY),),
+        (directional, rejected),
+    ).model_copy(update={"action": DecisionAction.HOLD, "orders": ()})
+
+    result = size_decision(
+        decision=advisory_hold,
+        quotes=(
+            _quote("LONG", "100", AssetClass.STOCK),
+            _quote("FLAT", "100", AssetClass.STOCK),
+        ),
+        state=_state(),
+        mandate=FundMandate(),
+    )
+
+    assert [order.instrument_id for order in result.decision.orders] == ["LONG"]
+    assert result.decision.action is DecisionAction.TRADE
+
+
+def test_directional_hypothesis_for_existing_position_is_maintained() -> None:
+    state = _state().model_copy(
+        update={
+            "positions": (
+                FundPosition(
+                    instrument_id="HELD",
+                    asset_class=AssetClass.STOCK,
+                    quantity="1",
+                    average_entry="100",
+                    mark_price="100",
+                    playbook_id="momentum",
+                    driver="growth",
+                ),
+            )
+        }
+    )
+    hypothesis = _belief("HELD", HypothesisStance.LONG, "110", "95", "growth")
+    advisory_hold = _decision(
+        (_order("HELD", AssetClass.STOCK, OrderSide.BUY),),
+        (hypothesis,),
+    ).model_copy(update={"action": DecisionAction.HOLD, "orders": ()})
+
+    result = size_decision(
+        decision=advisory_hold,
+        quotes=(_quote("HELD", "100", AssetClass.STOCK),),
+        state=state,
+        mandate=FundMandate(),
+    )
+
+    assert result.decision.action is DecisionAction.HOLD
+    assert result.decision.orders == ()
 
 
 def test_sleeve_budget_is_shared_across_orders_and_existing_inventory() -> None:
