@@ -12,6 +12,7 @@ from typing import Any
 from edgecraft.playbooks import LoadedPlaybook, PlaybookStatus
 
 ZERO = Decimal("0")
+INCUBATION_WEIGHT = Decimal("0.20")
 
 
 @dataclass(frozen=True)
@@ -82,8 +83,8 @@ def allocate_sleeves(
             weight = ZERO
             reason = "shadow sleeve records packets but does not fill"
         elif status == PlaybookStatus.INCUBATING.value:
-            weight = Decimal("0.05")
-            reason = "incubation budget"
+            weight = INCUBATION_WEIGHT
+            reason = "aggressive incubation budget"
         elif status == PlaybookStatus.ACTIVE.value and score_total > ZERO:
             weight = min(Decimal("0.40"), active_scores.get(playbook.spec.id, ZERO) / score_total)
             reason = "positive after-cost evidence"

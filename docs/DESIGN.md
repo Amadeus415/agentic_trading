@@ -384,7 +384,7 @@ If `E[r]` is below 2 bps → drop `below_edge_threshold`.
 
 6. Take `0.25 × f*`, then `min` of:
    - that weight
-   - the playbook’s **sleeve weight** (incubating = 5% of NAV)
+   - the playbook’s **sleeve weight** (incubating = 20% of NAV)
    - mandate `max_single_position_weight` (60% on the aggressive book)
    - 10% of NAV if prediction
    - remaining room under the 40% per-`driver` cap
@@ -404,8 +404,8 @@ model itself scored at `p = 0.34`.
 edge        = 0.34 − 0.16 = 0.18
 full Kelly  = 0.18 / 0.84 ≈ 21%
 ¼ Kelly     ≈ 5.4% of NAV
-sleeve cap  = 5% (incubating)
-prediction  = min(5.4%, 5%, 10%) = 5% → about $50, not $160
+sleeve cap  = 20% (incubating)
+prediction  = min(5.4%, 20%, 10%) = 5.4% → about $54, not $160
 ```
 
 If instead `p = 0.40` at a market of `0.40`, edge after 25 bps of costs is
@@ -464,7 +464,7 @@ proposed → validated → incubating → active
                  ↘ shadow          ↘ frozen → retired
 ```
 
-Starting sleeves, all `incubating` (5% of NAV each):
+Starting sleeves, all `incubating` (20% of NAV each):
 
 | id | Intended edge |
 |---|---|
@@ -485,7 +485,7 @@ after-cost closed trades:
 | Evidence | Capital |
 |---|---|
 | `shadow` | 0% — packets recorded, never filled |
-| `incubating` | 5% of NAV |
+| `incubating` | 20% of NAV |
 | `active` and mean > 0 | share of `mean × √n`, capped at 40% per sleeve |
 | n ≥ 20 and 95% lower bound > 0 (from incubating) | promote to `active` |
 | n ≥ 30 and lower bound ≤ 0 | `frozen` → 0% |

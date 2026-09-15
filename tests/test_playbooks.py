@@ -15,7 +15,8 @@ def test_starting_playbooks_have_separate_incubation_sleeves() -> None:
     assert len(playbooks) == 4
     assert len({item.spec.id for item in playbooks}) == 4
     assert all(item.prompt_hash for item in playbooks)
-    assert all(item.weight == Decimal("0.05") for item in allocations)
+    assert all(item.weight == Decimal("0.20") for item in allocations)
+    assert sum(item.weight for item in allocations) == Decimal("0.80")
 
 
 def test_allocator_scales_evidence_and_freezes_negative_sleeve() -> None:
