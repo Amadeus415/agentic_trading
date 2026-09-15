@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
 from edgecraft.cli import main
+from edgecraft.marketdata import MarketDataError, MarketDataRouter
+from edgecraft.paper_fund import FundQuote
 from edgecraft.schedule import scheduled_cycle_key
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -161,6 +164,47 @@ def test_fund_cycle_key_prints_current_session(capsys) -> None:
 
     main(["fund-cycle-key", "--plain"])
     assert capsys.readouterr().out.strip() == expected
+
+
+def test_fund_snapshot_isolates_optional_candidate_provider_failure(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    ledger = tmp_path / "fund.db"
+    common = ["--config", str(CONFIG), "--ledger", str(ledger)]
+    _run(["fund-init", *common], capsys)
+
+    def quote(_router, instrument_id, asset_class):
+        if instrument_id == "BTC-USD":
+            raise MarketDataError("test TLS failure")
+        now = datetime(2026, 9, 14, 20, tzinfo=UTC)
+        return FundQuote(
+            quote_id="q-aapl",
+            instrument_id=instrument_id,
+            asset_class=asset_class,
+            price="200",
+            observed_at=now,
+            source_timestamp=now,
+            source_name="test",
+            source_url="https://example.test",
+        )
+
+    monkeypatch.setattr(MarketDataRouter, "quote", quote)
+    result = _run(
+        [
+            "fund-snapshot",
+            *common,
+            "--instrument",
+            "AAPL:stock",
+            "--instrument",
+            "BTC-USD:crypto",
+        ],
+        capsys,
+    )
+
+    assert result["ok"] is True
+    assert result["partial"] is True
+    assert [item["instrument_id"] for item in result["quotes"]] == ["AAPL"]
+    assert result["failures"] == [{"instrument_id": "BTC-USD", "detail": "test TLS failure"}]
 
 
 def test_evolved_prompt_reaches_next_research_context_without_changing_parent(

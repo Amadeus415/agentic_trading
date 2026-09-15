@@ -723,12 +723,13 @@ def _fund_run(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _fund_snapshot(args: argparse.Namespace) -> dict[str, Any]:
-    from edgecraft.marketdata import MarketDataRouter
+    from edgecraft.marketdata import MarketDataError, MarketDataRouter
     from edgecraft.paper_fund import AssetClass
 
     fund_id, _mandate = _load_fund_config(args.config)
     with PaperFundLedger(args.ledger) as ledger:
         state = ledger.get_state(fund_id)
+    required = {position.instrument_id for position in state.positions}
     requested = {position.instrument_id: position.asset_class for position in state.positions}
     for raw in args.instrument:
         instrument_id, separator, asset_class = raw.rpartition(":")
@@ -736,14 +737,33 @@ def _fund_snapshot(args: argparse.Namespace) -> dict[str, Any]:
             raise ValueError("--instrument must use ID:stock|crypto|prediction")
         requested[instrument_id] = AssetClass(asset_class)
     router = MarketDataRouter()
-    quotes = [router.quote(instrument_id, asset) for instrument_id, asset in requested.items()]
+    quotes: list[FundQuote] = []
+    failures: list[dict[str, str]] = []
+    for instrument_id, asset in requested.items():
+        try:
+            quotes.append(router.quote(instrument_id, asset))
+        except Exception as exc:
+            failures.append({"instrument_id": instrument_id, "detail": str(exc)})
+    required_failures = [item for item in failures if item["instrument_id"] in required]
+    if required_failures:
+        raise MarketDataError(
+            "required position marks failed: "
+            + "; ".join(f"{item['instrument_id']}: {item['detail']}" for item in required_failures)
+        )
+    if requested and not quotes:
+        raise MarketDataError(
+            "all requested candidate marks failed: "
+            + "; ".join(f"{item['instrument_id']}: {item['detail']}" for item in failures)
+        )
     observed = max((quote.observed_at for quote in quotes), default=datetime.now(UTC))
     return {
         "ok": True,
         "paper_only": True,
+        "partial": bool(failures),
         "fund_id": fund_id,
         "snapshot_as_of": observed.isoformat().replace("+00:00", "Z"),
         "quotes": [quote.model_dump(mode="json") for quote in quotes],
+        "failures": failures,
         "cache_dir": str(router.cache_dir.resolve()),
     }
 
