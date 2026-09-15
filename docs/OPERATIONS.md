@@ -25,6 +25,10 @@ Every scheduled research task begins with:
 ./scripts/prepare_local_runtime.sh
 ```
 
+Preparation probes the Git binaries on `PATH` and uses the first working one,
+so an unavailable Apple developer-tools Git does not block an installed runtime.
+Set `EDGECRAFT_GIT=/absolute/path/to/git` to require a specific binary.
+
 That command refuses a dirty runtime, uses its installed environment, verifies
 the ledger, and regenerates the canonical JSON report. It requires neither
 GitHub nor the package cache. Deploy code and locked dependencies explicitly

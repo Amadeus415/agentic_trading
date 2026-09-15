@@ -106,7 +106,22 @@ def test_preparation_uses_installed_environment_without_network(tmp_path):
     scripts.mkdir()
     script = scripts / "prepare_local_runtime.sh"
     shutil.copy2(ROOT / "scripts" / script.name, script)
-    subprocess.run(["git", "init", "-b", "main", str(tmp_path)], check=True)
+    broken_bin = tmp_path / "broken-bin"
+    working_bin = tmp_path / "working-bin"
+    broken_bin.mkdir()
+    working_bin.mkdir()
+    broken_git = broken_bin / "git"
+    broken_git.write_text('#!/bin/sh\necho "Xcode license required" >&2\nexit 69\n')
+    broken_git.chmod(0o755)
+    working_git = working_bin / "git"
+    working_git.write_text(
+        "#!/bin/sh\n"
+        'case "$1 $2" in\n'
+        '  "--version ") echo "git version test";;\n'
+        '  "branch --show-current") echo "main";;\n'
+        "esac\n"
+    )
+    working_git.chmod(0o755)
     binary = tmp_path / ".venv" / "bin" / "edgecraft"
     binary.parent.mkdir(parents=True)
     trace = tmp_path / "trace"
@@ -114,7 +129,11 @@ def test_preparation_uses_installed_environment_without_network(tmp_path):
     binary.chmod(0o755)
     result = subprocess.run(
         [str(script)],
-        env={**os.environ, "TRACE": str(trace), "PATH": "/usr/bin:/bin"},
+        env={
+            **os.environ,
+            "TRACE": str(trace),
+            "PATH": f"{broken_bin}:{working_bin}:/usr/bin:/bin",
+        },
         check=False,
     )
     assert result.returncode == 0
@@ -122,6 +141,16 @@ def test_preparation_uses_installed_environment_without_network(tmp_path):
 
     # A missing installation must fail instead of silently downloading packages.
     binary.unlink()
-    result = subprocess.run([str(script)], capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        [str(script)],
+        env={
+            **os.environ,
+            "TRACE": str(trace),
+            "PATH": f"{broken_bin}:{working_bin}:/usr/bin:/bin",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
     assert result.returncode == 2
