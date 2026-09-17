@@ -338,14 +338,14 @@ It is not inside the accounting engine, because if Kelly lived in
 YES shares. The ledger stores what was *applied*; the sizer decides what to
 offer on the scheduled path.
 
-Constants (`SizingConfig`):
+Sizing constants:
 
 | Knob | Value | Role |
 |---|---|---|
-| Fractional Kelly | 0.25 | Don’t bet full Kelly on a miscalibrated model |
+| Fractional Kelly | 0.50 | Take meaningful risk without trusting a full-Kelly estimate |
 | Minimum after-cost edge | 2 bps | Don’t pay 15 bps round-trip for noise |
-| Max driver weight | 40% of NAV | XLE long + QQQ short on one oil/rates story |
-| Max prediction weight | 10% of NAV | Binaries must not dominate variance |
+| Max driver weight | 50% of NAV | Correlated positions share one story-level cap |
+| Max prediction weight | 20% of NAV | A binary can use a full incubating sleeve |
 | Calibration minimum n | 5 | Don’t haircut on a toy sample |
 
 ### Per entry order
@@ -360,7 +360,7 @@ Constants (`SizingConfig`):
    shrinking size as soon as the agent is measurably overconfident. The model
    is not asked to “be better calibrated”; the haircut does it.
 5. **Edge gate.** After-cost expected return must clear 2 bps, using
-   `fee_bps + 2 × slippage_bps` as the round-trip cost.
+   `2 × (fee_bps + slippage_bps)` as the round-trip cost.
 
 Linear (stock / crypto):
 
@@ -382,12 +382,12 @@ full Kelly f*   = edge / (1 − price)    # buy YES
 
 If `E[r]` is below 2 bps → drop `below_edge_threshold`.
 
-6. Take `0.25 × f*`, then `min` of:
+6. Take `0.50 × f*`, then `min` of:
    - that weight
    - the playbook’s **sleeve weight** (incubating = 20% of NAV)
    - mandate `max_single_position_weight` (60% on the aggressive book)
-   - 10% of NAV if prediction
-   - remaining room under the 40% per-`driver` cap
+   - 20% of NAV if prediction
+   - remaining room under the 50% per-`driver` cap
 7. `notional / price`, round down to the asset quantum (0.0001 stock,
    1 share prediction). Zero → drop.
 
@@ -403,9 +403,9 @@ model itself scored at `p = 0.34`.
 ```text
 edge        = 0.34 − 0.16 = 0.18
 full Kelly  = 0.18 / 0.84 ≈ 21%
-¼ Kelly     ≈ 5.4% of NAV
+½ Kelly     ≈ 10.7% of NAV
 sleeve cap  = 20% (incubating)
-prediction  = min(5.4%, 20%, 10%) = 5.4% → about $54, not $160
+prediction  = min(10.7%, 20%, 20%) = 10.7% → about $107, not $160
 ```
 
 If instead `p = 0.40` at a market of `0.40`, edge after 25 bps of costs is

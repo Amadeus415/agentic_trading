@@ -141,6 +141,7 @@ def test_sizes_long_and_short_from_beliefs_not_model_quantity() -> None:
     )
     assert len(result.decision.orders) == 2
     assert all(order.quantity != Decimal("999") for order in result.decision.orders)
+    assert {order.quantity for order in result.decision.orders} == {Decimal("2")}
     assert {item["driver"] for item in result.accepted} == {"growth", "rates"}
 
 
@@ -183,7 +184,7 @@ def test_binary_uses_probability_versus_market_price() -> None:
     assert len(result.decision.orders) == 1
     notional = Decimal(result.accepted[0]["notional"])
     assert notional < Decimal("160")
-    assert notional <= Decimal("100")
+    assert Decimal("100") < notional <= Decimal("110")
 
 
 def test_calibration_haircut_can_drop_an_overconfident_trade() -> None:

@@ -24,15 +24,11 @@ from edgecraft.paper_fund import (
 ZERO = Decimal("0")
 ONE = Decimal("1")
 BPS = Decimal("10000")
-
-
-@dataclass(frozen=True)
-class SizingConfig:
-    fractional_kelly: Decimal = Decimal("0.25")
-    minimum_edge_bps: Decimal = Decimal("2")
-    maximum_driver_weight: Decimal = Decimal("0.40")
-    maximum_prediction_weight: Decimal = Decimal("0.10")
-    calibration_minimum_count: int = 5
+FRACTIONAL_KELLY = Decimal("0.50")
+MINIMUM_EDGE_BPS = Decimal("2")
+MAXIMUM_DRIVER_WEIGHT = Decimal("0.50")
+MAXIMUM_PREDICTION_WEIGHT = Decimal("0.20")
+CALIBRATION_MINIMUM_COUNT = 5
 
 
 @dataclass(frozen=True)
@@ -171,14 +167,12 @@ def size_decision(
     mandate: FundMandate,
     calibration: Sequence[dict[str, Any]] = (),
     sleeve_weights: dict[str, Decimal] | None = None,
-    config: SizingConfig | None = None,
 ) -> SizingResult:
     """Replace missing entry quantities with fractional-Kelly quantities.
 
     Explicit quantities on exits are preserved. Entry quantities are ignored
     whenever the packet supplies a complete belief, making sizing repeatable.
     """
-    config = config or SizingConfig()
     decision = decision.model_copy(update={"orders": _candidate_orders(decision, quotes, state)})
     quote_by_id = {quote.instrument_id: quote for quote in quotes}
     hypotheses = {
@@ -229,10 +223,10 @@ def size_decision(
             raise PaperFundValidationError(f"missing quote for sized order {order.instrument_id}")
         p_win, target, stop = _belief(order, hypothesis)
         calibrated = calibration_haircut(
-            p_win, calibration, minimum_count=config.calibration_minimum_count
+            p_win, calibration, minimum_count=CALIBRATION_MINIMUM_COUNT
         )
         trading_cost = (mandate.fee_bps + mandate.slippage_bps) * Decimal("2") / BPS
-        minimum_edge = config.minimum_edge_bps / BPS
+        minimum_edge = MINIMUM_EDGE_BPS / BPS
         if order.asset_class is AssetClass.PREDICTION:
             if order.side is OrderSide.BUY:
                 edge = calibrated - quote.price
@@ -267,7 +261,7 @@ def size_decision(
                 continue
             payoff_ratio = upside / downside
             full_kelly = max(ZERO, (payoff_ratio * calibrated - (ONE - calibrated)) / payoff_ratio)
-        weight = full_kelly * config.fractional_kelly
+        weight = full_kelly * FRACTIONAL_KELLY
         playbook_id = order.playbook_id or (hypothesis.playbook_id if hypothesis else None)
         driver = order.driver or (hypothesis.driver if hypothesis else None) or "untagged"
         if position and (
@@ -284,14 +278,14 @@ def size_decision(
             weight = min(weight, sleeve_weights[playbook_id])
         weight = min(weight, mandate.max_single_position_weight)
         if order.asset_class is AssetClass.PREDICTION:
-            weight = min(weight, config.maximum_prediction_weight)
+            weight = min(weight, MAXIMUM_PREDICTION_WEIGHT)
         remaining_driver = max(
             ZERO,
-            state.nav * config.maximum_driver_weight - driver_used.get(driver, ZERO),
+            state.nav * MAXIMUM_DRIVER_WEIGHT - driver_used.get(driver, ZERO),
         )
         position_limit = mandate.max_single_position_weight
         if order.asset_class is AssetClass.PREDICTION:
-            position_limit = min(position_limit, config.maximum_prediction_weight)
+            position_limit = min(position_limit, MAXIMUM_PREDICTION_WEIGHT)
         remaining_position = max(
             ZERO, state.nav * position_limit - instrument_used.get(order.instrument_id, ZERO)
         )
