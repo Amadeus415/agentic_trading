@@ -45,7 +45,9 @@ For unattended trading, use a separate clean runtime checkout and the existing C
 
 The accounting, audit trail, public-data adapters, scheduled trading path, and read-only dashboard are implemented. They are useful engineering foundations. **A profitable trading edge is not established.**
 
-The September 4, 2026 runtime audit found $916.66 NAV, 16 closed trades, and −$5.21 average after-cost profit per trade. That is a dated observation, not a live scoreboard. Use the dashboard for the current book.
+The latest verified runtime snapshot is from **September 22, 2026 at 20:21 UTC**: NAV was **$995.02**, down **0.50%** from the starting bankroll, with no open positions. Across **21 closed trades**, after-cost expectancy is **−$0.24 per trade** (95% interval: −$21.22 to +$20.74). The interval spans zero, so this sample does not establish a profitable edge. Only three SPY quotes are recorded, too few for a reliable benchmark comparison.
+
+![Verified simulated fund progress](assets/fund-progress.svg)
 
 The learning loop can persist new research versions and allocate small paper sleeves using recorded outcomes. It does not yet establish that a prompt change caused better returns. Shadow promotion, stronger experiment validation, and realistic execution need more work. The dashboard's SPY comparison uses completed daily price closes; dividends are excluded, so it is not a total-return performance claim.
 
