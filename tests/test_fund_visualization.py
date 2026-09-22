@@ -24,6 +24,9 @@ def test_render_fund_progress_is_verified_github_safe_svg(tmp_path: Path) -> Non
     assert "100% FAKE MONEY" in svg
     assert "$1,000.00" in svg
     assert "FUND VALUE" in svg
+    assert "ledger cycles" in svg
+    assert "CYCLES" in svg
+    assert "trade cycles" in svg
     assert "Started at $1,000.00" in svg
     assert "How the $1,000.00 has moved" in svg
     assert "<script" not in svg

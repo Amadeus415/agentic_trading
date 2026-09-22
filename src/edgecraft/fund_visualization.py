@@ -103,7 +103,7 @@ def _svg(
 
     return f'''<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
 <title id="title">Edgecraft paper fund value</title>
-<desc id="desc">Verified paper-fund value is {_money(state.nav)}, {delta_sign}{abs(return_pct):.2f}% from a {_money(initial)} start across {len(history)} sessions. The dashed line is starting capital.</desc>
+<desc id="desc">Verified paper-fund value is {_money(state.nav)}, {delta_sign}{abs(return_pct):.2f}% from a {_money(initial)} start across {len(history)} ledger cycles. The dashed line is starting capital.</desc>
 <defs>
   <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="{_BG}"/><stop offset="1" stop-color="#111827"/></linearGradient>
   <linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop stop-color="{_FUND_SOFT}" stop-opacity=".28"/><stop offset="1" stop-color="{_FUND_SOFT}" stop-opacity="0"/></linearGradient>
@@ -125,7 +125,7 @@ def _svg(
 
   {_stat(520, 128, "PEAK", _money(peak))}
   {_stat(748, 128, "CASH", _money(state.cash))}
-  {_stat(976, 128, "SESSIONS", str(len(history)))}
+  {_stat(976, 128, "CYCLES", str(len(history)))}
 
   <rect x="48" y="228" width="1104" height="368" rx="20" fill="{_PANEL}" stroke="{_PANEL_STROKE}"/>
   <text x="72" y="258" fill="{_INK}" font-size="15" font-weight="700">How the {_money(initial)} has moved</text>
@@ -145,7 +145,7 @@ def _svg(
   {date_labels}
 
   <text x="48" y="630" fill="{_MUTED}" font-size="13">Goal: compound toward {_money(target)} over ten years · not a return promise</text>
-  <text x="48" y="654" fill="#64748b" font-size="12">Updated {updated} · {html.escape(book_label)} · {trades} trades · {fills} fills · {html.escape(fund_id)}</text>
+  <text x="48" y="654" fill="#64748b" font-size="12">Updated {updated} · {html.escape(book_label)} · {trades} trade cycles · {fills} fills · {html.escape(fund_id)}</text>
 </g></svg>
 '''
 
