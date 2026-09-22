@@ -37,19 +37,10 @@ if [[ ! -f "$INPUT" ]]; then
   exit 2
 fi
 
-if [[ -x "${ROOT}/.venv/bin/edgecraft" ]]; then
-  RUN=("${ROOT}/.venv/bin/edgecraft")
-elif command -v uv >/dev/null 2>&1; then
-  # Scheduled runs must not resolve dependencies or require package-network access.
-  RUN=(uv run --no-sync edgecraft)
-else
-  # Fallback when uv is unavailable but PYTHONPATH/venv is configured.
-  export PYTHONPATH="${PYTHONPATH:-}:${ROOT}/src"
-  if [[ -x "${ROOT}/.venv/bin/edgecraft" ]]; then
-    RUN=("${ROOT}/.venv/bin/edgecraft")
-  else
-    RUN=(python -m edgecraft)
-  fi
+RUN=("${ROOT}/.venv/bin/edgecraft")
+if [[ ! -x "${RUN[0]}" ]]; then
+  echo '{"ok":false,"error":"missing_runtime","detail":"Run scripts/prepare_local_runtime.sh --update during deployment."}' >&2
+  exit 2
 fi
 
 "${RUN[@]}" fund-init --config "$CONFIG" --ledger "$LEDGER"
