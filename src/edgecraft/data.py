@@ -103,8 +103,6 @@ def validate_ohlcv(frame: pd.DataFrame, symbol: str = "asset") -> pd.DataFrame:
         raise MarketDataError(f"missing columns: {sorted(missing)}")
     frame = frame.loc[~frame.index.duplicated(keep="last"), list(REQUIRED_COLUMNS)].sort_index()
     frame = frame.apply(pd.to_numeric, errors="coerce").dropna(subset=["open", "close"])
-    if not frame.index.is_monotonic_increasing:
-        raise MarketDataError("dates are not monotonic")
     if (frame[["open", "high", "low", "close"]] <= 0).any().any():
         raise MarketDataError(f"{symbol} contains non-positive prices")
     # Independently adjusted Yahoo fields can differ by a few floating-point

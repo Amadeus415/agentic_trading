@@ -175,6 +175,7 @@ def size_decision(
     """
     decision = decision.model_copy(update={"orders": _candidate_orders(decision, quotes, state)})
     quote_by_id = {quote.instrument_id: quote for quote in quotes}
+    position_by_id = {position.instrument_id: position for position in state.positions}
     hypotheses = {
         item.instrument_id: item
         for item in (decision.journal.hypotheses if decision.journal is not None else ())
@@ -203,9 +204,7 @@ def size_decision(
         if order.asset_class is AssetClass.STOCK and not stock_market_is_open(decision.as_of):
             dropped.append({"instrument_id": order.instrument_id, "reason": "market_closed_queued"})
             continue
-        position = next(
-            (item for item in state.positions if item.instrument_id == order.instrument_id), None
-        )
+        position = position_by_id.get(order.instrument_id)
         is_exit = order.side in {OrderSide.SELL, OrderSide.COVER}
         hypothesis = hypotheses.get(order.instrument_id)
         if is_exit:
@@ -276,9 +275,6 @@ def size_decision(
             continue
         if playbook_id in sleeve_weights:
             weight = min(weight, sleeve_weights[playbook_id])
-        weight = min(weight, mandate.max_single_position_weight)
-        if order.asset_class is AssetClass.PREDICTION:
-            weight = min(weight, MAXIMUM_PREDICTION_WEIGHT)
         remaining_driver = max(
             ZERO,
             state.nav * MAXIMUM_DRIVER_WEIGHT - driver_used.get(driver, ZERO),
@@ -286,6 +282,7 @@ def size_decision(
         position_limit = mandate.max_single_position_weight
         if order.asset_class is AssetClass.PREDICTION:
             position_limit = min(position_limit, MAXIMUM_PREDICTION_WEIGHT)
+        weight = min(weight, position_limit)
         remaining_position = max(
             ZERO, state.nav * position_limit - instrument_used.get(order.instrument_id, ZERO)
         )
