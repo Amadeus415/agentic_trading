@@ -65,27 +65,17 @@ def _svg(
     history: list[dict[str, Any]],
 ) -> str:
     initial = mandate.initial_cash
-    target = mandate.growth_objective.target_nav
     series = _series(initial, state, history)
     navs = [point["nav"] for point in series]
     times = [point["time"] for point in series]
     pnl = state.nav - initial
     return_pct = (state.nav / initial - 1) * 100
-    fills = sum(int(row["fill_count"]) for row in history)
-    trades = sum(row["action"] == "trade" for row in history)
     positive = pnl >= 0
     pnl_color = _UP if positive else _DOWN
     delta_sign = "+" if positive else "-"
-    open_count = sum(1 for position in state.positions if position.quantity != 0)
     peak = max(navs)
-    updated = state.as_of.strftime("%Y-%m-%d %H:%M UTC")
-    book_label = (
-        "All cash"
-        if open_count == 0
-        else (f"{open_count} position" if open_count == 1 else f"{open_count} positions")
-    )
 
-    chart_x, chart_y, chart_w, chart_h = 108, 278, 1016, 248
+    chart_x, chart_y, chart_w, chart_h = 96, 230, 1044, 390
     low, high = _bounds(navs, initial)
     ticks = _nice_ticks(low, high)
     xs = _xs(times, chart_x, chart_w)
@@ -96,43 +86,34 @@ def _svg(
         f"{xs[0]:.1f},{chart_y + chart_h:.1f} {nav_points} {xs[-1]:.1f},{chart_y + chart_h:.1f}"
     )
     grid = _grid(chart_x, chart_y, chart_w, chart_h, ticks, low, high)
-    date_labels = _date_labels(times, xs)
+    date_labels = _date_labels(times, xs, chart_y + chart_h + 28)
     dots = _dots(series, xs, ys)
-    peak_mark = _peak_callout(xs, ys, navs, state.nav)
+    peak_mark = _peak_callout(xs, ys, navs, state.nav, chart_y + 16)
     last_x, last_y = xs[-1], ys[-1]
 
-    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700" role="img" aria-labelledby="title desc">
 <title id="title">Edgecraft paper fund value</title>
-<desc id="desc">Verified paper-fund value is {_money(state.nav)}, {delta_sign}{abs(return_pct):.2f}% from a {_money(initial)} start across {len(history)} ledger cycles. The dashed line is starting capital.</desc>
+<desc id="desc">Verified {html.escape(fund_id)} paper-fund value is {_money(state.nav)}, {delta_sign}{abs(return_pct):.2f}% from a {_money(initial)} start across {len(history)} ledger cycles as of {state.as_of.strftime("%Y-%m-%d %H:%M UTC")}. The dashed line is starting capital.</desc>
 <defs>
   <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="{_BG}"/><stop offset="1" stop-color="#111827"/></linearGradient>
   <linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop stop-color="{_FUND_SOFT}" stop-opacity=".28"/><stop offset="1" stop-color="{_FUND_SOFT}" stop-opacity="0"/></linearGradient>
   <filter id="glow"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
 </defs>
-<rect width="1200" height="680" rx="28" fill="url(#bg)"/>
-<circle cx="1120" cy="40" r="170" fill="#4f46e5" opacity=".07"/>
-<circle cx="80" cy="640" r="190" fill="#22d3ee" opacity=".05"/>
+<rect width="1200" height="700" rx="28" fill="url(#bg)"/>
 <g font-family="{_SANS}">
-  <text x="48" y="52" fill="{_INK}" font-size="22" font-weight="800" letter-spacing="2.4">EDGECRAFT</text>
-  <text x="48" y="76" fill="{_MUTED}" font-size="14">Autonomous paper fund · started with {_money(initial)}</text>
-  <rect x="936" y="34" width="216" height="40" rx="20" fill="#102a25" stroke="#34d399" stroke-opacity=".45"/>
-  <circle cx="960" cy="54" r="5" fill="{_UP}"/>
-  <text x="974" y="59" fill="#a7f3d0" font-size="14" font-weight="700">100% FAKE MONEY</text>
+  <text x="48" y="44" fill="{_MUTED}" font-size="12" font-weight="700" letter-spacing="1.6">FUND VALUE</text>
+  <text x="48" y="100" fill="{_INK}" font-size="52" font-weight="800" font-family="{_MONO}">{_money(state.nav)}</text>
+  <text x="48" y="128" fill="{pnl_color}" font-size="18" font-weight="700" font-family="{_MONO}">{delta_sign}{_money(abs(pnl))}  ({delta_sign}{abs(return_pct):.2f}%) vs start</text>
 
-  <text x="48" y="128" fill="{_MUTED}" font-size="12" font-weight="700" letter-spacing="1.6">FUND VALUE</text>
-  <text x="48" y="176" fill="{_INK}" font-size="52" font-weight="800" font-family="{_MONO}">{_money(state.nav)}</text>
-  <text x="48" y="206" fill="{pnl_color}" font-size="18" font-weight="700" font-family="{_MONO}">{delta_sign}{_money(abs(pnl))}  ({delta_sign}{abs(return_pct):.2f}%) vs start</text>
+  {_stat(520, 54, "PEAK", _money(peak))}
+  {_stat(748, 54, "CASH", _money(state.cash))}
+  {_stat(976, 54, "CYCLES", str(len(history)))}
 
-  {_stat(520, 128, "PEAK", _money(peak))}
-  {_stat(748, 128, "CASH", _money(state.cash))}
-  {_stat(976, 128, "CYCLES", str(len(history)))}
-
-  <rect x="48" y="228" width="1104" height="368" rx="20" fill="{_PANEL}" stroke="{_PANEL_STROKE}"/>
-  <text x="72" y="258" fill="{_INK}" font-size="15" font-weight="700">How the {_money(initial)} has moved</text>
-  <circle cx="780" cy="253" r="4" fill="{_FUND}"/>
-  <text x="792" y="258" fill="{_LABEL}" font-size="12">Fund value</text>
-  <line x1="900" y1="253" x2="928" y2="253" stroke="{_START}" stroke-width="2" stroke-dasharray="5 5"/>
-  <text x="936" y="258" fill="{_LABEL}" font-size="12">Started at {_money(initial)}</text>
+  <rect x="28" y="156" width="1144" height="520" rx="20" fill="{_PANEL}" stroke="{_PANEL_STROKE}"/>
+  <circle cx="76" cy="190" r="4" fill="{_FUND}"/>
+  <text x="88" y="195" fill="{_LABEL}" font-size="12">Fund value</text>
+  <line x1="188" y1="190" x2="216" y2="190" stroke="{_START}" stroke-width="2" stroke-dasharray="5 5"/>
+  <text x="224" y="195" fill="{_LABEL}" font-size="12">Started at {_money(initial)}</text>
 
   {grid}
   <line x1="{chart_x}" y1="{start_y:.1f}" x2="{chart_x + chart_w}" y2="{start_y:.1f}" stroke="{_START}" stroke-width="1.5" stroke-dasharray="5 6" opacity=".9"/>
@@ -144,8 +125,6 @@ def _svg(
   <text x="{last_x - 12:.1f}" y="{last_y + 20:.1f}" text-anchor="end" fill="{_LABEL}" font-size="12" font-family="{_MONO}">{_money(state.nav)}</text>
   {date_labels}
 
-  <text x="48" y="630" fill="{_MUTED}" font-size="13">Goal: compound toward {_money(target)} over ten years · not a return promise</text>
-  <text x="48" y="654" fill="#64748b" font-size="12">Updated {updated} · {html.escape(book_label)} · {trades} trade cycles · {fills} fills · {html.escape(fund_id)}</text>
 </g></svg>
 '''
 
@@ -249,13 +228,13 @@ def _grid(
     return "\n  ".join(parts)
 
 
-def _date_labels(times: list[datetime], xs: list[float]) -> str:
+def _date_labels(times: list[datetime], xs: list[float], y: int) -> str:
     chosen = _pick_dates(times, xs)
     parts = []
     for index, (x, moment) in enumerate(chosen):
         anchor = "end" if index == len(chosen) - 1 else "start" if index == 0 else "middle"
         parts.append(
-            f'<text x="{x:.1f}" y="548" text-anchor="{anchor}" fill="{_MUTED}" '
+            f'<text x="{x:.1f}" y="{y}" text-anchor="{anchor}" fill="{_MUTED}" '
             f'font-size="12">{moment.strftime("%b %d")}</text>'
         )
     return "".join(parts)
@@ -299,6 +278,7 @@ def _peak_callout(
     ys: list[float],
     navs: list[Decimal],
     current: Decimal,
+    min_label_y: int,
 ) -> str:
     peak = max(navs)
     if peak <= current or len(navs) < 2:
@@ -306,7 +286,7 @@ def _peak_callout(
     index = navs.index(peak)
     x, y = xs[index], ys[index]
     label_x = x - 10
-    label_y = max(y - 16, 286)
+    label_y = max(y - 16, min_label_y)
     return (
         f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4.5" fill="{_INK}"/>'
         f'<text x="{label_x:.1f}" y="{label_y:.1f}" text-anchor="end" fill="{_LABEL}" '

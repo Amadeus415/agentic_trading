@@ -21,14 +21,15 @@ def test_render_fund_progress_is_verified_github_safe_svg(tmp_path: Path) -> Non
     assert result["paper_only"] is True
     assert result["verification"] == {"chain_ok": True, "accounting_ok": True}
     assert '<svg xmlns="http://www.w3.org/2000/svg"' in svg
-    assert "100% FAKE MONEY" in svg
     assert "$1,000.00" in svg
     assert "FUND VALUE" in svg
     assert "ledger cycles" in svg
     assert "CYCLES" in svg
-    assert "trade cycles" in svg
     assert "Started at $1,000.00" in svg
-    assert "How the $1,000.00 has moved" in svg
+    assert 'height="700"' in svg
+    assert "100% FAKE MONEY" not in svg
+    assert "How the $1,000.00 has moved" not in svg
+    assert "Goal: compound" not in svg
     assert "<script" not in svg
     assert "GROSS EXPOSURE" not in svg
 
@@ -82,8 +83,8 @@ def test_chart_explains_a_drawdown_against_starting_capital() -> None:
     assert "$1,000" in svg
     assert "#818cf8" in svg
     assert 'stroke="#fb7185"' not in svg
-    assert "All cash" in svg
-    assert "100% FAKE MONEY" in svg
+    assert "All cash" not in svg
+    assert "100% FAKE MONEY" not in svg
     assert "<script" not in svg
 
 
