@@ -35,5 +35,15 @@
     "max_absolute_net_exposure_nav_multiple": "2.00",
     "max_short_exposure_nav_multiple": "1.00",
     "max_cycle_turnover_nav_multiple": "4.00"
+  },
+  "trading": {
+    "kelly_fraction": "1.00",
+    "max_driver_weight": "0.60",
+    "max_prediction_weight": "0.60",
+    "incubation_weight": "0.60",
+    "active_weight": "1.20",
+    "review_days": 1,
+    "review_closed_trades": 10,
+    "learning_window": 20
   }
 }
