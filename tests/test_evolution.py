@@ -87,7 +87,7 @@ def test_evolution_records_validated_incubated_and_allocator_promoted_path(tmp_p
     assert promoted[0]["to_status"] == "active"
 
 
-def test_non_backtestable_prompt_edit_enters_shadow_sleeve(tmp_path: Path) -> None:
+def test_non_backtestable_prompt_edit_enters_forward_paper_sleeve(tmp_path: Path) -> None:
     proposal = ChangeProposal(
         proposal_id="p2",
         kind=ChangeKind.RESEARCH_PROMPT_EDIT,
@@ -108,7 +108,34 @@ def test_non_backtestable_prompt_edit_enters_shadow_sleeve(tmp_path: Path) -> No
     with PaperFundLedger(tmp_path / "fund.db") as ledger:
         ledger.initialize("fund", FundMandate())
         transitions = apply_postmortem(ledger, postmortem)
-    assert [item["to_status"] for item in transitions] == ["shadow"]
+    assert [item["to_status"] for item in transitions] == ["incubating"]
+
+
+def test_rule_experiment_needs_no_backtest_but_supplied_failed_artifact_stays_unfunded(
+    tmp_path: Path,
+) -> None:
+    from edgecraft.evolution import validate_proposal
+
+    proposal = ChangeProposal(
+        proposal_id="rule-test",
+        kind="playbook_param",
+        playbook_id="crypto_momentum",
+        rationale="Test a faster exit against forward outcomes.",
+        patch={"exit_rule": "Exit after 12 hours."},
+        backtestable=False,
+    )
+    assert validate_proposal(proposal).passed
+    artifact = tmp_path / "failed.json"
+    artifact.write_text(
+        json.dumps(
+            {
+                "schema_version": "edgecraft.walk-forward.v1",
+                "summary": {"passed": False, "oos_return": -0.1},
+            }
+        )
+    )
+    supplied = proposal.model_copy(update={"validation_artifacts": (str(artifact),)})
+    assert not validate_proposal(supplied).passed
 
 
 def test_evolution_rejects_changes_to_human_owned_boundary() -> None:
@@ -188,7 +215,7 @@ def test_review_replay_is_noop_and_prompt_candidate_preserves_parent(tmp_path: P
         books = {book.spec.id: book for book in effective_playbooks(ledger, "fund")}
         candidate = books[transitions[0]["playbook_id"]]
         assert candidate.prompt == "Require volume evidence."
-        assert candidate.spec.status.value == "shadow"
+        assert candidate.spec.status.value == "incubating"
         assert candidate.prompt_hash != original.prompt_hash
         assert books[original.spec.id] == original
         assert ledger.verify("fund").ok
@@ -218,21 +245,19 @@ def test_invalid_second_proposal_does_not_partially_complete_review(tmp_path: Pa
         assert len(ledger.list_events("fund")) == count
 
 
-def test_review_due_on_seven_days_or_twenty_new_closed_trades(tmp_path: Path) -> None:
+def test_review_due_daily_or_after_ten_new_closed_trades(tmp_path: Path) -> None:
     from datetime import timedelta
 
     with PaperFundLedger(tmp_path / "fund.db") as ledger:
         ledger.initialize("fund", FundMandate())
         anchor = ledger.list_events("fund")[0].occurred_at
-        assert not review_status(ledger, "fund", [], now=anchor + timedelta(days=6))["due"]
-        assert review_status(ledger, "fund", [], now=anchor + timedelta(days=7))["due"]
-        trades = [{"closed_at": (anchor + timedelta(hours=1)).isoformat()}] * 20
+        assert not review_status(ledger, "fund", [], now=anchor + timedelta(hours=23))["due"]
+        assert review_status(ledger, "fund", [], now=anchor + timedelta(days=1))["due"]
+        trades = [{"closed_at": (anchor + timedelta(hours=1)).isoformat()}] * 10
         assert (
             review_status(ledger, "fund", trades, now=anchor + timedelta(hours=2))["reason"]
             == "trade_count"
         )
-        assert not review_status(ledger, "fund", trades[:19], now=anchor + timedelta(hours=2))[
-            "due"
-        ]
+        assert not review_status(ledger, "fund", trades[:9], now=anchor + timedelta(hours=2))["due"]
         apply_postmortem(ledger, _review())
         assert not review_status(ledger, "fund", [], now=datetime.now(UTC))["due"]

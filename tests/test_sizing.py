@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from edgecraft.paper_fund import (
     AssetClass,
+    BookLevel,
     DecisionAction,
     DecisionJournal,
     FundDecision,
@@ -17,7 +18,10 @@ from edgecraft.paper_fund import (
     FundState,
     HypothesisStance,
     OrderSide,
+    PaperFundValidationError,
+    run_cycle_accounting,
 )
+from edgecraft.policy import TradingPolicy
 from edgecraft.sizing import size_decision
 
 NOW = datetime(2026, 9, 1, 15, tzinfo=UTC)
@@ -58,7 +62,7 @@ def _decision(
         fund_id="fund",
         cycle_key="c",
         as_of=NOW,
-        action=DecisionAction.TRADE,
+        action=DecisionAction.TRADE if orders else DecisionAction.HOLD,
         thesis="test",
         evidence=(
             FundEvidence(
@@ -137,11 +141,11 @@ def test_sizes_long_and_short_from_beliefs_not_model_quantity() -> None:
             _quote("SHORT", "100", AssetClass.STOCK),
         ),
         state=_state(),
-        mandate=FundMandate(),
+        mandate=FundMandate(max_single_position_weight="0.60"),
     )
     assert len(result.decision.orders) == 2
     assert all(order.quantity != Decimal("999") for order in result.decision.orders)
-    assert {order.quantity for order in result.decision.orders} == {Decimal("2")}
+    assert {order.quantity for order in result.decision.orders} == {Decimal("4")}
     assert {item["driver"] for item in result.accepted} == {"growth", "rates"}
 
 
@@ -167,7 +171,7 @@ def test_binary_rounding_and_shared_driver_cap() -> None:
     )
     prediction = result.decision.orders[0]
     assert prediction.quantity == prediction.quantity.to_integral_value()
-    assert sum(Decimal(item["notional"]) for item in result.accepted) <= Decimal("400")
+    assert sum(Decimal(item["notional"]) for item in result.accepted) <= Decimal("600")
 
 
 def test_binary_uses_probability_versus_market_price() -> None:
@@ -183,8 +187,7 @@ def test_binary_uses_probability_versus_market_price() -> None:
     )
     assert len(result.decision.orders) == 1
     notional = Decimal(result.accepted[0]["notional"])
-    assert notional < Decimal("160")
-    assert Decimal("100") < notional <= Decimal("110")
+    assert Decimal("210") < notional <= Decimal("215")
 
 
 def test_calibration_haircut_can_drop_an_overconfident_trade() -> None:
@@ -194,7 +197,7 @@ def test_calibration_haircut_can_drop_an_overconfident_trade() -> None:
         quotes=(_quote("LONG", "100", AssetClass.STOCK),),
         state=_state(),
         mandate=FundMandate(),
-        calibration=({"bucket": "60-70%", "count": 5, "realized_win_rate": "0.20"},),
+        calibration=({"bucket": "60-70%", "count": 20, "realized_win_rate": "0"},),
     )
     assert result.decision.action is DecisionAction.HOLD
     assert result.dropped[0]["reason"] == "below_edge_threshold"
@@ -299,7 +302,7 @@ def test_sleeve_budget_is_shared_across_orders_and_existing_inventory() -> None:
             tuple(_order(symbol, AssetClass.STOCK, OrderSide.BUY) for symbol in ("A", "B")),
             hypotheses,
         ),
-        quotes=tuple(_quote(symbol, "100", AssetClass.STOCK) for symbol in ("A", "B")),
+        quotes=tuple(_quote(symbol, "100", AssetClass.STOCK) for symbol in ("HELD", "A", "B")),
         state=state,
         mandate=FundMandate(),
         sleeve_weights={"momentum": Decimal("0.05")},
@@ -333,3 +336,131 @@ def test_round_trip_charges_both_entry_and_exit_fees() -> None:
         mandate=FundMandate(fee_bps="10", slippage_bps="10"),
     )
     assert result.dropped[0]["reason"] == "below_edge_threshold"
+
+
+def test_entries_fit_cash_instead_of_rejecting_the_whole_cycle() -> None:
+    beliefs = tuple(
+        _belief(symbol, HypothesisStance.LONG, "120", "95", symbol).model_copy(
+            update={"p_win": Decimal("0.9")}
+        )
+        for symbol in ("A", "B", "C")
+    )
+    quotes = tuple(_quote(symbol, "100", AssetClass.STOCK) for symbol in ("A", "B", "C"))
+    mandate = FundMandate(max_single_position_weight="0.60", max_cycle_turnover="4000")
+    result = size_decision(
+        decision=_decision((), beliefs), quotes=quotes, state=_state(), mandate=mandate
+    )
+    outcome = run_cycle_accounting(
+        mandate=mandate, prior_state=_state(), decision=result.decision, quotes=quotes
+    )
+    assert outcome.risk.approved
+    assert Decimal("0") <= outcome.state.cash < Decimal("0.02")
+    assert len(outcome.fills) == 2
+    assert result.accepted[1]["capacity_adjustment"]
+    assert result.dropped[0]["reason"] == "portfolio_capacity"
+
+
+def test_invalid_quotes_remain_fatal_during_capacity_sizing() -> None:
+    import pytest
+
+    quotes = (
+        _quote("A", "100", AssetClass.STOCK).model_copy(
+            update={"observed_at": NOW.replace(year=2020)}
+        ),
+    )
+    with pytest.raises(PaperFundValidationError, match="stale"):
+        size_decision(
+            decision=_decision((), (_belief("A", HypothesisStance.LONG, "110", "95", "growth"),)),
+            quotes=quotes,
+            state=_state(),
+            mandate=FundMandate(),
+        )
+
+
+def test_opposite_belief_exits_and_reverses_in_one_cycle() -> None:
+    state = _state().model_copy(
+        update={
+            "cash": Decimal("800"),
+            "gross_exposure": Decimal("200"),
+            "net_exposure": Decimal("200"),
+            "positions": (
+                FundPosition(
+                    instrument_id="A",
+                    asset_class=AssetClass.STOCK,
+                    quantity="2",
+                    average_entry="100",
+                    mark_price="100",
+                    playbook_id="momentum",
+                    driver="growth",
+                ),
+            ),
+        }
+    )
+    quotes = (_quote("A", "100", AssetClass.STOCK),)
+    mandate = FundMandate(max_single_position_weight="0.60", max_cycle_turnover="4000")
+    result = size_decision(
+        decision=_decision((), (_belief("A", HypothesisStance.SHORT, "90", "105", "growth"),)),
+        quotes=quotes,
+        state=state,
+        mandate=mandate,
+        sleeve_weights={"momentum": Decimal("0.60")},
+    )
+    assert [order.side for order in result.decision.orders] == [OrderSide.SELL, OrderSide.SHORT]
+    outcome = run_cycle_accounting(
+        mandate=mandate, prior_state=state, decision=result.decision, quotes=quotes
+    )
+    assert outcome.state.positions[0].quantity < 0
+    assert outcome.risk.approved
+
+
+def test_policy_and_version_calibration_control_sizing() -> None:
+    belief = _belief("A", HypothesisStance.LONG, "110", "95", "growth")
+    common = dict(
+        decision=_decision((), (belief,)),
+        quotes=(_quote("A", "100", AssetClass.STOCK),),
+        state=_state(),
+        mandate=FundMandate(max_single_position_weight="0.60"),
+        calibration=(
+            {
+                "playbook_id": "old_version",
+                "bucket": "60-70%",
+                "count": 20,
+                "realized_win_rate": "0",
+            },
+        ),
+    )
+    aggressive = size_decision(**common)
+    fractional = size_decision(**common, policy=TradingPolicy(kelly_fraction="0.5"))
+    assert aggressive.decision.orders[0].quantity == 2 * fractional.decision.orders[0].quantity
+
+
+def test_displayed_spread_can_erase_a_positive_midprice_edge() -> None:
+    quote = _quote("A", "100", AssetClass.STOCK).model_copy(
+        update={
+            "asks": (BookLevel(price="109", size="100"),),
+        }
+    )
+    result = size_decision(
+        decision=_decision((), (_belief("A", HypothesisStance.LONG, "110", "95", "growth"),)),
+        quotes=(quote,),
+        state=_state(),
+        mandate=FundMandate(max_single_position_weight="0.60"),
+    )
+    assert result.decision.orders == ()
+    assert result.dropped[0]["reason"] == "execution_erases_edge"
+
+
+def test_size_fits_displayed_depth_without_inventing_liquidity() -> None:
+    quote = _quote("A", "100", AssetClass.STOCK).model_copy(
+        update={
+            "asks": (BookLevel(price="100", size="1"),),
+        }
+    )
+    result = size_decision(
+        decision=_decision((), (_belief("A", HypothesisStance.LONG, "110", "95", "growth"),)),
+        quotes=(quote,),
+        state=_state(),
+        mandate=FundMandate(max_single_position_weight="0.60"),
+    )
+    assert result.decision.orders[0].quantity == 1
+    assert "depth" in result.accepted[0]["capacity_adjustment"]

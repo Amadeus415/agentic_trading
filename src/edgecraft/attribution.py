@@ -15,6 +15,7 @@ from decimal import Decimal
 from typing import Any
 
 from edgecraft.paper_fund import FundMandate, PaperFundLedger
+from edgecraft.policy import TradingPolicy
 
 ZERO = Decimal("0")
 ONE = Decimal("1")
@@ -245,15 +246,17 @@ def _round_trips(cycles: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     instrument,
                     {
                         "quantity": ZERO,
+                        "closed_quantity": ZERO,
+                        "net_pnl": ZERO,
                         "opening_fees": ZERO,
+                        "p_win": hypotheses.get(instrument, {}).get("p_win"),
                         "opened_at": at,
                         "side": "long" if side == "buy" else "short",
                         "asset_class": fill["asset_class"],
                         "session_slot": _slot(str(cycle["cycle_key"])),
                         "model": runtime.get("model") or "unknown",
-                        "playbook_id": hypotheses.get(instrument, {}).get(
-                            "playbook_id", "unassigned"
-                        ),
+                        "playbook_id": fill.get("playbook_id")
+                        or hypotheses.get(instrument, {}).get("playbook_id", "unassigned"),
                     },
                 )
                 row["quantity"] += quantity
@@ -270,25 +273,37 @@ def _round_trips(cycles: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 else ZERO
             )
             net = _dec(fill["realized_pnl"]) - opening_fee
-            trips.append(
-                {
-                    "instrument_id": instrument,
-                    "asset_class": row["asset_class"],
-                    "side": row["side"],
-                    "playbook_id": row["playbook_id"],
-                    "session_slot": row["session_slot"],
-                    "model": row["model"],
-                    "opened_at": row["opened_at"].isoformat().replace("+00:00", "Z"),
-                    "closed_at": at.isoformat().replace("+00:00", "Z"),
-                    "hold_hours": str(Decimal(str((at - row["opened_at"]).total_seconds() / 3600))),
-                    "quantity": str(allocated_quantity),
-                    "realized_pnl_after_cost": str(net),
-                    "won": net > ZERO,
-                    "lost": net < ZERO,
-                }
-            )
+            row["closed_quantity"] += allocated_quantity
+            row["net_pnl"] += net
             remaining = open_quantity - allocated_quantity
             if remaining <= ZERO:
+                trips.append(
+                    {
+                        "instrument_id": instrument,
+                        "asset_class": row["asset_class"],
+                        "side": row["side"],
+                        "playbook_id": row["playbook_id"],
+                        "session_slot": row["session_slot"],
+                        "model": row["model"],
+                        "opened_at": row["opened_at"].isoformat().replace("+00:00", "Z"),
+                        "closed_at": at.isoformat().replace("+00:00", "Z"),
+                        "hold_hours": str(
+                            Decimal(str((at - row["opened_at"]).total_seconds() / 3600))
+                        ),
+                        "quantity": str(row["closed_quantity"]),
+                        "realized_pnl_after_cost": str(row["net_pnl"]),
+                        "won": row["net_pnl"] > ZERO,
+                        "lost": row["net_pnl"] < ZERO,
+                        "p_win": row["p_win"],
+                        "probability_outcome": (
+                            _dec(fill["execution_price"]) == ONE
+                            if side == "settle"
+                            else None
+                            if row["asset_class"] == "prediction"
+                            else row["net_pnl"] > ZERO
+                        ),
+                    }
+                )
                 del inventory[instrument]
             else:
                 row["quantity"] = remaining
@@ -360,12 +375,43 @@ def _calibration(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return output
 
 
+def _sizing_calibration(trades: list[dict[str, Any]], window: int) -> list[dict[str, Any]]:
+    """One closed-position outcome per version, never repeated hold observations."""
+    by_playbook: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for trade in trades:
+        by_playbook[trade["playbook_id"]].append(trade)
+    output = []
+    for playbook_id, history in sorted(by_playbook.items()):
+        grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for trade in history[-window:]:
+            if trade.get("p_win") is not None and trade.get("probability_outcome") is not None:
+                grouped[_bucket(_dec(trade["p_win"]))].append(trade)
+        for bucket, items in sorted(grouped.items()):
+            output.append(
+                {
+                    "playbook_id": playbook_id,
+                    "bucket": bucket,
+                    "count": len(items),
+                    "realized_win_rate": str(
+                        Decimal(sum(item["probability_outcome"] for item in items))
+                        / Decimal(len(items))
+                    ),
+                }
+            )
+    return output
+
+
 def build_fund_report(
-    ledger: PaperFundLedger, fund_id: str, mandate: FundMandate
+    ledger: PaperFundLedger,
+    fund_id: str,
+    mandate: FundMandate,
+    *,
+    policy: TradingPolicy | None = None,
 ) -> dict[str, Any]:
     """Build the read-only performance and attribution report used by CLI/UI."""
     from edgecraft.evolution import latest_playbook_statuses, review_status
 
+    policy = policy or TradingPolicy()
     rows = build_attribution(ledger, fund_id)
     cycles = ledger.list_full_cycles(fund_id)
     trades = _round_trips(cycles)
@@ -396,7 +442,8 @@ def build_fund_report(
         "schema_version": "edgecraft.fund-report.v1",
         "fund_id": fund_id,
         "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-        "review": review_status(ledger, fund_id, trades),
+        "review": review_status(ledger, fund_id, trades, policy=policy),
+        "trading": policy.model_dump(mode="json"),
         "playbook_statuses": latest_playbook_statuses(ledger, fund_id),
         "summary": {
             **_aggregate_trades(trades),
@@ -417,6 +464,7 @@ def build_fund_report(
             "exposure_weighted_return": str(nav_change / deployed) if deployed else None,
         },
         "calibration": calibration,
+        "sizing_calibration": _sizing_calibration(trades, policy.learning_window),
         "cuts": {
             key: _group(rows, key)
             for key in (

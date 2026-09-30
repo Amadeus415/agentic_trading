@@ -22,11 +22,13 @@ from edgecraft.paper_fund import (
     FundDecision,
     FundMandate,
     FundQuote,
+    PaperFundIdempotencyError,
     PaperFundLedger,
     PaperFundValidationError,
     mandate_digest,
     request_digest,
 )
+from edgecraft.policy import TradingPolicy
 from edgecraft.schedule import scheduled_cycle_key, scheduled_input_path, scheduled_slot
 
 DEFAULT_FUND_LEDGER = "state/edgecraft-aggressive.db"
@@ -295,7 +297,7 @@ def dispatch(args: argparse.Namespace) -> Any:
     return handler(args)
 
 
-def _load_fund_config(path: Path) -> tuple[str, FundMandate]:
+def _load_fund_config(path: Path) -> tuple[str, FundMandate, TradingPolicy]:
     raw = _read_json(path)
     if not isinstance(raw, dict):
         raise ValueError("fund config must be a JSON object")
@@ -303,7 +305,7 @@ def _load_fund_config(path: Path) -> tuple[str, FundMandate]:
     if not fund_id:
         raise ValueError("fund config requires fund_id")
     mandate = FundMandate.model_validate(raw.get("mandate"))
-    return fund_id, mandate
+    return fund_id, mandate, TradingPolicy.model_validate(raw.get("trading", {}))
 
 
 def _ensure_fund_initialized(
@@ -327,17 +329,18 @@ def _ensure_fund_initialized(
 
 
 def _fund_validate(args: argparse.Namespace) -> dict[str, Any]:
-    fund_id, mandate = _load_fund_config(args.config)
+    fund_id, mandate, policy = _load_fund_config(args.config)
     return {
         "ok": True,
         "paper_only": True,
         "fund_id": fund_id,
         "mandate": mandate.model_dump(mode="json"),
+        "trading": policy.model_dump(mode="json"),
     }
 
 
 def _fund_init(args: argparse.Namespace) -> dict[str, Any]:
-    fund_id, mandate = _load_fund_config(args.config)
+    fund_id, mandate, policy = _load_fund_config(args.config)
     with PaperFundLedger(args.ledger) as ledger:
         initialized = _ensure_fund_initialized(ledger, fund_id, mandate)
         state = ledger.get_state(fund_id)
@@ -364,18 +367,20 @@ def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
     from edgecraft.attribution import build_fund_report
     from edgecraft.evolution import effective_playbooks, latest_playbook_statuses
 
-    fund_id, mandate = _load_fund_config(args.config)
+    fund_id, mandate, policy = _load_fund_config(args.config)
     with PaperFundLedger(args.ledger) as ledger:
         state = ledger.get_state(fund_id)
         cycles = ledger.list_cycles(fund_id)[-10:]
         brain = build_fund_brain(ledger, fund_id)
-        report = build_fund_report(ledger, fund_id, mandate)
+        report = build_fund_report(ledger, fund_id, mandate, policy=policy)
         status_overrides = latest_playbook_statuses(ledger, fund_id)
         playbooks = effective_playbooks(ledger, fund_id)
     allocations = allocate_sleeves(
         playbooks,
         report["round_trips"],
         status_overrides=status_overrides,
+        policy=policy,
+        gross_budget=mandate.max_gross_exposure_nav_multiple,
     )
     initial = mandate.initial_cash
     mandate_payload = mandate.model_dump(mode="json")
@@ -395,6 +400,7 @@ def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
         },
         "fund_id": fund_id,
         "mandate": mandate_payload,
+        "trading": policy.model_dump(mode="json"),
         "state": state.model_dump(mode="json"),
         "performance": _pnl_snapshot(initial, state.nav),
         "recent_cycles": cycles,
@@ -549,7 +555,7 @@ def _fund_runtime_from_input(
 
 
 def _fund_run(args: argparse.Namespace) -> dict[str, Any]:
-    fund_id, mandate = _load_fund_config(args.config)
+    fund_id, mandate, policy = _load_fund_config(args.config)
     input_path = Path(args.input)
     raw_text = input_path.read_text(encoding="utf-8")
     input_sha256 = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
@@ -564,8 +570,25 @@ def _fund_run(args: argparse.Namespace) -> dict[str, Any]:
         raw_decision = {**raw_decision, "action": "trade" if raw_decision.get("orders") else "hold"}
     decision = FundDecision.model_validate(raw_decision)
     quotes = [FundQuote.model_validate(item) for item in raw.get("quotes", [])]
+    replay_audit = None
+    if args.size_beliefs:
+        # Replay the original fitted result. Current inventory, policy, and
+        # calibration must never reinterpret a previously accepted packet.
+        with PaperFundLedger(args.ledger) as replay_ledger:
+            if any(
+                row["cycle_key"] == decision.cycle_key for row in replay_ledger.list_cycles(fund_id)
+            ):
+                prior = replay_ledger.get_cycle(fund_id, decision.cycle_key)
+                prior_audit = prior.get("audit") or {}
+                if (prior_audit.get("runtime") or {}).get("input_sha256") != input_sha256:
+                    raise PaperFundIdempotencyError(
+                        "cycle key already used with a different input packet"
+                    )
+                decision = FundDecision.model_validate(prior["decision"])
+                quotes = [FundQuote.model_validate(item) for item in prior["quotes"]]
+                replay_audit = prior_audit
     quote_audit: list[dict[str, Any]] = []
-    if args.code_owned_quotes:
+    if args.code_owned_quotes and replay_audit is None:
         from edgecraft.marketdata import MarketDataRouter, advisory_difference_bps
 
         router = MarketDataRouter()
@@ -590,9 +613,9 @@ def _fund_run(args: argparse.Namespace) -> dict[str, Any]:
                 )
             authoritative.append(code_quote)
         quotes = authoritative
-    sizing_audit: dict[str, Any] | None = None
-    sleeve_allocation: dict[str, Decimal] = {}
-    if args.size_beliefs:
+    sizing_audit: dict[str, Any] | None = (replay_audit or {}).get("sizing")
+    sleeve_allocation: dict[str, Decimal] = (replay_audit or {}).get("sleeve_allocation", {})
+    if args.size_beliefs and replay_audit is None:
         from edgecraft.allocator import allocate_sleeves
         from edgecraft.attribution import build_fund_report
         from edgecraft.evolution import effective_playbooks, latest_playbook_statuses
@@ -600,14 +623,16 @@ def _fund_run(args: argparse.Namespace) -> dict[str, Any]:
 
         with PaperFundLedger(args.ledger) as sizing_ledger:
             state = sizing_ledger.get_state(fund_id)
-            fund_report = build_fund_report(sizing_ledger, fund_id, mandate)
-            calibration = fund_report["calibration"]
+            fund_report = build_fund_report(sizing_ledger, fund_id, mandate, policy=policy)
+            calibration = fund_report["sizing_calibration"]
             status_overrides = latest_playbook_statuses(sizing_ledger, fund_id)
             playbooks = effective_playbooks(sizing_ledger, fund_id)
         allocations = allocate_sleeves(
             playbooks,
             fund_report["round_trips"],
             status_overrides=status_overrides,
+            policy=policy,
+            gross_budget=mandate.max_gross_exposure_nav_multiple,
         )
         sleeve_allocation = {item.playbook_id: item.weight for item in allocations}
         sizing = size_decision(
@@ -617,15 +642,22 @@ def _fund_run(args: argparse.Namespace) -> dict[str, Any]:
             mandate=mandate,
             calibration=calibration,
             sleeve_weights=sleeve_allocation,
+            policy=policy,
         )
         decision = sizing.decision
-        sizing_audit = {"accepted": sizing.accepted, "dropped": sizing.dropped}
+        sizing_audit = {
+            "policy": policy.model_dump(mode="json"),
+            "accepted": sizing.accepted,
+            "dropped": sizing.dropped,
+        }
     runtime = _fund_runtime_from_input(
         raw,
         mandate=mandate,
         input_path=input_path.resolve(),
         input_sha256=input_sha256,
     )
+    if replay_audit is not None:
+        runtime = CycleRuntimeMetadata.model_validate(replay_audit["runtime"])
     if decision.fund_id != fund_id:
         raise ValueError("decision fund_id does not match the checked-in fund config")
     if args.require_as_of_today and decision.as_of.date() != datetime.now(UTC).date():
@@ -726,7 +758,7 @@ def _fund_snapshot(args: argparse.Namespace) -> dict[str, Any]:
     from edgecraft.marketdata import MarketDataError, MarketDataRouter
     from edgecraft.paper_fund import AssetClass
 
-    fund_id, _mandate = _load_fund_config(args.config)
+    fund_id, _mandate, _policy = _load_fund_config(args.config)
     with PaperFundLedger(args.ledger) as ledger:
         state = ledger.get_state(fund_id)
     required = {position.instrument_id for position in state.positions}
@@ -773,7 +805,7 @@ def _fund_monitor(args: argparse.Namespace) -> dict[str, Any]:
     from edgecraft.monitor import build_monitor_decision
     from edgecraft.paper_fund import FundHypothesis
 
-    fund_id, mandate = _load_fund_config(args.config)
+    fund_id, mandate, policy = _load_fund_config(args.config)
     with PaperFundLedger(args.ledger) as ledger:
         state = ledger.get_state(fund_id)
         cycles = ledger.list_full_cycles(fund_id)
@@ -901,7 +933,7 @@ def _fund_monitor(args: argparse.Namespace) -> dict[str, Any]:
 def _fund_show(args: argparse.Namespace) -> dict[str, Any]:
     if args.limit < 1:
         raise ValueError("limit must be positive")
-    fund_id, mandate = _load_fund_config(args.config)
+    fund_id, mandate, policy = _load_fund_config(args.config)
     with PaperFundLedger(args.ledger) as ledger:
         state = ledger.get_state(fund_id)
         cycles = ledger.list_cycles(fund_id)
@@ -931,7 +963,7 @@ def _fund_show(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _fund_cycle(args: argparse.Namespace) -> dict[str, Any]:
-    fund_id, _mandate = _load_fund_config(args.config)
+    fund_id, _mandate, _policy = _load_fund_config(args.config)
     with PaperFundLedger(args.ledger) as ledger:
         cycle = ledger.get_cycle(fund_id, args.cycle_key)
         payload: dict[str, Any] = {"ok": True, "paper_only": True, "cycle": cycle}
@@ -948,7 +980,7 @@ def _fund_cycle(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _fund_verify(args: argparse.Namespace) -> dict[str, Any]:
-    fund_id, _mandate = _load_fund_config(args.config)
+    fund_id, _mandate, _policy = _load_fund_config(args.config)
     with PaperFundLedger(args.ledger) as ledger:
         report = ledger.verify(fund_id).model_dump(mode="json")
     log_event(
@@ -966,7 +998,7 @@ def _fund_verify(args: argparse.Namespace) -> dict[str, Any]:
 def _fund_visualize(args: argparse.Namespace) -> dict[str, Any]:
     from edgecraft.fund_visualization import render_fund_progress
 
-    fund_id, mandate = _load_fund_config(args.config)
+    fund_id, mandate, policy = _load_fund_config(args.config)
     with PaperFundLedger(args.ledger) as ledger:
         return render_fund_progress(ledger, fund_id, mandate, args.visualization_output)
 
@@ -974,10 +1006,10 @@ def _fund_visualize(args: argparse.Namespace) -> dict[str, Any]:
 def _fund_report(args: argparse.Namespace) -> dict[str, Any]:
     from edgecraft.attribution import build_fund_report
 
-    fund_id, mandate = _load_fund_config(args.config)
+    fund_id, mandate, policy = _load_fund_config(args.config)
     with PaperFundLedger(args.ledger) as ledger:
         verification = ledger.verify(fund_id)
-        report = build_fund_report(ledger, fund_id, mandate)
+        report = build_fund_report(ledger, fund_id, mandate, policy=policy)
     report["verification"] = verification.model_dump(mode="json")
     return report
 
@@ -986,9 +1018,9 @@ def _fund_postmortem(args: argparse.Namespace) -> dict[str, Any]:
     from edgecraft.attribution import build_fund_report
     from edgecraft.evolution import build_postmortem
 
-    fund_id, mandate = _load_fund_config(args.config)
+    fund_id, mandate, policy = _load_fund_config(args.config)
     with PaperFundLedger(args.ledger) as ledger:
-        report = build_fund_report(ledger, fund_id, mandate)
+        report = build_fund_report(ledger, fund_id, mandate, policy=policy)
     return build_postmortem(report).model_dump(mode="json")
 
 
@@ -1003,17 +1035,19 @@ def _fund_evolve(args: argparse.Namespace) -> dict[str, Any]:
         reconcile_allocator_lifecycle,
     )
 
-    fund_id, mandate = _load_fund_config(args.config)
+    fund_id, mandate, policy = _load_fund_config(args.config)
     postmortem = Postmortem.model_validate_json(args.postmortem.read_text(encoding="utf-8"))
     if postmortem.fund_id != fund_id:
         raise ValueError("postmortem fund_id does not match config")
     with PaperFundLedger(args.ledger) as ledger:
         transitions = apply_postmortem(ledger, postmortem)
-        report = build_fund_report(ledger, fund_id, mandate)
+        report = build_fund_report(ledger, fund_id, mandate, policy=policy)
         allocations = allocate_sleeves(
             effective_playbooks(ledger, fund_id),
             report["round_trips"],
             status_overrides=latest_playbook_statuses(ledger, fund_id),
+            policy=policy,
+            gross_budget=mandate.max_gross_exposure_nav_multiple,
         )
         transitions.extend(reconcile_allocator_lifecycle(ledger, fund_id, allocations))
         verification = ledger.verify(fund_id)
@@ -1028,7 +1062,7 @@ def _fund_evolve(args: argparse.Namespace) -> dict[str, Any]:
 def _fund_alerts(args: argparse.Namespace) -> dict[str, Any]:
     from edgecraft.alerts import build_alerts, send_webhook
 
-    fund_id, _mandate = _load_fund_config(args.config)
+    fund_id, _mandate, _policy = _load_fund_config(args.config)
     with PaperFundLedger(args.ledger) as ledger:
         alerts = build_alerts(ledger, fund_id)
     sent = False
@@ -1049,7 +1083,7 @@ def _fund_backfill_nav(args: argparse.Namespace) -> dict[str, Any]:
     from edgecraft.backfill import build_daily_nav_backfill
     from edgecraft.marketdata import MarketDataRouter
 
-    fund_id, _mandate = _load_fund_config(args.config)
+    fund_id, _mandate, _policy = _load_fund_config(args.config)
     with PaperFundLedger(args.ledger) as ledger:
         return build_daily_nav_backfill(ledger, fund_id, MarketDataRouter())
 

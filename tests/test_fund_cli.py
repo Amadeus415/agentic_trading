@@ -236,7 +236,112 @@ def test_evolved_prompt_reaches_next_research_context_without_changing_parent(
         next(sleeve for sleeve in after["sleeves"] if sleeve["playbook_id"] == candidate_id)[
             "weight"
         ]
-        == "0"
+        == "0.30"
     )
     assert after["review"]["completed_reviews"] == 1
     assert result["verification"]["ok"]
+
+
+def test_fitted_packet_replays_original_size_after_policy_changes(tmp_path, capsys) -> None:
+    config = tmp_path / "config.json"
+    config.write_text((ROOT / "examples/fund.mandate.aggressive.json").read_text())
+    common = ["--config", str(config), "--ledger", str(tmp_path / "fund.db")]
+    _run(["fund-init", *common], capsys)
+    packet = json.loads(EXAMPLE.read_text())
+    packet["decision"]["fund_id"] = "edgecraft-aggressive"
+    packet["decision"]["action"] = "hold"
+    packet["decision"]["orders"] = []
+    packet["decision"]["journal"]["hypotheses"] = [packet["decision"]["journal"]["hypotheses"][1]]
+    packet["quotes"] = [packet["quotes"][1]]
+    path = tmp_path / "packet.json"
+    path.write_text(json.dumps(packet))
+    first = _run(["fund-run", *common, "--input", str(path), "--size-beliefs"], capsys)
+    assert first["result"]["fills"]
+    changed = json.loads(config.read_text())
+    changed["trading"]["kelly_fraction"] = "0.5"
+    config.write_text(json.dumps(changed))
+    replay = _run(["fund-run", *common, "--input", str(path), "--size-beliefs"], capsys)
+    assert replay["result"]["replayed"]
+    assert replay["result"]["fills"] == first["result"]["fills"]
+    assert replay["result"]["audit"] == first["result"]["audit"]
+    assert _run(["fund-show", *common], capsys)["cycle_count"] == 1
+    packet["decision"]["thesis"] = "Changed request under the same identity."
+    path.write_text(json.dumps(packet))
+    with pytest.raises(SystemExit):
+        _run(["fund-run", *common, "--input", str(path), "--size-beliefs"], capsys)
+    assert _run(["fund-verify", *common], capsys)["ok"]
+
+
+def test_forward_experiment_earns_and_loses_budget_from_actual_paper_fills(
+    tmp_path, capsys
+) -> None:
+    from datetime import timedelta
+
+    common = [
+        "--config",
+        str(ROOT / "examples/fund.mandate.aggressive.json"),
+        "--ledger",
+        str(tmp_path / "fund.db"),
+    ]
+    _run(["fund-init", *common], capsys)
+    review = _run(["fund-postmortem", *common], capsys)
+    review["proposals"] = [
+        {
+            "proposal_id": "forward-test",
+            "kind": "research_prompt_edit",
+            "playbook_id": "crypto_momentum",
+            "rationale": "Test a revised catalyst prompt.",
+            "patch": {"prompt": "Use direct volume evidence."},
+            "backtestable": False,
+        }
+    ]
+    review_path = tmp_path / "review.json"
+    review_path.write_text(json.dumps(review))
+    evolved = _run(["fund-evolve", *common, "--postmortem", str(review_path)], capsys)
+    version = evolved["transitions"][0]["playbook_id"]
+    packet = json.loads(EXAMPLE.read_text())
+    packet["decision"]["fund_id"] = "edgecraft-aggressive"
+    packet["decision"]["orders"] = []
+    packet["decision"]["action"] = "hold"
+    belief = packet["decision"]["journal"]["hypotheses"][1]
+    belief.update(playbook_id=version, p_win="0.60", target_price="110", invalidation_price="95")
+    packet["decision"]["journal"]["hypotheses"] = [belief]
+    packet["quotes"] = [packet["quotes"][1]]
+    packet["decision"]["evidence"] = [packet["decision"]["evidence"][1]]
+    packet_path = tmp_path / "packet.json"
+    started = datetime.now(UTC)
+    for trade in range(11):
+        for phase, price, stance in [
+            (0, "100", "long"),
+            (1, "101" if trade < 10 else "80", "exit"),
+        ]:
+            at = (started + timedelta(minutes=2 * trade + phase)).isoformat()
+            packet["decision"].update(
+                as_of=at, cycle_key=f"test-{trade}-{phase}", decision_id=f"d-{trade}-{phase}"
+            )
+            packet["quotes"][0].update(price=price, observed_at=at, source_timestamp=at)
+            packet["decision"]["evidence"][0].update(observed_at=at, source_timestamp=at)
+            belief["stance"] = stance
+            packet_path.write_text(json.dumps(packet))
+            result = _run(
+                ["fund-run", *common, "--input", str(packet_path), "--size-beliefs"], capsys
+            )
+            assert len(result["result"]["fills"]) == 1
+        if trade == 9:
+            context = _run(["fund-context", *common], capsys)
+            sleeve = next(row for row in context["sleeves"] if row["playbook_id"] == version)
+            assert sleeve["status"] == "active"
+            assert Decimal(sleeve["weight"]) > Decimal("0.60")
+    review = _run(["fund-postmortem", *common], capsys)
+    review_path.write_text(json.dumps(review))
+    frozen = _run(["fund-evolve", *common, "--postmortem", str(review_path)], capsys)
+    assert any(
+        row["playbook_id"] == version and row["to_status"] == "frozen"
+        for row in frozen["transitions"]
+    )
+    report = _run(["fund-report", *common], capsys)
+    assert report["summary"]["closed_trades"] == 11
+    assert report["playbook_statuses"][version] == "frozen"
+    context = _run(["fund-context", *common], capsys)
+    assert next(row for row in context["sleeves"] if row["playbook_id"] == version)["weight"] == "0"
+    assert frozen["verification"]["ok"]

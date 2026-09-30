@@ -56,6 +56,10 @@ class PaperFundValidationError(PaperFundError, ValueError):
     """Raised when a request fails validation or risk policy."""
 
 
+class PaperFundCapacityError(PaperFundValidationError):
+    """An otherwise valid entry exceeds available cash or displayed liquidity."""
+
+
 class PaperFundIdempotencyError(PaperFundError, ValueError):
     """Raised when a cycle_key is reused with a different request payload."""
 
@@ -917,7 +921,7 @@ def _walk_book(levels: Sequence[BookLevel], quantity: Decimal, *, descending: bo
         remaining -= take
         if remaining <= ZERO:
             return cost / quantity
-    raise PaperFundValidationError("insufficient displayed book depth for simulated fill")
+    raise PaperFundCapacityError("insufficient displayed book depth for simulated fill")
 
 
 def _fill_price(quote: FundQuote, order: FundOrder, mandate: FundMandate) -> Decimal:
@@ -1188,7 +1192,7 @@ def _execute_order(
     if order.side is OrderSide.BUY:
         cash_delta = -(gross + fee)
         if cash + cash_delta < ZERO:
-            raise PaperFundValidationError(
+            raise PaperFundCapacityError(
                 f"insufficient cash for buy {order.instrument_id}: need {-(cash_delta)}, have {cash}"
             )
     elif order.side is OrderSide.SELL:

@@ -11,12 +11,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_starting_playbooks_have_separate_incubation_sleeves() -> None:
     playbooks = load_playbooks(ROOT / "playbooks")
-    allocations = allocate_sleeves(playbooks, ())
+    allocations = allocate_sleeves(playbooks, (), gross_budget=Decimal("3"))
     assert len(playbooks) == 4
     assert len({item.spec.id for item in playbooks}) == 4
     assert all(item.prompt_hash for item in playbooks)
-    assert all(item.weight == Decimal("0.20") for item in allocations)
-    assert sum(item.weight for item in allocations) == Decimal("0.80")
+    assert all(item.weight == Decimal("0.60") for item in allocations)
+    assert sum(item.weight for item in allocations) == Decimal("2.40")
 
 
 def test_allocator_scales_evidence_and_freezes_negative_sleeve() -> None:
@@ -74,3 +74,25 @@ def test_retirement_is_sticky_and_active_sleeve_without_positive_score_does_not_
     assert result[0].weight == 0
     assert result[1].weight == 0
     assert result[2].weight > 0
+
+
+def test_recent_losses_freeze_a_former_winner_and_experiments_share_gross_budget() -> None:
+    playbooks = load_playbooks(ROOT / "playbooks")
+    winner = playbooks[0].spec.id
+    trades = [{"playbook_id": winner, "realized_pnl_after_cost": "100"}] * 100
+    trades += [{"playbook_id": winner, "realized_pnl_after_cost": "-2"}] * 20
+    allocations = allocate_sleeves(playbooks, trades, gross_budget=Decimal("3"))
+    assert allocations[0].status == "frozen"
+    assert allocations[0].trade_count == 20
+    assert allocations[0].weight == 0
+    assert sum(item.weight for item in allocations) <= 3
+
+
+def test_many_paper_experiments_cannot_multiply_the_fund_budget() -> None:
+    from edgecraft.policy import TradingPolicy
+
+    playbooks = load_playbooks(ROOT / "playbooks")
+    allocations = allocate_sleeves(
+        playbooks, (), gross_budget=Decimal("1"), policy=TradingPolicy(incubation_weight="2")
+    )
+    assert sum(item.weight for item in allocations) == 1

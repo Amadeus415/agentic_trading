@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from edgecraft.allocator import SleeveAllocation
 from edgecraft.paper_fund import PaperFundLedger
 from edgecraft.playbooks import LoadedPlaybook, PlaybookSpec, load_playbooks
+from edgecraft.policy import TradingPolicy
 
 
 class ChangeKind(StrEnum):
@@ -49,11 +50,6 @@ class ChangeProposal(BaseModel):
         touched = {str(key).lower() for key in self.patch}
         if touched & forbidden:
             raise ValueError("proposal touches the human-owned accounting or safety boundary")
-        if (
-            self.kind in {ChangeKind.PLAYBOOK_PARAM, ChangeKind.UNIVERSE_EDIT}
-            and not self.backtestable
-        ):
-            raise ValueError(f"{self.kind.value} changes must be backtestable")
         return self
 
 
@@ -109,8 +105,10 @@ def review_status(
     trades: list[dict[str, Any]],
     *,
     now: datetime | None = None,
+    policy: TradingPolicy | None = None,
 ) -> dict[str, Any]:
-    """Review after seven days or twenty additional closed round trips."""
+    """Review at the policy deadline or after enough new closed trades."""
+    policy = policy or TradingPolicy()
     now = now or datetime.now(UTC)
     events = ledger.list_events(fund_id)
     reviews = [event for event in events if event.event_type == "postmortem_completed"]
@@ -120,14 +118,16 @@ def review_status(
         datetime.fromisoformat(trade["closed_at"].replace("Z", "+00:00")) > anchor
         for trade in trades
     )
-    deadline = anchor + timedelta(days=7)
+    deadline = anchor + timedelta(days=policy.review_days)
     return {
-        "due": now >= deadline or since >= 20,
+        "due": now >= deadline or since >= policy.review_closed_trades,
         "last_review_at": last.occurred_at.isoformat() if last else None,
         "next_review_at": deadline.isoformat(),
         "closed_trades_since_review": since,
-        "trade_threshold": 20,
-        "reason": "trade_count" if since >= 20 else ("weekly" if now >= deadline else "not_due"),
+        "trade_threshold": policy.review_closed_trades,
+        "reason": "trade_count"
+        if since >= policy.review_closed_trades
+        else ("time" if now >= deadline else "not_due"),
         "completed_reviews": len(reviews),
     }
 
@@ -178,13 +178,11 @@ def validate_proposal(proposal: ChangeProposal) -> ValidationResult:
         return ValidationResult(
             passed=True, reason="Retirement reduces risk and needs no backtest."
         )
-    if not proposal.backtestable:
+    if not proposal.validation_artifacts:
         return ValidationResult(
             passed=True,
-            reason="Non-backtestable change is eligible only for a shadow sleeve.",
+            reason="Forward paper experiment; no backtest claim. Results earn or lose budget.",
         )
-    if not proposal.validation_artifacts:
-        return ValidationResult(passed=False, reason="Backtestable proposal has no lab artifacts.")
     oos_positive = False
     dsr: float | None = None
     paths: list[str] = []
@@ -275,8 +273,8 @@ def apply_postmortem(
                 ["proposed"]
                 if not validation.passed
                 else ["validated", "incubating"]
-                if proposal.backtestable
-                else ["shadow"]
+                if validation.artifacts
+                else ["incubating"]
             )
             spec.update({key: value for key, value in proposal.patch.items() if key != "prompt"})
             spec.update(

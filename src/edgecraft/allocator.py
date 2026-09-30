@@ -5,14 +5,14 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import Any
 
 from edgecraft.playbooks import LoadedPlaybook, PlaybookStatus
+from edgecraft.policy import TradingPolicy
 
 ZERO = Decimal("0")
-INCUBATION_WEIGHT = Decimal("0.20")
 
 
 @dataclass(frozen=True)
@@ -45,7 +45,10 @@ def allocate_sleeves(
     round_trips: Sequence[dict[str, Any]],
     *,
     status_overrides: Mapping[str, str] | None = None,
+    policy: TradingPolicy | None = None,
+    gross_budget: Decimal = Decimal("1"),
 ) -> tuple[SleeveAllocation, ...]:
+    policy = policy or TradingPolicy()
     status_overrides = status_overrides or {}
     by_playbook: dict[str, list[Decimal]] = defaultdict(list)
     for trade in round_trips:
@@ -56,7 +59,7 @@ def allocate_sleeves(
     active_scores: dict[str, Decimal] = {}
     interim: list[tuple[LoadedPlaybook, list[Decimal], Decimal | None, Decimal | None, str]] = []
     for playbook in playbooks:
-        pnl = by_playbook.get(playbook.spec.id, [])
+        pnl = by_playbook.get(playbook.spec.id, [])[-policy.learning_window :]
         mean, lower = _statistics(pnl)
         status = status_overrides.get(playbook.spec.id, playbook.spec.status.value)
         if status in {
@@ -64,15 +67,12 @@ def allocate_sleeves(
             PlaybookStatus.SHADOW.value,
             PlaybookStatus.PROPOSED.value,
             PlaybookStatus.VALIDATED.value,
+            PlaybookStatus.FROZEN.value,
         }:
             pass
-        elif len(pnl) >= 60 and (lower is None or lower <= ZERO):
-            status = PlaybookStatus.RETIRED.value
-        elif len(pnl) >= 30 and (lower is None or lower <= ZERO):
+        elif len(pnl) >= 10 and mean is not None and mean <= ZERO:
             status = PlaybookStatus.FROZEN.value
-        elif (
-            status == PlaybookStatus.INCUBATING.value and len(pnl) >= 20 and lower and lower > ZERO
-        ):
+        elif status == PlaybookStatus.INCUBATING.value and len(pnl) >= 10 and mean and mean > ZERO:
             status = PlaybookStatus.ACTIVE.value
         if status == PlaybookStatus.ACTIVE.value and mean and mean > ZERO:
             active_scores[playbook.spec.id] = mean * Decimal(str(math.sqrt(max(1, len(pnl)))))
@@ -83,11 +83,14 @@ def allocate_sleeves(
             weight = ZERO
             reason = "shadow sleeve records packets but does not fill"
         elif status == PlaybookStatus.INCUBATING.value:
-            weight = INCUBATION_WEIGHT
+            weight = policy.incubation_weight
             reason = "aggressive incubation budget"
         elif status == PlaybookStatus.ACTIVE.value and score_total > ZERO:
-            weight = min(Decimal("0.40"), active_scores.get(playbook.spec.id, ZERO) / score_total)
-            reason = "positive after-cost evidence"
+            weight = min(
+                policy.active_weight,
+                gross_budget * active_scores.get(playbook.spec.id, ZERO) / score_total,
+            )
+            reason = "positive recent after-cost evidence; not statistical proof"
         else:
             weight = ZERO
             reason = "no capital while proposed, validated, frozen, or retired"
@@ -105,8 +108,8 @@ def allocate_sleeves(
         )
     # Numerous experiments must share the same fund, never mint extra capital.
     total_weight = sum((item.weight for item in allocations), ZERO)
-    if total_weight > 1:
-        from dataclasses import replace
-
-        allocations = [replace(item, weight=item.weight / total_weight) for item in allocations]
+    if total_weight > gross_budget:
+        allocations = [
+            replace(item, weight=item.weight * gross_budget / total_weight) for item in allocations
+        ]
     return tuple(allocations)
