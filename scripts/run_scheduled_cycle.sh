@@ -4,7 +4,7 @@
 # deterministic paper accounting.
 #
 # Session slots (UTC) must stay in sync with src/edgecraft/schedule.py:
-#   13-16 session-eu | 16-20 session-us-open | 20-23 session-us-close | else offhours
+#   13-16 session-eu | 16-19 session-us-open | 19-23 session-us-close | else offhours
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -22,9 +22,9 @@ HOUR=$((10#$(date -u +%H)))
 DATE_UTC="$(date -u +%F)"
 if (( HOUR >= 13 && HOUR < 16 )); then
   SLOT="session-eu"
-elif (( HOUR >= 16 && HOUR < 20 )); then
+elif (( HOUR >= 16 && HOUR < 19 )); then
   SLOT="session-us-open"
-elif (( HOUR >= 20 && HOUR < 23 )); then
+elif (( HOUR >= 19 && HOUR < 23 )); then
   SLOT="session-us-close"
 else
   SLOT="session-offhours"

@@ -15,8 +15,8 @@ SESSION_OFFHOURS = "session-offhours"
 # Inclusive start hour, exclusive end hour, in UTC.
 _SESSION_WINDOWS: tuple[tuple[int, int, str], ...] = (
     (13, 16, SESSION_EU),
-    (16, 20, SESSION_US_OPEN),
-    (20, 23, SESSION_US_CLOSE),
+    (16, 19, SESSION_US_OPEN),
+    (19, 23, SESSION_US_CLOSE),
 )
 
 

@@ -211,7 +211,7 @@ export default async function OverviewPage() {
         <Panel micro="Learning" title="The next experiment" className="lg:col-span-1" bodyClassName="space-y-3 p-3.5">
           <p className="text-sm">{report?.review ? (report.review.due ? "Review due" : "Collecting trade outcomes") : "Refresh the fund report to see review status."}</p>
           {report?.review ? <>
-            <p className="text-xs text-muted-foreground">{report.review.closed_trades_since_review} / {report.review.trade_threshold} closed trades since review. Review every seven days or twenty closed trades, whichever comes first.</p>
+            <p className="text-xs text-muted-foreground">{report.review.closed_trades_since_review} / {report.review.trade_threshold} closed trades since review. Review when the time deadline or trade threshold is reached.</p>
             <p className="text-xs text-muted-foreground">Next time deadline: {formatTs(report.review.next_review_at)}</p>
             <p className="text-xs text-muted-foreground">{report.review.completed_reviews} completed reviews. New versions keep their own track records.</p>
           </> : null}

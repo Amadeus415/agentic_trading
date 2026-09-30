@@ -11,12 +11,12 @@ All trades are paper trades. There is no real-money execution path.
 Three loops run one fund:
 
 1. **Trade.** Codex researches stocks, crypto, and prediction markets. It explains each idea, estimates its probability, and gives it a target, a stop, and a 4–72 hour horizon. Python fetches prices, sizes positions, checks limits, and records simulated fills.
-2. **Manage.** An hourly Python monitor checks existing positions and enforces exits. It needs no model call.
-3. **Learn.** After seven days or 20 additional closed trades, Codex reviews outcomes and proposes changes. New strategy versions keep separate records. Validated experiments start small; untested prompt changes stay in shadow with no capital.
+2. **Manage.** A Python monitor configured for five-minute checks checks existing positions and enforces exits. It needs no model call.
+3. **Learn.** Daily or after 10 completed positions, Codex reviews outcomes and proposes changes. New versions get a forward paper budget immediately and keep separate records. Recent winners earn larger budgets; recent losers freeze.
 
 Codex does the research. Code owns the money math. An append-only SQLite ledger remembers what happened, including losses. The initial bankroll is deposited once.
 
-Being active means searching broadly and taking worthwhile opportunities. More trades alone don't make a better fund: every entry must clear estimated costs, and cash is a valid result when nothing qualifies.
+**Understandability, simplicity, YOLO.** Use the full configured Kelly fraction, allow up to 60% NAV per position, rotate and reverse quickly, and test new ideas with paper capital. Four starting strategies each have a 60% ceiling within the existing 3× gross envelope. Python fits orders to cash, liquidity, costs, and the immutable mandate. Cash remains valid when no researched opportunity clears costs.
 
 ## Try it
 
@@ -49,7 +49,7 @@ The latest verified runtime snapshot is from **September 22, 2026 at 20:21 UTC**
 
 ![Verified simulated fund progress](assets/fund-progress.svg)
 
-The learning loop can persist new research versions and allocate small paper sleeves using recorded outcomes. It does not yet establish that a prompt change caused better returns. Shadow promotion, stronger experiment validation, and realistic execution need more work. The dashboard's SPY comparison uses completed daily price closes; dividends are excluded, so it is not a total-return performance claim.
+The learning loop persists funded research versions and changes budgets using their most recent completed positions. Its 10-result promotion/freezing rule is an aggressive heuristic, not evidence that a prompt caused better returns. Stronger experiment validation and realistic execution need forward evidence. The dashboard's SPY comparison uses completed daily price closes; dividends are excluded, so it is not a total-return performance claim.
 
 Read [the assessment and next steps](docs/PLAN.md) for the remaining gaps and concrete success criteria.
 
@@ -58,7 +58,7 @@ Read [the assessment and next steps](docs/PLAN.md) for the remaining gaps and co
 | Location | Responsibility |
 | --- | --- |
 | `src/edgecraft/paper_fund.py` | Money, positions, limits, and immutable ledger |
-| `src/edgecraft/marketdata/`, `sizing.py`, `monitor.py` | Public prices, position size, and exits |
+| `src/edgecraft/policy.py`, `marketdata/`, `sizing.py`, `monitor.py` | One trading policy, public prices, position size, and exits |
 | `src/edgecraft/attribution.py`, `evolution.py`, `allocator.py` | Results, experiments, and strategy budgets |
 | `playbooks/` | Four starting strategies and their research prompts |
 | `scripts/` | Scheduled trading and local monitoring |
@@ -66,10 +66,10 @@ Read [the assessment and next steps](docs/PLAN.md) for the remaining gaps and co
 
 The optional research lab contains backtests and walk-forward tools. It supports research; it does not run a second fund. Detailed contracts live in [Design](docs/DESIGN.md) and [Accounting](docs/FUND_ACCOUNTING.md).
 
-## Where this could go
+## Keep it simple
 
-The project should become an open, reproducible demonstration of an agent operating a persistent system: making decisions, measuring outcomes, and testing improvements. That is already a stronger engineering story than claiming an AI can pick stocks.
+One researcher, one ledger, and three loops. Settings live in `trading` in the active config; each sized cycle records the settings it used. The immutable initial deposit and mandate preserve an honest experiment. Source changes require runtime deployment, and the new monitor interval requires reinstalling its LaunchAgent. See [Operations](docs/OPERATIONS.md).
 
-Real money is a later, separate project decision. First build a long forward record with realistic costs, controlled drawdowns, and consistent outperformance against a dividend-aware S&P benchmark. Then evaluate a broker's paper environment and a tiny, explicitly authorized live pilot. A profitable simulation does not automatically authorize real orders.
+Profits are the objective, not a claim that refactoring or taking more risk guarantees them. Full Kelly is sensitive to probability errors, and aggressive paper experiments can suffer large losses. Real-money execution is outside this project.
 
 Source is public; ledgers, generated research, caches, and credentials stay out of Git. [Apache 2.0](LICENSE) · [Security](SECURITY.md).

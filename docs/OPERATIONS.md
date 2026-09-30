@@ -1,7 +1,7 @@
 # Local autonomous operation
 
 Edgecraft runs from one clean local checkout. Codex Scheduled Tasks provide the
-research model through the owner's ChatGPT subscription; the hourly monitor is
+research model through the owner's ChatGPT subscription; the five-minute monitor after installation is
 plain Python and uses no model. The Mac and Codex app must be running when a
 task is due.
 
@@ -40,9 +40,11 @@ with `./scripts/prepare_local_runtime.sh --update`; a push alone is not a deploy
 |:--|:--|:--|
 | US open | Codex Scheduled Task, weekdays | subscription-backed Codex |
 | US close | Codex Scheduled Task, weekdays | subscription-backed Codex |
-| Off-hours | Codex Scheduled Task, Sunday | subscription-backed Codex |
-| Monitor | macOS LaunchAgent, hourly at minute 7 | none |
+| Off-hours | Codex Scheduled Task, daily recommended | subscription-backed Codex |
+| Monitor | macOS LaunchAgent, five-minute interval after installation | none |
 | Evolution | Codex Scheduled Task, Sunday | subscription-backed Codex |
+
+Keep the weekday close scan before 1:00 PM Los Angeles time so stocks can fill. To use the existing UTC close slot in both daylight and standard time, 12:15 PM Los Angeles is suitable; research must finish before the exchange closes. Early closes and holidays remain unsupported by the simple hours check. Inspect the actual saved schedules; these instructions do not change them.
 
 Trading tasks follow [CODEX_SCHEDULED_TASK.md](CODEX_SCHEDULED_TASK.md). Each
 creates one packet and calls the fixed apply script once. A failed cycle key is
@@ -52,7 +54,7 @@ The monitor calls `scripts/run_local_monitor.sh`. It verifies first, fetches all
 open-position marks, refuses partial action if any fetch fails, applies
 mechanical exits, verifies again, refreshes the report, and checks alerts.
 
-Trading tasks check whether a review is due after seven days or 20 additional closed trades.
+Trading tasks check whether a review is due daily or after 10 additional completed positions.
 The Sunday evolution task is a regular fallback. Both follow [EVOLUTION.md](EVOLUTION.md):
 one typed postmortem, one `fund-evolve` call. Accepted reviews persist separate
 research versions in the ledger; tracked files, mandate, accounting, and cash stay unchanged.

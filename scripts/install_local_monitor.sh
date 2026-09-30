@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the code-only monitor as a per-user macOS LaunchAgent at minute 7.
+# Install the code-only monitor as a per-user macOS LaunchAgent every five minutes.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -17,8 +17,7 @@ plutil -create xml1 "$TMP"
 /usr/libexec/PlistBuddy -c "Add :ProgramArguments:0 string /bin/bash" "$TMP"
 /usr/libexec/PlistBuddy -c "Add :ProgramArguments:1 string ${ROOT}/scripts/run_local_monitor.sh" "$TMP"
 /usr/libexec/PlistBuddy -c "Add :WorkingDirectory string ${ROOT}" "$TMP"
-/usr/libexec/PlistBuddy -c "Add :StartCalendarInterval dict" "$TMP"
-/usr/libexec/PlistBuddy -c "Add :StartCalendarInterval:Minute integer 7" "$TMP"
+/usr/libexec/PlistBuddy -c "Add :StartInterval integer 300" "$TMP"
 /usr/libexec/PlistBuddy -c "Add :ProcessType string Background" "$TMP"
 /usr/libexec/PlistBuddy -c "Add :StandardOutPath string ${LOG_DIR}/monitor.log" "$TMP"
 /usr/libexec/PlistBuddy -c "Add :StandardErrorPath string ${LOG_DIR}/monitor.error.log" "$TMP"
@@ -29,4 +28,4 @@ launchctl bootout "gui/${UID}/${LABEL}" 2>/dev/null || true
 launchctl bootstrap "gui/${UID}" "$PLIST"
 launchctl enable "gui/${UID}/${LABEL}"
 launchctl print "gui/${UID}/${LABEL}" >/dev/null
-echo "Installed ${LABEL}; the next code-only monitor runs at minute 7."
+echo "Installed ${LABEL}; the next code-only monitor runs every five minutes."

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Model-free hourly monitoring for the dedicated local runtime checkout.
+# Model-free five-minute monitoring for the dedicated local runtime checkout.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

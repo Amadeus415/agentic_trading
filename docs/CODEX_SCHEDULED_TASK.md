@@ -9,9 +9,11 @@ The active fund (`edgecraft-aggressive`, mandate `examples/fund.mandate.aggressi
 - **Multiple sessions and four scans.** Fire US-open, US-close, and off-hours slots. Evaluate every active playbook each time. Trade eagerness comes from a broad repeated search, not a forced fill.
 - **Quantify every candidate.** A sourced catalyst, directional stance, `p_win`, target, invalidation, driver, playbook, and 4–72h horizon define the belief. Do not pre-filter directional research into cash or omit it from the journal; deterministic sizing creates candidate orders and decides whether the edge clears costs.
 - **Cash must win the comparison.** Cash is a position. It is valid only when the journal names the researched candidates and the sizing audit drops each one below the after-cost threshold.
-- **Code owns size.** The agent returns beliefs with null entry quantity. Half-Kelly sizing, calibration, sleeves, driver caps, and the existing risk envelope determine notional.
+- **Code owns size.** The agent returns beliefs with null entry quantity. Full configured Kelly sizing, recent per-version calibration, strategy budgets, driver caps, and the existing risk envelope determine notional.
 - **Prediction markets are a core playbook.** Binary contracts on data releases, sports, Fed decisions, and geopolitics are native short-term instruments. When your researched probability differs from the quote by enough to clear fees and slippage, take the side. Buy YES or NO; flip stale positions when probabilities move.
 - **Shorts are first-class.** Deteriorating thesis, broken momentum, or an overpriced contract means short it — up to 100% of NAV in short exposure.
+- **Reverse in one cycle.** A complete belief opposing existing inventory closes it first, then evaluates the replacement entry. Python releases only actual planned exit quantities and fits entries to available cash and portfolio capacity.
+- **Learn daily.** Review after one day or 10 completed positions; propose a funded forward experiment when a measured failure suggests a concrete change. A weak recent version loses budget.
 - **Cut losers inside the horizon.** A position that hit its falsifier is exited this session rather than defended. Re-entering is fine when evidence returns.
 - **Leverage within the envelope.** Up to 3× NAV gross exposure and 4× NAV turnover per cycle. Rotate freely between ideas.
 - **Portfolio breadth is earned.** Prefer roughly 3–8 independent short-term positions when enough strong ideas exist. Tiny decorative tickets are not diversification.
@@ -21,13 +23,13 @@ The long-run dream never enters the operating decision. Aggression lives in rese
 
 ## Session keys
 
-Use the current UTC session, not a calendar date:
+Use the current UTC session, not a calendar date. The close slot starts at 19:00 UTC so a 12:15 PM Los Angeles scan has its own key and can finish before the equity close in both daylight and standard time:
 
 | UTC hours | Slot | Cycle key |
 |---|---|---|
 | 13:00–15:59 | `session-eu` | `YYYY-MM-DD-session-eu` |
-| 16:00–19:59 | `session-us-open` | `YYYY-MM-DD-session-us-open` |
-| 20:00–22:59 | `session-us-close` | `YYYY-MM-DD-session-us-close` |
+| 16:00–18:59 | `session-us-open` | `YYYY-MM-DD-session-us-open` |
+| 19:00–22:59 | `session-us-close` | `YYYY-MM-DD-session-us-close` |
 | 23:00–12:59 | `session-offhours` | `YYYY-MM-DD-session-offhours` |
 
 ```bash
@@ -46,7 +48,7 @@ single apply still require permitted public network access. Resolve any network
 permission issue before the apply; never bypass a failed apply or invent marks.
 
 1. Initialize or reopen the immutable $1,000 paper fund.
-2. Read the current state, ledger-derived brain, session key, and machine-readable input schema. If `review.due` is true, complete [the review](EVOLUTION.md) once before research, then refresh context.
+2. Read the current state, ledger-derived brain, trading policy, session key, and machine-readable input schema. If `review.due` is true, complete [the review](EVOLUTION.md) once before research, then refresh context.
 3. Run `fund-snapshot` for open positions and every shortlisted candidate; these cached public marks own fills. Optional candidate-provider failures are reported per instrument so healthy asset classes can continue, but a missing mark for any open position remains fatal.
 4. Scan every active playbook, then research the best short-term candidates deeply.
 5. Compare candidates with existing positions and cash using `p_win`, payoff, costs, and shared drivers.
@@ -59,11 +61,11 @@ permission issue before the apply; never bypass a failed apply or invent marks.
 
 > Operate only in this clean Edgecraft runtime checkout. Manage the autonomous $1,000 fake-money fund end to end as an aggressive short-term trader. Never call a broker review, placement, cancel, transfer, wallet, or other mutating tool. Never edit tracked source, tests, prompts, or `examples/fund.mandate.aggressive.json`. Generated cycle inputs go under the gitignored `state/fund-inputs/` directory; review artifacts follow `docs/EVOLUTION.md`.
 >
-> Run `./scripts/prepare_local_runtime.sh` first, then `uv run edgecraft fund-cycle-key` and `make fund-context`. Treat context as authoritative for cash, positions, limits, brain, playbooks, sleeves, and cycle identity. If `review.due` is true, follow `docs/EVOLUTION.md` once, then refresh context. Read effective playbooks from context, including ledger-backed experiment versions. Scan every capital-eligible playbook aggressively across stocks, native crypto, and prediction markets; shadow hypotheses may be recorded but receive no fills. For each shortlist run `fund-snapshot`. State `p_win`, target, invalidation, horizon, playbook, and driver; set entry quantity to null. Uncertainty is not a hold reason. Submit every belief that clears estimated costs, but do not manufacture a fill: cash is valid only when every named candidate loses the after-cost comparison. Exit broken theses immediately.
+> Run `./scripts/prepare_local_runtime.sh` first, then `uv run edgecraft fund-cycle-key` and `make fund-context`. Treat context as authoritative for cash, positions, limits, brain, trading policy, playbooks, sleeves, and cycle identity. If `review.due` is true, follow `docs/EVOLUTION.md` once, then refresh context. Read effective playbooks from context, including ledger-backed experiment versions. Scan every capital-eligible playbook aggressively across stocks, native crypto, and prediction markets; new prompt and rule experiments receive forward paper budgets; historical shadow hypotheses still receive no fills. For each shortlist run `fund-snapshot`. State `p_win`, target, invalidation, horizon, playbook, and driver; set entry quantity to null. Uncertainty is not a hold reason. Submit every belief that clears estimated costs, but do not manufacture a fill: cash is valid only when every named candidate loses the after-cost comparison. Exit broken theses immediately.
 >
 > Re-evaluate every thesis against primary public sources. Build one schema-valid packet using the printed cycle key and an `as_of` after all observations. The journal covers the full scanned opportunity set and one current hypothesis for every open or directional candidate. Each hypothesis records stance (`long`, `short`, or `exit` for actionable/current positions; `flat` for researched candidates with no directional thesis), mechanism, catalysts, falsifiers, horizon ≤ 72 hours, `p_win`, target/invalidation, playbook, driver, and evidence IDs. Include every complete `long` or `short` hypothesis even when your own expected-value estimate is marginal: scheduled Python materializes candidate orders, applies calibration and costs, and derives the final `trade` or `hold` action. Quotes must be the cached code-owned marks. A resolved prediction contract uses its exact authoritative settlement rule and a sourced terminal mark of `0` or `1`; never substitute a context source.
 >
-> Save the exact packet to the `input_path` printed by `fund-cycle-key`, then run `./scripts/run_scheduled_cycle.sh` exactly once. On any failure, stop and report the exact error. Never alter prices, timestamps, evidence, quantities, policy, or cycle identity just to pass a gate, and never retry a changed request under the same cycle key. A failed scheduled cycle is terminal; do not bypass it with a manual key. After a successful apply and verification, run `./scripts/publish_fund_visualization.sh`; it stages and pushes only `assets/fund-progress.svg`, never ledger state or unrelated work. Finally run `make fund-show` and `make fund-verify`, then report the thesis, simulated actions, fees, cash, NAV, P&L, gross/net/short exposure, visualization publication, and hash-chain/accounting verification. Always describe fills as simulated.
+> Save the exact packet to the `input_path` printed by `fund-cycle-key`, then run `./scripts/run_scheduled_cycle.sh` exactly once. On any failure, stop and report the exact error. Pure sizing previews occur before the single ledger apply; they never retry a failed apply. Never alter prices, timestamps, evidence, quantities, policy, or cycle identity just to pass a gate, and never retry a changed request under the same cycle key. A failed scheduled cycle is terminal; do not bypass it with a manual key. After a successful apply and verification, run `./scripts/publish_fund_visualization.sh`; it stages and pushes only `assets/fund-progress.svg`, never ledger state or unrelated work. Finally run `make fund-show` and `make fund-verify`, then report the thesis, simulated actions, fees, cash, NAV, P&L, gross/net/short exposure, visualization publication, and hash-chain/accounting verification. Always describe fills as simulated.
 
 ## Fixed apply path
 

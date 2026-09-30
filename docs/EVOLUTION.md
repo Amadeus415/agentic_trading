@@ -1,6 +1,6 @@
 # How the fund learns
 
-Read `review` in `make fund-context` or `state/fund-report.json`. A review is due seven days after initialization/the last completed review, or after 20 additional closed trades, whichever comes first. Trading sessions check the trigger; the Sunday evolution task is a regular fallback. Time passing alone does not run a model: a Codex task must execute the review.
+Read `review` in `make fund-context` or `state/fund-report.json`. A review is due one day after initialization/the last completed review, or after 10 additional completed positions, whichever comes first (`trading.review_days` and `trading.review_closed_trades` in the active config). Trading sessions check the trigger; the Sunday evolution task is a regular fallback. Time passing alone does not run a model: a Codex task must execute the review.
 
 ## One review
 
@@ -32,12 +32,14 @@ Stop on failure. Never modify a failed review to get it accepted. Exact successf
 
 The parent is `playbook_id`. Each non-retirement proposal creates a separate deterministic experiment ID in the ledger; `fund-context` returns its effective spec and prompt. Use that ID in hypotheses and orders. The parent keeps its rules and record. Runtime tasks never edit tracked files.
 
-Backtestable proposals need positive walk-forward out-of-sample results and deflated Sharpe probability of at least 0.95 in lab artifacts. They enter a 5% incubation sleeve. Non-backtestable edits enter shadow with zero capital. Record their sourced hypotheses for later evaluation; do not label them live-tested. Failed validations remain proposed with no budget. Retirement removes the entry budget; existing inventory still needs its normal exits.
+Every valid prompt, universe, rule, or new-playbook proposal can enter a funded forward paper experiment without lab artifacts. `backtestable` describes whether a backtest is possible; it does not require one. New versions start with no inherited trades and a 60% NAV incubation ceiling. All strategy ceilings share the fund's gross budget, so many proposals cannot manufacture capital.
 
-All proposals are validated before a single atomic review event stores the review, effective versions, and transitions. Allocation can promote an incubating version after 20 closed trades with a positive approximate lower confidence bound, or freeze/retire weak versions. These are heuristics, not proof of persistent alpha. The event trail preserves every version.
+When artifacts are supplied, they must show positive walk-forward out-of-sample return and deflated Sharpe probability of at least 0.95. Passing artifacts add a `validated` transition before incubation. Failing artifacts leave the version `proposed` with zero budget. Do not omit a known failed validation to repackage the same idea as a fresh experiment. Historical shadow versions retain their zero budget; propose a new version to forward-test a revised idea.
 
-## Boundaries still needing work
+The allocator uses each version's most recent 20 completed positions. After 10 results, positive mean after-cost P&L promotes an incubating version to `active`; nonpositive mean freezes an incubating or active version. Active versions share budget by mean P&L × √sample count, capped at 120% NAV each. These are aggressive experimental heuristics, not confidence claims. Partial exits count once, when the position becomes flat.
 
-Artifact validation currently checks result fields, not a cryptographically bound, independently rerun experiment. Do not fabricate artifacts or use synthetic returns as market evidence. Shadow versions do not yet have an automatic promotion evaluator. A reviewed proposal is not proof that the system improved.
+Frozen or retired versions receive no new entries. Existing inventory keeps its normal exits. A review can propose a replacement version with a new record. All proposals are checked before one atomic event stores the effective versions and transitions. `fund-context` and sizing derive current allocations from the same outcomes; `fund-evolve` persists lifecycle transitions.
 
-Accounting, fees, mandate limits, bankroll, and broker access are outside this loop. Changes to the software itself happen as normal reviewed, tested code changes.
+Artifact validation checks result fields, not an independently rerun experiment. Never fabricate artifacts or treat synthetic returns as market evidence. A review with `proposals: []` is valid when no useful change is supported. When measured failures identify a concrete adjustment, prefer one testable change over waiting for statistical certainty.
+
+The original bankroll, initialized mandate, costs, accounting, and broker boundary remain outside this loop. `trading` settings change through tested source releases and are stored in each sized cycle's audit. Read [Design](DESIGN.md) for how trade, manage, and learn fit together.
