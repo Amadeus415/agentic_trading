@@ -1,0 +1,141 @@
+{
+  "schema_version": "edgecraft.deployments.v1",
+  "description": "When each trading-code revision went live for fund edgecraft-aggressive. Used only to infer revisions for v1 cycles that predate recorded source_revision. Snapshot-only commits are collapsed into the code revision they carried.",
+  "deployments": [
+    {
+      "deployed_at": "2026-08-22T01:13:15Z",
+      "revision": "0cba11733f9caf7fe5810e3eba24c891d1c0a9f5",
+      "basis": "commit date (pre-runtime source checkout)"
+    },
+    {
+      "deployed_at": "2026-08-22T01:13:22Z",
+      "revision": "724c5ec7cd9e37004c89cf749f9188ca96ae0217",
+      "basis": "commit date (pre-runtime source checkout)"
+    },
+    {
+      "deployed_at": "2026-08-22T01:13:30Z",
+      "revision": "0cd21e9d8e71fc87032a58fd093a2621b4756c14",
+      "basis": "commit date (pre-runtime source checkout)"
+    },
+    {
+      "deployed_at": "2026-08-22T01:13:39Z",
+      "revision": "3b1ace797a99fdf497618ca30cef0d06b4cc8e54",
+      "basis": "commit date (pre-runtime source checkout)"
+    },
+    {
+      "deployed_at": "2026-08-22T01:13:50Z",
+      "revision": "2d33391c6859086c5b056cefb9b1113129ace0dd",
+      "basis": "commit date (pre-runtime source checkout)"
+    },
+    {
+      "deployed_at": "2026-08-22T04:20:52Z",
+      "revision": "1e9e3448a6621eed4379d1fd674aaaaa3da5913b",
+      "basis": "commit date (pre-runtime source checkout)"
+    },
+    {
+      "deployed_at": "2026-08-22T04:21:01Z",
+      "revision": "a04cc18ac82dd29c187f4e646ffb2a9a5f9e1ca7",
+      "basis": "commit date (pre-runtime source checkout)"
+    },
+    {
+      "deployed_at": "2026-08-24T21:37:59Z",
+      "revision": "456ad7cd582e70dfd0991917f0967f8c26951a3c",
+      "basis": "commit date (pre-runtime source checkout)"
+    },
+    {
+      "deployed_at": "2026-08-24T21:38:03Z",
+      "revision": "2c2a0b5d39a9dbd3a24970c1c1670e5c1288610d",
+      "basis": "commit date (pre-runtime source checkout)"
+    },
+    {
+      "deployed_at": "2026-08-24T21:38:05Z",
+      "revision": "9302977d22b0ab378d7d94535c3cb0b42de39cb4",
+      "basis": "commit date (pre-runtime source checkout)"
+    },
+    {
+      "deployed_at": "2026-08-25T20:59:22Z",
+      "revision": "70f8465939a770a84588c809941f7746d08cd98f",
+      "basis": "commit date (pre-runtime source checkout)"
+    },
+    {
+      "deployed_at": "2026-08-25T21:03:12Z",
+      "revision": "e24713ef01c221e862083ae713b10f37dd3c7bcb",
+      "basis": "commit date (pre-runtime source checkout)"
+    },
+    {
+      "deployed_at": "2026-08-30T01:34:36Z",
+      "revision": "b4b72d91380eee15ba4e207bb2e94fb9f6c08594",
+      "basis": "commit date (pre-runtime source checkout)"
+    },
+    {
+      "deployed_at": "2026-08-30T02:37:54Z",
+      "revision": "c7cc1b721a18ff07dc63d3f857c2fb3cac50c05f",
+      "basis": "commit date (pre-runtime source checkout)"
+    },
+    {
+      "deployed_at": "2026-09-01T21:14:18Z",
+      "revision": "4e03481bd2d363e8a4deebaef2dc5a87cb26cff1",
+      "basis": "commit date (pre-runtime source checkout)"
+    },
+    {
+      "deployed_at": "2026-09-03T21:21:19Z",
+      "revision": "d540b18e44af99cf588b6e78990c5fdde002f84f",
+      "basis": "commit date (pre-runtime source checkout)"
+    },
+    {
+      "deployed_at": "2026-09-03T21:21:35Z",
+      "revision": "f06e74910ec1470bcdb742a3f3c69cb863df2f4e",
+      "basis": "commit date (pre-runtime source checkout)"
+    },
+    {
+      "deployed_at": "2026-09-03T21:26:13Z",
+      "revision": "9d5cac34ccc8f4ef2f4509aa1190f24990accc8f",
+      "basis": "runtime reflog"
+    },
+    {
+      "deployed_at": "2026-09-03T21:30:31Z",
+      "revision": "bcb0298cd3c74508656cd3b4ad2e38dfcedbdf94",
+      "basis": "runtime reflog"
+    },
+    {
+      "deployed_at": "2026-09-07T02:10:10Z",
+      "revision": "fd25c43c10f45e4eacc48dd4468c0d5c33488ace",
+      "basis": "runtime reflog"
+    },
+    {
+      "deployed_at": "2026-09-09T21:01:00Z",
+      "revision": "1b178a79de5005691e05cbf57afce10f4951000a",
+      "basis": "runtime reflog"
+    },
+    {
+      "deployed_at": "2026-09-14T20:19:47Z",
+      "revision": "d2d84946e1758bbe9f8136bc20ad49bfd18da0b3",
+      "basis": "runtime reflog"
+    },
+    {
+      "deployed_at": "2026-09-15T02:32:36Z",
+      "revision": "b1a50ae42f2436c3f5bc616122088025ffdd71aa",
+      "basis": "runtime reflog"
+    },
+    {
+      "deployed_at": "2026-09-15T02:35:19Z",
+      "revision": "20e9fa11f4bdcfb07c2f0f802126d0f84fee8530",
+      "basis": "runtime reflog"
+    },
+    {
+      "deployed_at": "2026-09-15T18:22:22Z",
+      "revision": "9af7004ca0a7967308814d18d721f3bbe662c2df",
+      "basis": "runtime reflog"
+    },
+    {
+      "deployed_at": "2026-09-18T15:15:04Z",
+      "revision": "01a57b66adb6b9961636b1ecdc10bd266132c85f",
+      "basis": "runtime reflog"
+    },
+    {
+      "deployed_at": "2026-09-30T02:17:48Z",
+      "revision": "9fc25f3cad9ac4602cb2ae18c6e7aef9bf108f81",
+      "basis": "runtime reflog"
+    }
+  ]
+}

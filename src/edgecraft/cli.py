@@ -203,6 +203,13 @@ def _add_fund_commands(commands: Any) -> None:
         help="Report hypothesis attribution, expectancy, calibration, and benchmarks.",
     )
     report.add_argument("--output", type=Path)
+    lineage = commands.add_parser(
+        "fund-lineage",
+        parents=[fund],
+        help="Group fund performance by the code revision that was live.",
+    )
+    lineage.add_argument("--deployments", type=Path, default=Path("history/deployments.json"))
+    lineage.add_argument("--output", type=Path)
     postmortem = commands.add_parser(
         "fund-postmortem",
         parents=[fund],
@@ -1014,6 +1021,27 @@ def _fund_report(args: argparse.Namespace) -> dict[str, Any]:
     return report
 
 
+def _fund_lineage(args: argparse.Namespace) -> dict[str, Any]:
+    from edgecraft.lineage import commit_subjects, lineage_report, load_deployments
+
+    fund_id, _, _ = _load_fund_config(args.config)
+    with PaperFundLedger(args.ledger) as ledger:
+        verification = ledger.verify(fund_id)
+        cycles = ledger.list_full_cycles(fund_id)
+        initial_cash = ledger.get_mandate(fund_id).initial_cash
+    report = lineage_report(
+        fund_id=fund_id,
+        initial_cash=initial_cash,
+        cycles=cycles,
+        deployments=load_deployments(args.deployments),
+    )
+    subjects = commit_subjects({segment["revision"] for segment in report["segments"]})
+    for segment in report["segments"]:
+        segment["commit"] = subjects.get(segment["revision"], "")
+    report["verification"] = verification.model_dump(mode="json")
+    return report
+
+
 def _fund_postmortem(args: argparse.Namespace) -> dict[str, Any]:
     from edgecraft.attribution import build_fund_report
     from edgecraft.evolution import build_postmortem
@@ -1253,6 +1281,7 @@ COMMAND_HANDLERS: dict[str, CommandHandler] = {
     "monitor": _fund_monitor,
     "fund-show": _fund_show,
     "fund-report": _fund_report,
+    "fund-lineage": _fund_lineage,
     "fund-postmortem": _fund_postmortem,
     "fund-evolve": _fund_evolve,
     "fund-alerts": _fund_alerts,

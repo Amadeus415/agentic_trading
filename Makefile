@@ -33,6 +33,9 @@ fund-cycle-key:
 fund-show:
 	$(EDGECRAFT) fund-show --config $(FUND_CONFIG) --ledger $(FUND_LEDGER) --history
 
+fund-lineage:
+	$(EDGECRAFT) fund-lineage --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
+
 fund-report:
 	$(EDGECRAFT) fund-report --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
 

@@ -796,6 +796,9 @@ class CycleRuntimeMetadata(BaseModel):
 
     edgecraft_version: str = Field(min_length=1, max_length=50)
     mandate_digest: str = Field(min_length=1, max_length=128)
+    # Git commit of the code that applied the cycle ("+dirty" if trading paths had
+    # uncommitted edits). Absent on v1 cycles; lineage infers those by deploy time.
+    source_revision: str | None = Field(default=None, max_length=80)
     prompt_version: str | None = Field(default=None, max_length=200)
     model: str | None = Field(default=None, max_length=200)
     reasoning_effort: str | None = Field(default=None, max_length=50)
@@ -2322,17 +2325,20 @@ class PaperFundLedger:
         runtime: CycleRuntimeMetadata | None,
     ) -> CycleRuntimeMetadata:
         from edgecraft import __version__
+        from edgecraft.lineage import current_source_revision
 
         if runtime is None:
             return CycleRuntimeMetadata(
                 edgecraft_version=__version__,
                 mandate_digest=mandate_digest(mandate),
+                source_revision=current_source_revision(),
                 recorded_at=_utc_now(),
             )
         return runtime.model_copy(
             update={
                 "edgecraft_version": runtime.edgecraft_version or __version__,
                 "mandate_digest": runtime.mandate_digest or mandate_digest(mandate),
+                "source_revision": runtime.source_revision or current_source_revision(),
                 "recorded_at": runtime.recorded_at or _utc_now(),
             }
         )
