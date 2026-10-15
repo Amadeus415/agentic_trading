@@ -45,7 +45,9 @@ For unattended trading, use a separate clean runtime checkout and the existing C
 
 The accounting, audit trail, public-data adapters, scheduled trading path, and read-only dashboard are implemented. They are useful engineering foundations. **A profitable trading edge is not established.**
 
-The latest verified runtime snapshot is from **September 22, 2026 at 20:21 UTC**: NAV was **$995.02**, down **0.50%** from the starting bankroll, with no open positions. Across **21 closed trades**, after-cost expectancy is **−$0.24 per trade** (95% interval: −$21.22 to +$20.74). The interval spans zero, so this sample does not establish a profitable edge. Only three SPY quotes are recorded, too few for a reliable benchmark comparison.
+The latest runtime report is from **September 30, 2026 at 17:12 Pacific (October 1 at 00:12 UTC)**. The verified ledger contains **86 cycles**, with its latest portfolio snapshot at **September 29 at 15:21 UTC**: NAV is **$995.02**, down **$4.98 (0.50%)** from the $1,000 starting bankroll, with no open positions. Across **21 closed trades**, **10 were winners (47.6%)** and after-cost expectancy is **−$0.24 per trade** (95% interval: −$21.22 to +$20.74). The interval spans zero, so this sample does not establish a profitable edge. The last completed trade closed September 22; the fund has remained all cash since then.
+
+The recorded SPY quotes show a **1.53% price return**, versus the fund's **−0.50%** bankroll return. Only **five SPY quotes** are recorded, so the apparent **2.03 percentage-point shortfall** is a sparse comparison, not an established full-period benchmark result; dividends are excluded. The graph below shows verified fund NAV at each recorded cycle through September 29. The latest state is **16.38% below its recorded high-water mark**; the chart’s peak uses cycle snapshots only.
 
 ![Verified simulated fund progress](assets/fund-progress.svg)
 
