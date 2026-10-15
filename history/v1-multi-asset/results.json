@@ -1,0 +1,391 @@
+{
+  "benchmarks": {
+    "fixed_five_percent_same_direction": {
+      "assumption": "Equal +1/-1 payoff proxy at fixed 5% initial NAV; selection only.",
+      "notional_per_trade": "50.0000",
+      "pnl_proxy": "-750.0000",
+      "status": "measured",
+      "trade_count": 133
+    },
+    "spy_buy_and_hold": {
+      "buy_and_hold_return": "0.015330545382579597902214824",
+      "end_price": "765.6099853515625",
+      "nav_if_fully_invested": "1015.330545382579597902214824",
+      "observations": 5,
+      "source": "ledger SPY quotes",
+      "start_price": "754.0499877929688",
+      "status": "measured"
+    }
+  },
+  "calibration": [
+    {
+      "bucket": "00-10%",
+      "calibration_error": "0.09",
+      "count": 8,
+      "mean_stated_p_win": "0.09",
+      "realized_win_rate": "0"
+    },
+    {
+      "bucket": "10-20%",
+      "calibration_error": "0.18",
+      "count": 1,
+      "mean_stated_p_win": "0.18",
+      "realized_win_rate": "0"
+    },
+    {
+      "bucket": "30-40%",
+      "calibration_error": "0.32",
+      "count": 2,
+      "mean_stated_p_win": "0.32",
+      "realized_win_rate": "0"
+    },
+    {
+      "bucket": "40-50%",
+      "calibration_error": "0.31875",
+      "count": 8,
+      "mean_stated_p_win": "0.44375",
+      "realized_win_rate": "0.125"
+    },
+    {
+      "bucket": "50-60%",
+      "calibration_error": "0.4886792452830188679245283018",
+      "count": 53,
+      "mean_stated_p_win": "0.5641509433962264150943396226",
+      "realized_win_rate": "0.07547169811320754716981132075"
+    },
+    {
+      "bucket": "60-70%",
+      "calibration_error": "0.0267073170731707317073170732",
+      "count": 82,
+      "mean_stated_p_win": "0.6120731707317073170731707317",
+      "realized_win_rate": "0.5853658536585365853658536585"
+    },
+    {
+      "bucket": "90-100%",
+      "calibration_error": "0.3029166666666666666666666666",
+      "count": 24,
+      "mean_stated_p_win": "0.9695833333333333333333333333",
+      "realized_win_rate": "0.6666666666666666666666666667"
+    }
+  ],
+  "era": "v1-multi-asset",
+  "fund_id": "edgecraft-aggressive",
+  "git_tag": "v1-multi-asset",
+  "interpretation": "Only recorded cycle marks are used. Intracycle target/stop order is unknown until the monitor records denser marks; open and sparse outcomes are left unscored.",
+  "realized_round_trips": [
+    {
+      "asset_class": "stock",
+      "closed_at": "2026-08-27T17:18:37Z",
+      "hold_hours": "20.990833333333335",
+      "instrument_id": "QQQ",
+      "opened_at": "2026-08-26T20:19:10Z",
+      "playbook_id": "unassigned",
+      "realized_pnl_after_cost": "-5.84457621909375",
+      "side": "short",
+      "won": false
+    },
+    {
+      "asset_class": "crypto",
+      "closed_at": "2026-08-27T17:18:37Z",
+      "hold_hours": "20.990833333333335",
+      "instrument_id": "BTC-USD",
+      "opened_at": "2026-08-26T20:19:10Z",
+      "playbook_id": "unassigned",
+      "realized_pnl_after_cost": "7.233075231489",
+      "side": "long",
+      "won": true
+    },
+    {
+      "asset_class": "prediction",
+      "closed_at": "2026-08-28T17:19:54Z",
+      "hold_hours": "45.01222222222222",
+      "instrument_id": "polymarket:2252245:YES",
+      "opened_at": "2026-08-26T20:19:10Z",
+      "playbook_id": "unassigned",
+      "realized_pnl_after_cost": "99.36255000",
+      "side": "long",
+      "won": true
+    },
+    {
+      "asset_class": "stock",
+      "closed_at": "2026-08-29T19:49:00Z",
+      "hold_hours": "50.506388888888885",
+      "instrument_id": "NVDA",
+      "opened_at": "2026-08-27T17:18:37Z",
+      "playbook_id": "unassigned",
+      "realized_pnl_after_cost": "-25.80200223",
+      "side": "long",
+      "won": false
+    },
+    {
+      "asset_class": "stock",
+      "closed_at": "2026-08-31T05:44:30Z",
+      "hold_hours": "60.41",
+      "instrument_id": "QQQ",
+      "opened_at": "2026-08-28T17:19:54Z",
+      "playbook_id": "unassigned",
+      "realized_pnl_after_cost": "-1.78420883625",
+      "side": "short",
+      "won": false
+    },
+    {
+      "asset_class": "crypto",
+      "closed_at": "2026-09-01T20:19:00Z",
+      "hold_hours": "38.575",
+      "instrument_id": "SOL-USD",
+      "opened_at": "2026-08-31T05:44:30Z",
+      "playbook_id": "unassigned",
+      "realized_pnl_after_cost": "11.5831441275",
+      "side": "short",
+      "won": true
+    },
+    {
+      "asset_class": "prediction",
+      "closed_at": "2026-09-01T20:19:00Z",
+      "hold_hours": "38.575",
+      "instrument_id": "polymarket:3953844:YES",
+      "opened_at": "2026-08-31T05:44:30Z",
+      "playbook_id": "unassigned",
+      "realized_pnl_after_cost": "-160.24008",
+      "side": "long",
+      "won": false
+    },
+    {
+      "asset_class": "stock",
+      "closed_at": "2026-09-02T17:19:24Z",
+      "hold_hours": "47.928333333333335",
+      "instrument_id": "XLE",
+      "opened_at": "2026-08-31T17:23:42Z",
+      "playbook_id": "unassigned",
+      "realized_pnl_after_cost": "10.57891581098140537248",
+      "side": "long",
+      "won": true
+    },
+    {
+      "asset_class": "stock",
+      "closed_at": "2026-09-02T17:19:24Z",
+      "hold_hours": "21.006666666666668",
+      "instrument_id": "NIO",
+      "opened_at": "2026-09-01T20:19:00Z",
+      "playbook_id": "unassigned",
+      "realized_pnl_after_cost": "-14.14740583820458769028",
+      "side": "long",
+      "won": false
+    },
+    {
+      "asset_class": "stock",
+      "closed_at": "2026-09-03T17:40:30Z",
+      "hold_hours": "45.358333333333334",
+      "instrument_id": "QQQ",
+      "opened_at": "2026-09-01T20:19:00Z",
+      "playbook_id": "unassigned",
+      "realized_pnl_after_cost": "-5.5641347475",
+      "side": "short",
+      "won": false
+    },
+    {
+      "asset_class": "stock",
+      "closed_at": "2026-09-03T17:40:30Z",
+      "hold_hours": "24.351666666666667",
+      "instrument_id": "DELL",
+      "opened_at": "2026-09-02T17:19:24Z",
+      "playbook_id": "post_earnings_drift",
+      "realized_pnl_after_cost": "4.991482554606036266301105",
+      "side": "long",
+      "won": true
+    },
+    {
+      "asset_class": "stock",
+      "closed_at": "2026-09-03T17:40:30Z",
+      "hold_hours": "24.351666666666667",
+      "instrument_id": "GTLB",
+      "opened_at": "2026-09-02T17:19:24Z",
+      "playbook_id": "post_earnings_drift",
+      "realized_pnl_after_cost": "0.0759746198002691390338008",
+      "side": "long",
+      "won": true
+    },
+    {
+      "asset_class": "stock",
+      "closed_at": "2026-09-03T17:40:30Z",
+      "hold_hours": "24.351666666666667",
+      "instrument_id": "MDB",
+      "opened_at": "2026-09-02T17:19:24Z",
+      "playbook_id": "post_earnings_drift",
+      "realized_pnl_after_cost": "-0.6830776178857537963031089469",
+      "side": "short",
+      "won": false
+    },
+    {
+      "asset_class": "stock",
+      "closed_at": "2026-09-04T15:07:50.753241Z",
+      "hold_hours": "21.455764789166665",
+      "instrument_id": "CPB",
+      "opened_at": "2026-09-03T17:40:30Z",
+      "playbook_id": "post_earnings_drift",
+      "realized_pnl_after_cost": "0.4984625620482557262339136343",
+      "side": "short",
+      "won": true
+    },
+    {
+      "asset_class": "stock",
+      "closed_at": "2026-09-04T15:07:50.753241Z",
+      "hold_hours": "21.455764789166665",
+      "instrument_id": "TSN",
+      "opened_at": "2026-09-03T17:40:30Z",
+      "playbook_id": "post_earnings_drift",
+      "realized_pnl_after_cost": "0.1124950152274110769918505133",
+      "side": "short",
+      "won": true
+    },
+    {
+      "asset_class": "stock",
+      "closed_at": "2026-09-04T18:07:07.334413Z",
+      "hold_hours": "24.443704003611114",
+      "instrument_id": "SNOW",
+      "opened_at": "2026-09-03T17:40:30Z",
+      "playbook_id": "post_earnings_drift",
+      "realized_pnl_after_cost": "-3.70898469368921210905656",
+      "side": "long",
+      "won": false
+    },
+    {
+      "asset_class": "prediction",
+      "closed_at": "2026-09-17T07:07:08.725662Z",
+      "hold_hours": "2.395160080833333",
+      "instrument_id": "polymarket:4441310:NO",
+      "opened_at": "2026-09-17T04:43:26.149371Z",
+      "playbook_id": "resolution_arbitrage",
+      "realized_pnl_after_cost": "-17.2777614879000",
+      "side": "long",
+      "won": false
+    },
+    {
+      "asset_class": "prediction",
+      "closed_at": "2026-09-17T11:07:06.429103Z",
+      "hold_hours": "6.394522147777778",
+      "instrument_id": "polymarket:4441312:YES",
+      "opened_at": "2026-09-17T04:43:26.149371Z",
+      "playbook_id": "resolution_arbitrage",
+      "realized_pnl_after_cost": "-7.68768",
+      "side": "long",
+      "won": false
+    },
+    {
+      "asset_class": "crypto",
+      "closed_at": "2026-09-19T16:07:07.464832Z",
+      "hold_hours": "24.94901800888889",
+      "instrument_id": "SOL-USD",
+      "opened_at": "2026-09-18T15:10:11Z",
+      "playbook_id": "crypto_momentum",
+      "realized_pnl_after_cost": "0.63924017248629675",
+      "side": "long",
+      "won": true
+    },
+    {
+      "asset_class": "prediction",
+      "closed_at": "2026-09-21T02:07:06.268757Z",
+      "hold_hours": "0.7811857658333333",
+      "instrument_id": "polymarket:4545828:YES",
+      "opened_at": "2026-09-21T01:20:14Z",
+      "playbook_id": "resolution_arbitrage",
+      "realized_pnl_after_cost": "104.6128470000000000000000000",
+      "side": "long",
+      "won": true
+    },
+    {
+      "asset_class": "crypto",
+      "closed_at": "2026-09-22T20:21:06Z",
+      "hold_hours": "24.003611111111113",
+      "instrument_id": "BTC-USD",
+      "opened_at": "2026-09-21T20:20:53Z",
+      "playbook_id": "crypto_momentum",
+      "realized_pnl_after_cost": "-1.9322321811629568",
+      "side": "long",
+      "won": false
+    },
+    {
+      "asset_class": "prediction",
+      "closed_at": "2026-10-05T01:41:04.943354Z",
+      "hold_hours": "5.629414554444444",
+      "instrument_id": "polymarket:601920:NO",
+      "opened_at": "2026-10-04T20:03:19.050958Z",
+      "playbook_id": "resolution_arbitrage",
+      "realized_pnl_after_cost": "25.38946411500000000000000001",
+      "side": "long",
+      "won": true
+    }
+  ],
+  "schema_version": "edgecraft.era-archive.v1",
+  "scored_hypotheses_by_asset_class": {
+    "crypto": {
+      "expectancy_after_cost": "0.5986111769541734517241379310",
+      "hit_rate": "0.2758620689655172413793103448",
+      "hypotheses": 100,
+      "profit_factor": "1.939375758588828242846974460",
+      "realized_pnl_after_cost": "34.71944826334206020",
+      "scored": 58,
+      "wins": 16
+    },
+    "prediction": {
+      "expectancy_after_cost": "5.949004819648484848484848488",
+      "hit_rate": "0.5151515151515151515151515152",
+      "hypotheses": 44,
+      "profit_factor": "1.254585559951628797197420124",
+      "realized_pnl_after_cost": "196.3171590484000000000000001",
+      "scored": 33,
+      "wins": 17
+    },
+    "stock": {
+      "expectancy_after_cost": "-2.268556729025109173544640623",
+      "hit_rate": "0.4137931034482758620689655172",
+      "hypotheses": 172,
+      "profit_factor": "0.2577336539324019968101658110",
+      "realized_pnl_after_cost": "-197.3644354251844980983837342",
+      "scored": 87,
+      "wins": 36
+    },
+    "unknown": {
+      "expectancy_after_cost": null,
+      "hit_rate": null,
+      "hypotheses": 75,
+      "profit_factor": null,
+      "realized_pnl_after_cost": "0",
+      "scored": 0,
+      "wins": 0
+    }
+  },
+  "source": "agentic_trading_runtime/state/fund-report.json (read-only), generated_at 2026-10-15T23:32:04.528510Z",
+  "summary": {
+    "closed_trades": 22,
+    "cycles": 96,
+    "expectancy_95_interval": [
+      "-19.206763272022894",
+      "21.061809395427655"
+    ],
+    "expectancy_after_cost": "0.9275230617023824516091364095",
+    "exposure_weighted_return": "0.001224663817790050980010702502",
+    "fees": "4.708060851148596908563599000",
+    "fills": 42,
+    "hit_rate": "0.5",
+    "hypotheses": 391,
+    "model_cost_share_of_gross_profit": "0E+25",
+    "model_cost_usd": "0",
+    "nav": "1020.405507357452413935401001",
+    "nav_change": "20.405507357452413935401001",
+    "profit_factor": "1.083399389224388736430861075",
+    "realized_pnl_after_cost": "20.40550735745241393540100101",
+    "scored_hypotheses": 178,
+    "sharpe_cycle_annualized": "0.3358128201622464",
+    "wins": 11
+  },
+  "verification": {
+    "accounting_ok": true,
+    "chain_ok": true,
+    "cycle_count": 96,
+    "details": [],
+    "event_count": 169,
+    "fund_id": "edgecraft-aggressive",
+    "ok": true
+  }
+}
