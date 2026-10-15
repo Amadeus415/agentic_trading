@@ -47,6 +47,27 @@ default; `--update` is an operator deployment step. Market snapshots and the
 single apply still require permitted public network access. Resolve any network
 permission issue before the apply; never bypass a failed apply or invent marks.
 
+### Read-only discovery and failure boundaries
+
+Before writing a packet, discover repository paths with `rg --files` instead of
+assuming a source or cache filename. Code lives under `src/edgecraft/`. Read
+machine-readable context with `make -s EDGECRAFT=.venv/bin/edgecraft fund-context`;
+the schemas are at `input_contract.decision_schema` and
+`input_contract.quote_schema`, not `input_schema`. Prefer the returned snapshot
+quotes over opening guessed cache paths.
+
+A missing path, no search match, or parser/key mistake during read-only discovery
+is recoverable before packet creation. Inspect the actual paths or keys, correct
+the inspection, and continue using the printed cycle key. These mistakes neither
+apply a cycle nor establish a market conclusion. This distinction takes precedence
+over remembered guidance that treats every auxiliary command error as terminal.
+
+Unresolved preparation or integrity failures, unavailable required position
+marks, incomplete required research, packet-validation failures, and any failed
+`fund-run` or scheduled apply remain terminal. Once the complete packet is saved,
+do not alter it to pass a gate or retry a failed apply. Permission recovery remains
+limited to the identical approved operation; never bypass a denied permission.
+
 1. Initialize or reopen the immutable $1,000 paper fund.
 2. Read the current state, ledger-derived brain, trading policy, session key, and machine-readable input schema. If `review.due` is true, complete [the review](EVOLUTION.md) once before research, then refresh context.
 3. Run `fund-snapshot` for open positions and every shortlisted candidate; these cached public marks own fills. Optional candidate-provider failures are reported per instrument so healthy asset classes can continue, but a missing mark for any open position remains fatal.
@@ -65,7 +86,7 @@ permission issue before the apply; never bypass a failed apply or invent marks.
 >
 > Re-evaluate every thesis against primary public sources. Build one schema-valid packet using the printed cycle key and an `as_of` after all observations. The journal covers the full scanned opportunity set and one current hypothesis for every open or directional candidate. Each hypothesis records stance (`long`, `short`, or `exit` for actionable/current positions; `flat` for researched candidates with no directional thesis), mechanism, catalysts, falsifiers, horizon ≤ 72 hours, `p_win`, target/invalidation, playbook, driver, and evidence IDs. Include every complete `long` or `short` hypothesis even when your own expected-value estimate is marginal: scheduled Python materializes candidate orders, applies calibration and costs, and derives the final `trade` or `hold` action. Quotes must be the cached code-owned marks. A resolved prediction contract uses its exact authoritative settlement rule and a sourced terminal mark of `0` or `1`; never substitute a context source.
 >
-> Save the exact packet to the `input_path` printed by `fund-cycle-key`, then run `./scripts/run_scheduled_cycle.sh` exactly once. On any failure, stop and report the exact error. Pure sizing previews occur before the single ledger apply; they never retry a failed apply. Never alter prices, timestamps, evidence, quantities, policy, or cycle identity just to pass a gate, and never retry a changed request under the same cycle key. A failed scheduled cycle is terminal; do not bypass it with a manual key. After a successful apply and verification, run `./scripts/publish_fund_visualization.sh`; it stages and pushes only `assets/fund-progress.svg`, never ledger state or unrelated work. Finally run `make fund-show` and `make fund-verify`, then report the thesis, simulated actions, fees, cash, NAV, P&L, gross/net/short exposure, visualization publication, and hash-chain/accounting verification. Always describe fills as simulated.
+> Save the exact packet to the `input_path` printed by `fund-cycle-key`, then run `./scripts/run_scheduled_cycle.sh` exactly once. On any validation or apply failure, stop and report the exact error; read-only discovery follows the recovery boundaries above. Pure sizing previews occur before the single ledger apply; they never retry a failed apply. Never alter prices, timestamps, evidence, quantities, policy, or cycle identity just to pass a gate, and never retry a changed request under the same cycle key. A failed scheduled cycle is terminal; do not bypass it with a manual key. After a successful apply and verification, run `./scripts/publish_fund_visualization.sh`; it stages and pushes only `assets/fund-progress.svg`, never ledger state or unrelated work. Finally run `make fund-show` and `make fund-verify`, then report the thesis, simulated actions, fees, cash, NAV, P&L, gross/net/short exposure, visualization publication, and hash-chain/accounting verification. Always describe fills as simulated.
 
 ## Fixed apply path
 
