@@ -67,3 +67,9 @@ The full record is in [history/v1-multi-asset](history/v1-multi-asset/README.md)
 - **Expected effect:** restrict binary discovery to YES/NO labels, normalize their case, and exclude obviously unusable listing spreads before fetching depth. Fresh books still own execution; indicative metadata never becomes a fill.
 - **Measure:** scanner exclusion reasons, book-attempt coverage, and sourced candidates per session. No fees, limits, or access checks are weakened.
 - **Fund:** v2.
+
+## 2026-10-17 · Patch dashboard dependencies before local deployment
+- **Why:** the previous Next.js lock carried critical advisories; a fresh install also revealed vulnerable transitive build dependencies.
+- **Expected effect:** Next.js and its ESLint config move to 16.3.8, with compatible transitive updates. Production dependency audit must pass, followed by lint, tests, and build.
+- **Measure:** `npm audit --omit=dev` and the dashboard release checks. Five remaining development-tool advisories originate in unpatched `braces` through the linter's glob dependency; they are not resolved by forcing an older Next ESLint major. Recheck when upstream publishes a fix.
+- **Fund:** dashboard only; no trading math changes.
