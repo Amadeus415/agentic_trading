@@ -57,3 +57,15 @@ EDGECRAFT_FUND_DB=/absolute/path/to/verified-copy.db node scripts/smoke-db.mjs
 ```
 
 Verify the v1 fund before and after initializing v2 on a copy, compare all original cycle/event rows, and verify both funds. Live API checks are read-only and separate from fixture tests. If package installation encounters TLS problems, a complete cached installation can be validated offline; never disable certificate verification.
+
+## Keep the local dashboard running
+
+After installing locked dashboard dependencies and building in the runtime:
+
+```bash
+cd dashboard && npm ci && npm run build && cd ..
+./scripts/install_local_dashboard.sh
+launchctl print gui/$(id -u)/com.edgecraft.dashboard
+```
+
+The LaunchAgent serves the read-only dashboard at `http://127.0.0.1:3000`, binds only to localhost, and restarts it after failure or login. It uses an absolute Node executable and the authoritative runtime database. Logs stay in `state/logs/`. Rebuild and reinstall the agent after dashboard dependency/source updates.

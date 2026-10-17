@@ -73,3 +73,9 @@ The full record is in [history/v1-multi-asset](history/v1-multi-asset/README.md)
 - **Expected effect:** Next.js and its ESLint config move to 16.3.8, with compatible transitive updates. Production dependency audit must pass, followed by lint, tests, and build.
 - **Measure:** `npm audit --omit=dev` and the dashboard release checks. Five remaining development-tool advisories originate in unpatched `braces` through the linter's glob dependency; they are not resolved by forcing an older Next ESLint major. Recheck when upstream publishes a fix.
 - **Fund:** dashboard only; no trading math changes.
+
+## 2026-10-17 · Install a persistent, localhost-only read-only dashboard
+- **Why:** deploying the research runtime alone leaves the new fund views unavailable after the temporary development server stops.
+- **Expected effect:** a user LaunchAgent serves the built dashboard at `127.0.0.1:3000`, restarts it on failure/login, and reads the authoritative shared ledger without write access.
+- **Measure:** HTTP checks for v1/v2 views, SQLite read-only smoke, and LaunchAgent state. Logs remain private under `state/logs/`.
+- **Fund:** read-only views of both eras.
