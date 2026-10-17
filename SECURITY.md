@@ -6,7 +6,7 @@ The Edgecraft paper fund is fake-money-only by construction:
 
 - `FundMandate` has no live mode.
 - `paper_fund.py` imports no broker client or execution adapter.
-- The scheduled script invokes only `fund-init`, `fund-verify`, and `fund-run`.
+- The scheduled script invokes only `fund-init`, `fund-verify`, `fund-run`, and the read-only `fund-visualize` and `fund-report`.
 - The repository contains no broker mutation path, permit, or live policy.
 - Codex PreToolUse hooks deny `place_*` / `cancel_*` order tools via
   `scripts/deny_broker_tools.py`.

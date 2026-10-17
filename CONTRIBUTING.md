@@ -21,8 +21,7 @@ review.
    make security
    ```
 
-   Paper-fund CI is `make validate`. The optional research lab smoke is
-   `make validate-lab` and is not required for paper-fund changes.
+   CI runs `make validate`.
 
 By submitting a contribution, you agree that it is licensed under Apache-2.0,
 the same license as the project, and that you have the right to submit it.

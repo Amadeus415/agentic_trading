@@ -16,8 +16,8 @@ All money is simulated. Never imply live brokerage activity.
 
 | Item | Path |
 |---|---|
-| Mandate | `examples/fund.mandate.aggressive.json` |
-| Ledger | `state/edgecraft-aggressive.db` |
+| Mandate | `examples/fund.mandate.predictions.json` |
+| Ledger | `state/edgecraft-aggressive.db` (shared by v1 and v2; the v2 fund is `edgecraft-predictions`) |
 | Session inputs | `state/fund-inputs/YYYY-MM-DD-session-*.json` |
 | Docs | `docs/FUND_ACCOUNTING.md` |
 
@@ -37,7 +37,7 @@ hash-chain tail:
 
 ```bash
 uv run edgecraft fund-show \
-  --config examples/fund.mandate.aggressive.json \
+  --config examples/fund.mandate.predictions.json \
   --ledger state/edgecraft-aggressive.db \
   --history --events --limit 10
 ```
@@ -50,7 +50,7 @@ point at `make fund-init` — do not invent numbers.
 - **Latest cycle packet:** take `state.last_cycle_key` from fund-show, then:
   ```bash
   uv run edgecraft fund-cycle \
-    --config examples/fund.mandate.aggressive.json \
+    --config examples/fund.mandate.predictions.json \
     --ledger state/edgecraft-aggressive.db \
     --cycle-key <last_cycle_key> --audit
   ```
@@ -142,7 +142,7 @@ Quote the performance `interpretation` when status is `measuring`.
 If the user only wants a pulse check ("quick", "one line", "tldr"):
 
 ```text
-edgecraft-aggressive · paper · NAV $X (P&L +/−$Y, +Z%) · N pos · last cycle KEY (trade|hold) · ledger ok|FAIL · as_of …
+edgecraft-predictions · paper · NAV $X (P&L +/−$Y, +Z%) · N pos · last cycle KEY (trade|hold) · ledger ok|FAIL · as_of …
 ```
 
 Still run `make fund-show` and `make fund-verify` before answering.
