@@ -1,0 +1,417 @@
+{
+ "fetched_at": "2026-10-17T23:03:54Z",
+ "polymarket": {
+  "2252245": {
+   "closed": true,
+   "end_date": "2026-09-16T00:00:00Z",
+   "outcome_prices": {
+    "NO": 0.0,
+    "YES": 1.0
+   },
+   "question": "Will the Fed increase interest rates by 25 bps after the September 2026 meeting?",
+   "uma_resolution_status": "resolved"
+  },
+  "3953844": {
+   "closed": true,
+   "end_date": "2026-09-01T04:00:00Z",
+   "outcome_prices": {
+    "NO": 1.0,
+    "YES": 0.0
+   },
+   "question": "Will Bitcoin reach $80,000 in August?",
+   "uma_resolution_status": "resolved"
+  },
+  "4441310": {
+   "closed": true,
+   "end_date": "2026-09-17T16:00:00Z",
+   "outcome_prices": {
+    "NO": 0.0,
+    "YES": 1.0
+   },
+   "question": "Will the price of Bitcoin be above $76,000 on September 17?",
+   "uma_resolution_status": "resolved"
+  },
+  "4441312": {
+   "closed": true,
+   "end_date": "2026-09-17T16:00:00Z",
+   "outcome_prices": {
+    "NO": 1.0,
+    "YES": 0.0
+   },
+   "question": "Will the price of Bitcoin be above $78,000 on September 17?",
+   "uma_resolution_status": "resolved"
+  },
+  "4470877": {
+   "closed": true,
+   "end_date": "2026-09-18T16:00:00Z",
+   "outcome_prices": {
+    "NO": 0.0,
+    "YES": 1.0
+   },
+   "question": "Will the price of Bitcoin be above $80,000 on September 18?",
+   "uma_resolution_status": "resolved"
+  },
+  "4470880": {
+   "closed": true,
+   "end_date": "2026-09-18T16:00:00Z",
+   "outcome_prices": {
+    "NO": 1.0,
+    "YES": 0.0
+   },
+   "question": "Will the price of Bitcoin be above $82,000 on September 18?",
+   "uma_resolution_status": "resolved"
+  },
+  "4470881": {
+   "closed": true,
+   "end_date": "2026-09-18T16:00:00Z",
+   "outcome_prices": {
+    "NO": 1.0,
+    "YES": 0.0
+   },
+   "question": "Will the price of Bitcoin be above $84,000 on September 18?",
+   "uma_resolution_status": "resolved"
+  },
+  "4545826": {
+   "closed": true,
+   "end_date": "2026-09-21T04:00:00Z",
+   "outcome_prices": {
+    "NO": 1.0,
+    "YES": 0.0
+   },
+   "question": "Will Bitcoin reach $84,000 September 14-20?",
+   "uma_resolution_status": "resolved"
+  },
+  "4545828": {
+   "closed": true,
+   "end_date": "2026-09-21T04:00:00Z",
+   "outcome_prices": {
+    "NO": 0.0,
+    "YES": 1.0
+   },
+   "question": "Will Bitcoin reach $82,000 September 14-20?",
+   "uma_resolution_status": "resolved"
+  },
+  "4617520": {
+   "closed": true,
+   "end_date": "2026-09-23T16:00:00Z",
+   "outcome_prices": {
+    "NO": 1.0,
+    "YES": 0.0
+   },
+   "question": "Will the price of Ethereum be above $2,700 on September 23?",
+   "uma_resolution_status": "resolved"
+  },
+  "4617522": {
+   "closed": true,
+   "end_date": "2026-09-23T16:00:00Z",
+   "outcome_prices": {
+    "NO": 1.0,
+    "YES": 0.0
+   },
+   "question": "Will the price of Ethereum be above $2,800 on September 23?",
+   "uma_resolution_status": "resolved"
+  },
+  "4641064": {
+   "closed": true,
+   "end_date": "2026-09-30T23:59:00Z",
+   "outcome_prices": {
+    "NO": 0.0,
+    "YES": 1.0
+   },
+   "question": "US x Iran ceasefire continues through September 30?",
+   "uma_resolution_status": "resolved"
+  },
+  "4641128": {
+   "closed": true,
+   "end_date": "2026-09-24T16:00:00Z",
+   "outcome_prices": {
+    "NO": 1.0,
+    "YES": 0.0
+   },
+   "question": "Will the price of Bitcoin be above $86,000 on September 24?",
+   "uma_resolution_status": "resolved"
+  },
+  "4689157": {
+   "closed": true,
+   "end_date": "2026-09-25T16:00:00Z",
+   "outcome_prices": {
+    "NO": 1.0,
+    "YES": 0.0
+   },
+   "question": "Will the price of Bitcoin be between $84,000 and $86,000 on September 25?",
+   "uma_resolution_status": "resolved"
+  },
+  "4689194": {
+   "closed": true,
+   "end_date": "2026-09-25T16:00:00Z",
+   "outcome_prices": {
+    "NO": 1.0,
+    "YES": 0.0
+   },
+   "question": "Will the price of Ethereum be between $2,700 and $2,800 on September 25?",
+   "uma_resolution_status": "resolved"
+  },
+  "4690969": {
+   "closed": true,
+   "end_date": "2026-09-21T04:00:00Z",
+   "outcome_prices": {
+    "NO": 1.0,
+    "YES": 0.0
+   },
+   "question": "Will Bitcoin dip to $80,000 September 14-20?",
+   "uma_resolution_status": "resolved"
+  },
+  "4727090": {
+   "closed": true,
+   "end_date": "2026-09-26T16:00:00Z",
+   "outcome_prices": {
+    "NO": 1.0,
+    "YES": 0.0
+   },
+   "question": "Will the price of Ethereum be above $2,800 on September 26?",
+   "uma_resolution_status": "resolved"
+  },
+  "4788902": {
+   "closed": true,
+   "end_date": "2026-09-22T22:00:00Z",
+   "outcome_prices": {
+    "NO": 1.0,
+    "YES": 0.0
+   },
+   "question": "WTI Crude Oil (WTI) closes above $99 on September 22?",
+   "uma_resolution_status": "resolved"
+  },
+  "4798880": {
+   "closed": true,
+   "end_date": "2026-09-28T04:00:00Z",
+   "outcome_prices": {
+    "NO": 1.0,
+    "YES": 0.0
+   },
+   "question": "Will Bitcoin dip to $82,000 September 21-27?",
+   "uma_resolution_status": "resolved"
+  },
+  "4882966": {
+   "closed": true,
+   "end_date": "2026-09-30T16:00:00Z",
+   "outcome_prices": {
+    "NO": 1.0,
+    "YES": 0.0
+   },
+   "question": "Will the price of Ethereum be above $3,000 on September 30?",
+   "uma_resolution_status": "resolved"
+  },
+  "601920": {
+   "closed": true,
+   "end_date": "2026-10-05T03:59:00Z",
+   "outcome_prices": {
+    "NO": 1.0,
+    "YES": 0.0
+   },
+   "question": "Will any presidential candidate win outright in the first round of the Brazil election?",
+   "uma_resolution_status": "resolved"
+  },
+  "948957": {
+   "closed": true,
+   "end_date": "2026-10-01T03:59:00Z",
+   "outcome_prices": {
+    "NO": 1.0,
+    "YES": 0.0
+   },
+   "question": "Bitcoin all time high by September 30, 2026?",
+   "uma_resolution_status": "resolved"
+  }
+ },
+ "schema_version": "edgecraft.results-public.v1",
+ "sources": {
+  "polymarket": "https://gamma-api.polymarket.com/markets/<id>",
+  "spy": "https://query1.finance.yahoo.com/v8/finance/chart/SPY (daily, adjclose includes dividends)"
+ },
+ "spy_daily": [
+  {
+   "adjclose": 770.7560424804688,
+   "close": 772.6699829101562,
+   "date": "2026-08-17"
+  },
+  {
+   "adjclose": 765.5490112304688,
+   "close": 767.4500122070312,
+   "date": "2026-08-18"
+  },
+  {
+   "adjclose": 767.1549682617188,
+   "close": 769.0599975585938,
+   "date": "2026-08-19"
+  },
+  {
+   "adjclose": 760.7109985351562,
+   "close": 762.5999755859375,
+   "date": "2026-08-20"
+  },
+  {
+   "adjclose": 763.8232421875,
+   "close": 765.719970703125,
+   "date": "2026-08-21"
+  },
+  {
+   "adjclose": 761.5787963867188,
+   "close": 763.469970703125,
+   "date": "2026-08-24"
+  },
+  {
+   "adjclose": 764.0127563476562,
+   "close": 765.9099731445312,
+   "date": "2026-08-25"
+  },
+  {
+   "adjclose": 764.182373046875,
+   "close": 766.0800170898438,
+   "date": "2026-08-26"
+  },
+  {
+   "adjclose": 769.18994140625,
+   "close": 771.0999755859375,
+   "date": "2026-08-27"
+  },
+  {
+   "adjclose": 767.4442749023438,
+   "close": 769.3499755859375,
+   "date": "2026-08-28"
+  },
+  {
+   "adjclose": 765.1499633789062,
+   "close": 767.0499877929688,
+   "date": "2026-08-31"
+  },
+  {
+   "adjclose": 759.89306640625,
+   "close": 761.780029296875,
+   "date": "2026-09-01"
+  },
+  {
+   "adjclose": 763.2646484375,
+   "close": 765.1599731445312,
+   "date": "2026-09-02"
+  },
+  {
+   "adjclose": 771.2548217773438,
+   "close": 773.1699829101562,
+   "date": "2026-09-03"
+  },
+  {
+   "adjclose": 768.2822265625,
+   "close": 770.1900024414062,
+   "date": "2026-09-04"
+  },
+  {
+   "adjclose": 764.0626831054688,
+   "close": 765.9600219726562,
+   "date": "2026-09-08"
+  },
+  {
+   "adjclose": 760.5115356445312,
+   "close": 762.4000244140625,
+   "date": "2026-09-09"
+  },
+  {
+   "adjclose": 755.9528198242188,
+   "close": 757.8300170898438,
+   "date": "2026-09-10"
+  },
+  {
+   "adjclose": 762.3967895507812,
+   "close": 764.2899780273438,
+   "date": "2026-09-11"
+  },
+  {
+   "adjclose": 758.9952392578125,
+   "close": 760.8800048828125,
+   "date": "2026-09-14"
+  },
+  {
+   "adjclose": 755.513916015625,
+   "close": 757.3900146484375,
+   "date": "2026-09-15"
+  },
+  {
+   "adjclose": 752.1821899414062,
+   "close": 754.0499877929688,
+   "date": "2026-09-16"
+  },
+  {
+   "adjclose": 760.7109985351562,
+   "close": 762.5999755859375,
+   "date": "2026-09-17"
+  },
+  {
+   "adjclose": 761.6900024414062,
+   "close": 761.6900024414062,
+   "date": "2026-09-18"
+  },
+  {
+   "adjclose": 773.5,
+   "close": 773.5,
+   "date": "2026-09-21"
+  },
+  {
+   "adjclose": 773.3800048828125,
+   "close": 773.3800048828125,
+   "date": "2026-09-22"
+  },
+  {
+   "adjclose": 767.8099975585938,
+   "close": 767.8099975585938,
+   "date": "2026-09-23"
+  },
+  {
+   "adjclose": 767.1799926757812,
+   "close": 767.1799926757812,
+   "date": "2026-09-24"
+  },
+  {
+   "adjclose": 771.3499755859375,
+   "close": 771.3499755859375,
+   "date": "2026-09-25"
+  },
+  {
+   "adjclose": 765.6099853515625,
+   "close": 765.6099853515625,
+   "date": "2026-09-28"
+  },
+  {
+   "adjclose": 764.2000122070312,
+   "close": 764.2000122070312,
+   "date": "2026-09-29"
+  },
+  {
+   "adjclose": 762.6300048828125,
+   "close": 762.6300048828125,
+   "date": "2026-09-30"
+  },
+  {
+   "adjclose": 763.989990234375,
+   "close": 763.989990234375,
+   "date": "2026-10-01"
+  },
+  {
+   "adjclose": 769.6400146484375,
+   "close": 769.6400146484375,
+   "date": "2026-10-02"
+  },
+  {
+   "adjclose": 774.8300170898438,
+   "close": 774.8300170898438,
+   "date": "2026-10-05"
+  },
+  {
+   "adjclose": 779.0900268554688,
+   "close": 779.0900268554688,
+   "date": "2026-10-06"
+  },
+  {
+   "adjclose": 777.219970703125,
+   "close": 777.219970703125,
+   "date": "2026-10-07"
+  }
+ ]
+}
