@@ -1,7 +1,7 @@
 [project]
 name = "edgecraft"
-version = "1.0.0"
-description = "An autonomous $1,000-to-$100,000 multi-market paper fund with an append-only ledger"
+version = "2.0.0"
+description = "An autonomous prediction-market paper fund with preserved history and code provenance"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
@@ -38,20 +38,10 @@ Issues = "https://github.com/Amadeus415/agentic_trading/issues"
 Source = "https://github.com/Amadeus415/agentic_trading"
 
 [project.optional-dependencies]
-lab = [
-  "numpy>=2.2,<3",
-  "pandas>=2.2,<4",
-  "scipy>=1.15,<2",
-  "yfinance>=0.2.65,<2",
-]
 dev = [
   "pytest>=9.0.3,<10",
   "pytest-cov>=6.2,<8",
   "ruff>=0.12,<1",
-  "numpy>=2.2,<3",
-  "pandas>=2.2,<4",
-  "scipy>=1.15,<2",
-  "yfinance>=0.2.65,<2",
 ]
 
 [project.scripts]
