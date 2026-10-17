@@ -183,6 +183,7 @@ class FundMandate(BaseModel):
         AssetClass.PREDICTION,
     )
     fee_bps: Decimal = Field(default=Decimal("5"), ge=0)
+    venue_fee_model: Literal["flat_bps", "prediction_taker_v1"] = "flat_bps"
     slippage_bps: Decimal = Field(default=Decimal("10"), ge=0)
     quote_freshness: dict[AssetClass, timedelta] = Field(
         default_factory=lambda: {
@@ -261,6 +262,8 @@ class FundMandate(BaseModel):
 
     @model_validator(mode="after")
     def _freshness_covers_classes(self) -> Self:
+        if self.venue_fee_model == "prediction_taker_v1" and not self.prediction_only:
+            raise ValueError("prediction taker execution requires a prediction-only mandate")
         for field_name in ("quote_freshness", "max_source_age"):
             values = getattr(self, field_name)
             missing = [ac for ac in self.supported_asset_classes if ac not in values]
@@ -272,6 +275,18 @@ class FundMandate(BaseModel):
     def _serialize_freshness(self, value: Mapping[AssetClass, timedelta]) -> dict[str, float]:
         """Persist timedeltas as portable seconds rather than ISO duration strings."""
         return {asset.value: duration.total_seconds() for asset, duration in value.items()}
+
+    @property
+    def prediction_only(self) -> bool:
+        return self.supported_asset_classes == (AssetClass.PREDICTION,)
+
+    @property
+    def scheduled_horizon_hours(self) -> int:
+        return (
+            8_760
+            if self.venue_fee_model == "prediction_taker_v1"
+            else MAX_SCHEDULED_HYPOTHESIS_HORIZON_HOURS
+        )
 
     def freshness_for(self, asset_class: AssetClass) -> timedelta:
         return self.quote_freshness[asset_class]
@@ -304,6 +319,9 @@ class FundQuote(BaseModel):
     status: QuoteStatus = QuoteStatus.OPEN
     bids: tuple[BookLevel, ...] = ()
     asks: tuple[BookLevel, ...] = ()
+    fee_rate: Decimal | None = Field(default=None, ge=0, le=1)
+    fee_exponent: int | None = Field(default=None, ge=1, le=2)
+    fee_quantum: Decimal | None = Field(default=None, gt=0, le=Decimal("0.01"))
 
     @field_validator("instrument_id")
     @classmethod
@@ -675,7 +693,11 @@ def _initial_state(fund_id: str, cash: Decimal, as_of: datetime) -> FundState:
     )
 
 
-def validate_decision_journal(decision: FundDecision, prior_state: FundState) -> None:
+def validate_decision_journal(
+    decision: FundDecision,
+    prior_state: FundState,
+    max_horizon_hours: int = MAX_SCHEDULED_HYPOTHESIS_HORIZON_HOURS,
+) -> None:
     """Require the scheduled agent to refresh every live or ordered hypothesis.
 
     Historical cycles remain replayable through accounting without this check.
@@ -696,12 +718,12 @@ def validate_decision_journal(decision: FundDecision, prior_state: FundState) ->
     long_horizon = [
         f"{item.instrument_id}:{item.expected_horizon_hours}h"
         for item in decision.journal.hypotheses
-        if item.expected_horizon_hours > MAX_SCHEDULED_HYPOTHESIS_HORIZON_HOURS
+        if item.expected_horizon_hours > max_horizon_hours
     ]
     if long_horizon:
         raise PaperFundValidationError(
             "scheduled hypotheses must use a short-term horizon of "
-            f"{MAX_SCHEDULED_HYPOTHESIS_HORIZON_HOURS}h or less: {long_horizon}"
+            f"{max_horizon_hours}h or less: {long_horizon}"
         )
     incomplete = [
         item.instrument_id
@@ -928,6 +950,14 @@ def _walk_book(levels: Sequence[BookLevel], quantity: Decimal, *, descending: bo
 
 
 def _fill_price(quote: FundQuote, order: FundOrder, mandate: FundMandate) -> Decimal:
+    if mandate.venue_fee_model == "prediction_taker_v1":
+        levels = quote.asks if order.side in {OrderSide.BUY, OrderSide.COVER} else quote.bids
+        if not levels:
+            raise PaperFundValidationError("prediction execution requires displayed book depth")
+        if order.side is OrderSide.SHORT:
+            raise PaperFundValidationError(
+                "prediction-only funds buy the opposite outcome instead of shorting"
+            )
     extra = order.extra_slippage_bps or ZERO
     if order.side in {OrderSide.BUY, OrderSide.COVER} and quote.asks:
         price = _walk_book(quote.asks, order.quantity or ZERO, descending=False)
@@ -940,6 +970,20 @@ def _fill_price(quote: FundQuote, order: FundOrder, mandate: FundMandate) -> Dec
 
 def _fee(gross_notional: Decimal, fee_bps: Decimal) -> Decimal:
     return abs(gross_notional) * fee_bps / BPS_DIVISOR
+
+
+def execution_fee(
+    mandate: FundMandate, quote: FundQuote, price: Decimal, quantity: Decimal
+) -> Decimal:
+    """Historical funds retain flat fees; prediction-only funds use quoted venue fees."""
+    if mandate.venue_fee_model == "flat_bps":
+        return _fee(price * quantity, mandate.fee_bps)
+    if quote.fee_rate is None or quote.fee_exponent is None or quote.fee_quantum is None:
+        raise PaperFundValidationError("prediction fills require code-owned venue fee parameters")
+    from decimal import ROUND_CEILING
+
+    fee = quantity * quote.fee_rate * (price * (ONE - price)) ** quote.fee_exponent
+    return (fee / quote.fee_quantum).to_integral_value(rounding=ROUND_CEILING) * quote.fee_quantum
 
 
 def _position_map(positions: Sequence[FundPosition]) -> dict[str, FundPosition]:
@@ -1171,7 +1215,7 @@ def _execute_order(
         )
 
     gross = exec_px * order.quantity
-    fee = _fee(gross, mandate.fee_bps)
+    fee = execution_fee(mandate, quote, exec_px, order.quantity)
     borrow_fee = ZERO
     if (
         order.side is OrderSide.COVER
@@ -1371,7 +1415,10 @@ def _cycle_turnover(fills: Sequence[FundFill]) -> Decimal:
 
 def mandate_digest(mandate: FundMandate) -> str:
     """Canonical SHA-256 of the immutable mandate payload used for a cycle."""
-    return _sha256_hex(_canonical_json(json.loads(mandate.model_dump_json())))
+    payload = json.loads(mandate.model_dump_json())
+    if mandate.venue_fee_model == "flat_bps":
+        payload.pop("venue_fee_model", None)  # Preserve historical mandate digests.
+    return _sha256_hex(_canonical_json(payload))
 
 
 def _quote_freshness_records(
@@ -1803,6 +1850,9 @@ def request_digest(
                 hypothesis.pop(field, None)
     quote_payloads = [q.model_dump(mode="json") for q in quotes]
     for quote in quote_payloads:
+        for field in ("fee_rate", "fee_exponent", "fee_quantum"):
+            if quote.get(field) is None:
+                quote.pop(field, None)
         for field in ("bids", "asks"):
             if not quote.get(field):
                 quote.pop(field, None)
@@ -2229,6 +2279,25 @@ class PaperFundLedger:
             )
         return events
 
+    def retire(self, fund_id: str) -> bool:
+        """Append retirement once, refusing to strand open inventory."""
+        with self._transaction() as conn:
+            self._load_mandate(conn, fund_id)
+            self.verify(fund_id)
+            if self._load_latest_state(conn, fund_id).positions:
+                raise PaperFundValidationError("cannot retire a fund with open positions")
+            if conn.execute(
+                "SELECT 1 FROM events WHERE fund_id=? AND event_type='fund_retired'", (fund_id,)
+            ).fetchone():
+                return False
+            self._append_event(
+                conn,
+                fund_id=fund_id,
+                event_type="fund_retired",
+                payload={"reason": "Freeze the completed era without rewriting history."},
+            )
+            return True
+
     def record_operational_event(
         self,
         fund_id: str,
@@ -2338,7 +2407,7 @@ class PaperFundLedger:
             update={
                 "edgecraft_version": runtime.edgecraft_version or __version__,
                 "mandate_digest": runtime.mandate_digest or mandate_digest(mandate),
-                "source_revision": runtime.source_revision or current_source_revision(),
+                "source_revision": current_source_revision(),
                 "recorded_at": runtime.recorded_at or _utc_now(),
             }
         )
@@ -2372,9 +2441,16 @@ class PaperFundLedger:
                 result = CycleResult.model_validate_json(existing["result_json"])
                 return result.model_copy(update={"replayed": True})
 
+            if conn.execute(
+                "SELECT 1 FROM events WHERE fund_id=? AND event_type='fund_retired'",
+                (decision.fund_id,),
+            ).fetchone():
+                raise PaperFundValidationError(
+                    "fund is retired; historical cycles remain replayable"
+                )
             prior = self._load_latest_state(conn, decision.fund_id)
             if require_brain_journal:
-                validate_decision_journal(decision, prior)
+                validate_decision_journal(decision, prior, mandate.scheduled_horizon_hours)
             outcome = run_cycle_accounting(
                 mandate=mandate,
                 prior_state=prior,

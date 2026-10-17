@@ -1,6 +1,6 @@
-.PHONY: install test lint security demo fund-init fund-context fund-cycle-key fund-show fund-report fund-report-file fund-verify fund-visualize fund-monitor fund-alerts scheduled-cycle validate validate-lab dashboard
+.PHONY: install test lint security fund-init fund-context fund-cycle-key fund-show fund-report fund-lineage fund-scan fund-report-file fund-verify fund-visualize fund-monitor fund-alerts scheduled-cycle validate dashboard
 
-FUND_CONFIG ?= examples/fund.mandate.aggressive.json
+FUND_CONFIG ?= examples/fund.mandate.predictions.json
 FUND_LEDGER ?= state/edgecraft-aggressive.db
 EDGECRAFT ?= $(if $(wildcard .venv/bin/edgecraft),.venv/bin/edgecraft,uv run --no-sync edgecraft)
 
@@ -18,9 +18,6 @@ security:
 	uv export --frozen --no-dev --no-emit-project --format requirements-txt | uvx --python 3.13 --from pip-audit==2.10.1 pip-audit -r /dev/stdin --disable-pip
 	uvx --python 3.13 --from bandit==1.9.4 bandit -q -r src scripts -ll --skip B608
 
-demo:
-	uv run edgecraft backtest --config examples/research.json --data-source synthetic
-
 fund-init:
 	$(EDGECRAFT) fund-init --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
 
@@ -32,6 +29,9 @@ fund-cycle-key:
 
 fund-show:
 	$(EDGECRAFT) fund-show --config $(FUND_CONFIG) --ledger $(FUND_LEDGER) --history
+
+fund-scan:
+	$(EDGECRAFT) fund-scan --config $(FUND_CONFIG) --output state/market-scan.json
 
 fund-lineage:
 	$(EDGECRAFT) fund-lineage --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
@@ -64,12 +64,3 @@ scheduled-cycle:
 
 validate: test lint
 	uv run edgecraft fund-validate --config $(FUND_CONFIG)
-
-validate-lab:
-	uv run edgecraft backtest --config examples/research.json --data-source synthetic --output artifacts/smoke-backtest.json
-	uv run edgecraft walk-forward \
-		--config examples/research.json \
-		--data-source synthetic \
-		--train-sessions 504 \
-		--test-sessions 126 \
-		--output artifacts/smoke-walk-forward.json

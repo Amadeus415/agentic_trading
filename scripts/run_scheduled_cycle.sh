@@ -16,7 +16,7 @@ if [[ "${EDGECRAFT_LEDGER_LOCKED:-0}" != "1" ]] && command -v lockf >/dev/null 2
   exec lockf -t 300 -k state/.paper-ledger.lock "$0" "$@"
 fi
 
-CONFIG="${FUND_CONFIG:-examples/fund.mandate.aggressive.json}"
+CONFIG="${FUND_CONFIG:-examples/fund.mandate.predictions.json}"
 LEDGER="${FUND_LEDGER:-state/edgecraft-aggressive.db}"
 HOUR=$((10#$(date -u +%H)))
 DATE_UTC="$(date -u +%F)"
@@ -50,6 +50,6 @@ fi
   --require-brain-journal --code-owned-quotes --size-beliefs
 "${RUN[@]}" fund-verify --config "$CONFIG" --ledger "$LEDGER"
 "${RUN[@]}" fund-visualize --config "$CONFIG" --ledger "$LEDGER" \
-  --output assets/fund-progress.svg
+  --output assets/prediction-progress.svg
 "${RUN[@]}" fund-report --config "$CONFIG" --ledger "$LEDGER" \
   --output state/fund-report.json

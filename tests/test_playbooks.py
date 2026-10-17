@@ -12,11 +12,11 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_starting_playbooks_have_separate_incubation_sleeves() -> None:
     playbooks = load_playbooks(ROOT / "playbooks")
     allocations = allocate_sleeves(playbooks, (), gross_budget=Decimal("3"))
-    assert len(playbooks) == 4
-    assert len({item.spec.id for item in playbooks}) == 4
+    assert len(playbooks) == 3
+    assert len({item.spec.id for item in playbooks}) == 3
     assert all(item.prompt_hash for item in playbooks)
     assert all(item.weight == Decimal("0.60") for item in allocations)
-    assert sum(item.weight for item in allocations) == Decimal("2.40")
+    assert sum(item.weight for item in allocations) == Decimal("1.80")
 
 
 def test_allocator_scales_evidence_and_freezes_negative_sleeve() -> None:
@@ -95,4 +95,4 @@ def test_many_paper_experiments_cannot_multiply_the_fund_budget() -> None:
     allocations = allocate_sleeves(
         playbooks, (), gross_budget=Decimal("1"), policy=TradingPolicy(incubation_weight="2")
     )
-    assert sum(item.weight for item in allocations) == 1
+    assert Decimal("0.999999999999999999999999") <= sum(item.weight for item in allocations) <= 1

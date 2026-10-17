@@ -42,20 +42,20 @@ def test_scheduled_script_is_fixed_to_paper_fund(tmp_path):
     assert result.returncode == 0
     calls = trace.read_text().splitlines()
     assert calls == [
-        "fund-init --config examples/fund.mandate.aggressive.json "
+        "fund-init --config examples/fund.mandate.predictions.json "
         "--ledger state/edgecraft-aggressive.db",
-        "fund-verify --config examples/fund.mandate.aggressive.json "
+        "fund-verify --config examples/fund.mandate.predictions.json "
         "--ledger state/edgecraft-aggressive.db",
-        "fund-run --config examples/fund.mandate.aggressive.json "
+        "fund-run --config examples/fund.mandate.predictions.json "
         f"--input {input_path} --ledger state/edgecraft-aggressive.db --require-as-of-today "
         "--max-decision-age-seconds 1800 --require-cycle-key "
         f"{scheduled_cycle_key(datetime.now(UTC))} --require-brain-journal "
         "--code-owned-quotes --size-beliefs",
-        "fund-verify --config examples/fund.mandate.aggressive.json "
+        "fund-verify --config examples/fund.mandate.predictions.json "
         "--ledger state/edgecraft-aggressive.db",
-        "fund-visualize --config examples/fund.mandate.aggressive.json "
-        "--ledger state/edgecraft-aggressive.db --output assets/fund-progress.svg",
-        "fund-report --config examples/fund.mandate.aggressive.json "
+        "fund-visualize --config examples/fund.mandate.predictions.json "
+        "--ledger state/edgecraft-aggressive.db --output assets/prediction-progress.svg",
+        "fund-report --config examples/fund.mandate.predictions.json "
         "--ledger state/edgecraft-aggressive.db --output state/fund-report.json",
     ]
 

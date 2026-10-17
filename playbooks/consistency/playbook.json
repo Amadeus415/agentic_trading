@@ -1,0 +1,19 @@
+{
+  "id": "consistency",
+  "version": 1,
+  "thesis": "Semantically identical outcomes can carry inconsistent prices across dates, outcomes, or venues.",
+  "universe": [
+    "binary event contracts on Polymarket and Kalshi; exclude asset-price bets"
+  ],
+  "trigger": "The scanner flags equivalent questions or complementary prices.",
+  "entry_rule": "Verify equivalent rules and settlement sources literally. Account for each leg, fees, depth, and non-atomic execution. Never call a textual match arbitrage.",
+  "exit_rule": "Official settlement, price invalidation, target, or stated horizon; up to one year.",
+  "sizing_hints": "Buy YES or NO with cash. Half Kelly with driver and position caps. No naked shorts.",
+  "required_evidence_types": [
+    "exact settlement rule",
+    "authoritative source",
+    "code-owned two-sided book and fees"
+  ],
+  "status": "incubating",
+  "prompt_path": "prompt.md"
+}

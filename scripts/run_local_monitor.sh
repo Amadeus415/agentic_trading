@@ -12,7 +12,7 @@ if [[ "${EDGECRAFT_LEDGER_LOCKED:-0}" != "1" ]] && command -v lockf >/dev/null 2
 fi
 
 RUN=("$ROOT/.venv/bin/edgecraft")
-CONFIG="examples/fund.mandate.aggressive.json"
+CONFIG="examples/fund.mandate.predictions.json"
 LEDGER="state/edgecraft-aggressive.db"
 
 "${RUN[@]}" fund-verify --config "$CONFIG" --ledger "$LEDGER"

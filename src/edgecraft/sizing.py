@@ -320,6 +320,20 @@ def size_decision(
             prior_count=policy.learning_window,
         )
         trading_cost = (mandate.fee_bps + mandate.slippage_bps) * Decimal("2") / BPS
+        if mandate.venue_fee_model == "prediction_taker_v1":
+            from edgecraft.paper_fund import execution_fee
+
+            if order.side is OrderSide.SHORT:
+                dropped.append(
+                    {"instrument_id": order.instrument_id, "reason": "buy_opposite_outcome"}
+                )
+                continue
+            # Compare probability points with per-share costs. Preview below
+            # includes the actual rounded fee for the final fitted quantity.
+            trading_cost = (
+                execution_fee(mandate, quote, quote.price, Decimal("100")) / 100
+                + quote.price * mandate.slippage_bps * 2 / BPS
+            )
         minimum_edge = MINIMUM_EDGE_BPS / BPS
         if order.asset_class is AssetClass.PREDICTION:
             if order.side is OrderSide.BUY:
@@ -437,6 +451,13 @@ def size_decision(
                 hypothesis.expected_horizon_hours if hypothesis else 72
             )
             remaining_cost += Decimal("300") / BPS * Decimal(horizon) / Decimal("8760")
+        if mandate.venue_fee_model == "prediction_taker_v1":
+            quantity = sized_order.quantity
+            remaining_cost = (
+                preview.fills[-1].fee / quantity
+                + execution_fee(mandate, quote, Decimal("0.5"), quantity) / quantity
+                + mandate.slippage_bps / BPS
+            )
         if order.asset_class is AssetClass.PREDICTION:
             executable_return = (
                 calibrated - execution_price

@@ -244,12 +244,12 @@ def _adaptive_prompts(
     activity: FundActivityMemory,
 ) -> tuple[str, ...]:
     prompts = [
-        "This is a short-term active book: scan every active playbook and express every "
-        "positive after-cost 4-72h edge with an order.",
+        "Scan every eligible playbook within the configured mandate and express every "
+        "positive after-cost edge with a complete belief.",
         "State p_win, target, invalidation, driver, and playbook. Uncertainty is not itself "
         "a reason to hold; quantify it and let deterministic sizing decide.",
-        "U.S. cash-equity close is not a reason to stay in cash; native crypto "
-        "and prediction markets remain in scope.",
+        "Trade only the configured asset classes. For prediction-only funds, buy YES or NO "
+        "with cash and read the exact settlement rules.",
         "Re-test every open position against its current falsifiers before adding risk.",
         "Compare new opportunities with the opportunity cost of every existing position.",
     ]

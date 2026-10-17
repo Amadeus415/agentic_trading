@@ -438,7 +438,23 @@ def build_fund_report(
         (max(ZERO, _dec(trade["realized_pnl_after_cost"])) for trade in trades), ZERO
     )
     cost_share = model_cost / gross_profit if gross_profit else None
+    from pathlib import Path
+
+    from edgecraft.lineage import commit_subjects, lineage_report, load_deployments
+    from edgecraft.prediction_scoring import prediction_scores
+
+    lineage = lineage_report(
+        fund_id=fund_id,
+        initial_cash=mandate.initial_cash,
+        cycles=cycles,
+        deployments=load_deployments(Path("history/deployments.json")),
+    )
+    subjects = commit_subjects({segment["revision"] for segment in lineage["segments"]})
+    for segment in lineage["segments"]:
+        segment["commit"] = subjects.get(segment["revision"], "")
     return {
+        "lineage": lineage,
+        "prediction_scores": prediction_scores(cycles),
         "schema_version": "edgecraft.fund-report.v1",
         "fund_id": fund_id,
         "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),

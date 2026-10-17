@@ -1,0 +1,19 @@
+{
+  "id": "long_tail_news",
+  "version": 1,
+  "thesis": "Public news may reprice less-followed event markets slowly enough to offer after-cost value.",
+  "universe": [
+    "binary event contracts on Polymarket and Kalshi; exclude asset-price bets"
+  ],
+  "trigger": "A new primary release materially changes an event probability.",
+  "entry_rule": "Find the primary release, compare its timestamp with the quote, state a base rate and evidence-driven probability update.",
+  "exit_rule": "Official settlement, price invalidation, target, or stated horizon; up to one year.",
+  "sizing_hints": "Buy YES or NO with cash. Half Kelly with driver and position caps. No naked shorts.",
+  "required_evidence_types": [
+    "exact settlement rule",
+    "authoritative source",
+    "code-owned two-sided book and fees"
+  ],
+  "status": "incubating",
+  "prompt_path": "prompt.md"
+}

@@ -6,7 +6,7 @@ import json
 import os
 import sys
 from collections.abc import Callable
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -16,7 +16,6 @@ from edgecraft.fund_brain import build_fund_brain
 from edgecraft.growth import growth_snapshot
 from edgecraft.observability import log_event
 from edgecraft.paper_fund import (
-    MAX_SCHEDULED_HYPOTHESIS_HORIZON_HOURS,
     CycleRuntimeMetadata,
     FundCyclePacket,
     FundDecision,
@@ -42,14 +41,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
     _add_fund_commands(commands)
-    _add_lab_commands(commands)
     return parser
 
 
 def _fund_parent() -> argparse.ArgumentParser:
     parent = argparse.ArgumentParser(add_help=False)
     parent.add_argument(
-        "--config", default=Path("examples/fund.mandate.aggressive.json"), type=Path
+        "--config", default=Path("examples/fund.mandate.predictions.json"), type=Path
     )
     parent.add_argument("--ledger", default=DEFAULT_FUND_LEDGER)
     return parent
@@ -65,6 +63,9 @@ def _add_fund_commands(commands: Any) -> None:
 
     commands.add_parser("fund-init", parents=[fund], help="Capitalize the paper fund exactly once.")
     commands.add_parser(
+        "fund-retire", parents=[fund], help="Freeze a flat fund without deleting history."
+    )
+    commands.add_parser(
         "fund-context",
         parents=[fund],
         help="Print the authoritative state and decision contract for Codex.",
@@ -72,6 +73,9 @@ def _add_fund_commands(commands: Any) -> None:
     cycle_key = commands.add_parser(
         "fund-cycle-key",
         help="Print the current UTC session cycle key for a scheduled packet.",
+    )
+    cycle_key.add_argument(
+        "--config", type=Path, default=Path("examples/fund.mandate.predictions.json")
     )
     cycle_key.add_argument(
         "--plain",
@@ -141,6 +145,13 @@ def _add_fund_commands(commands: Any) -> None:
         metavar="ID:ASSET_CLASS",
         help="Additional instrument to snapshot; may be repeated.",
     )
+    scan = commands.add_parser(
+        "fund-scan", parents=[fund], help="Scan both public prediction venues."
+    )
+    scan.add_argument("--pages", type=int, choices=range(1, 11), default=2)
+    scan.add_argument("--limit", type=int, choices=range(1, 101), default=20)
+    scan.add_argument("--max-books", type=int, choices=range(1, 201), default=40)
+    scan.add_argument("--output", type=Path)
     monitor = commands.add_parser(
         "monitor",
         parents=[fund],
@@ -239,43 +250,6 @@ def _add_fund_commands(commands: Any) -> None:
     backfill.add_argument("--output", type=Path)
 
 
-def _add_lab_commands(commands: Any) -> None:
-    commands.add_parser(
-        "strategies", help="Print the machine-readable research-lab strategy catalog."
-    )
-    market = commands.add_parser(
-        "market",
-        help="Compute comparable price, trend, volatility, beta, and correlation diagnostics.",
-    )
-    market.add_argument("--symbols", required=True, help="Comma-separated equity symbols.")
-    market.add_argument("--benchmark", default="SPY")
-    market.add_argument("--start", default=str(date.today() - timedelta(days=800)))
-    market.add_argument("--end", default=str(date.today() + timedelta(days=1)))
-    market.add_argument("--output", type=Path)
-
-    backtest = commands.add_parser("backtest", help="Run a research-lab experiment matrix.")
-    backtest.add_argument("--config", required=True, type=Path)
-    backtest.add_argument("--data-source", choices=["market", "synthetic"], default="market")
-    backtest.add_argument(
-        "--cost-multiplier",
-        type=float,
-        default=1.0,
-        help="Multiply commission, spread, and slippage for implementation stress testing.",
-    )
-    backtest.add_argument("--output", type=Path)
-
-    walk = commands.add_parser(
-        "walk-forward", help="Select on rolling train windows and score untouched test windows."
-    )
-    walk.add_argument("--config", required=True, type=Path)
-    walk.add_argument("--data-source", choices=["market", "synthetic"], default="market")
-    walk.add_argument("--train-sessions", type=int, default=504)
-    walk.add_argument("--test-sessions", type=int, default=126)
-    walk.add_argument("--step-sessions", type=int)
-    walk.add_argument("--benchmark", default="plain_dca")
-    walk.add_argument("--output", type=Path)
-
-
 def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -369,6 +343,19 @@ def _fund_init(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def _fund_retire(args: argparse.Namespace) -> dict[str, Any]:
+    fund_id, _, _ = _load_fund_config(args.config)
+    with PaperFundLedger(args.ledger) as ledger:
+        retired = ledger.retire(fund_id)
+        verification = ledger.verify(fund_id)
+    return {
+        "ok": True,
+        "fund_id": fund_id,
+        "retired": retired,
+        "verification": verification.model_dump(mode="json"),
+    }
+
+
 def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
     from edgecraft.allocator import allocate_sleeves
     from edgecraft.attribution import build_fund_report
@@ -396,14 +383,14 @@ def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
         "ok": True,
         "paper_only": True,
         "one_sentence": (
-            "Codex proposes a short-term sourced portfolio decision; deterministic "
+            "Codex researches prediction contracts; deterministic "
             "code applies it to an append-only $1,000 fake-money ledger."
         ),
         "schedule": {
             "cycle_key": scheduled_cycle_key(),
             "slot": scheduled_slot(),
             "input_path": scheduled_input_path(),
-            "max_hypothesis_horizon_hours": MAX_SCHEDULED_HYPOTHESIS_HORIZON_HOURS,
+            "max_hypothesis_horizon_hours": mandate.scheduled_horizon_hours,
         },
         "fund_id": fund_id,
         "mandate": mandate_payload,
@@ -457,10 +444,9 @@ def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
                 "below the after-cost edge threshold.",
                 "State p_win, target, invalidation, driver, and playbook; deterministic code "
                 "owns quantity when belief sizing is enabled.",
-                "U.S. cash-equity close is not a reason to stay flat; native crypto "
-                "and prediction markets remain in scope.",
+                "Trade only the configured asset classes; v2 buys YES or NO with cash.",
                 f"Each scheduled hypothesis horizon must be "
-                f"{MAX_SCHEDULED_HYPOTHESIS_HORIZON_HOURS} hours or less.",
+                f"{mandate.scheduled_horizon_hours} hours or less.",
                 "Hold is valid only while existing positions' theses remain intact. "
                 "Flattening is a sell or cover, not a hold.",
                 "Optimize for after-cost compounded NAV inside the risk envelope; "
@@ -480,6 +466,7 @@ def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _fund_cycle_key(args: argparse.Namespace) -> dict[str, Any] | str:
+    _, mandate, _ = _load_fund_config(args.config)
     now = datetime.now(UTC)
     key = scheduled_cycle_key(now)
     if args.plain:
@@ -490,7 +477,7 @@ def _fund_cycle_key(args: argparse.Namespace) -> dict[str, Any] | str:
         "slot": scheduled_slot(now),
         "input_path": scheduled_input_path(now),
         "utc_now": now.isoformat().replace("+00:00", "Z"),
-        "max_hypothesis_horizon_hours": MAX_SCHEDULED_HYPOTHESIS_HORIZON_HOURS,
+        "max_hypothesis_horizon_hours": mandate.scheduled_horizon_hours,
     }
 
 
@@ -805,6 +792,18 @@ def _fund_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         "failures": failures,
         "cache_dir": str(router.cache_dir.resolve()),
     }
+
+
+def _fund_scan(args: argparse.Namespace) -> dict[str, Any]:
+    from edgecraft.marketdata import MarketDataRouter
+    from edgecraft.scanner import scan_markets
+
+    _, mandate, _ = _load_fund_config(args.config)
+    if not mandate.prediction_only:
+        raise ValueError("scanner requires the prediction-only mandate")
+    return scan_markets(
+        MarketDataRouter(), mandate, pages=args.pages, limit=args.limit, max_books=args.max_books
+    )
 
 
 def _fund_monitor(args: argparse.Namespace) -> dict[str, Any]:
@@ -1158,100 +1157,9 @@ def _performance_history(
     }
 
 
-def _lab_unavailable() -> RuntimeError:
-    return RuntimeError(
-        "research lab commands require the lab extra; install with "
-        "`uv sync --extra lab` or `uv sync --extra dev`"
-    )
-
-
-def _strategies(_args: argparse.Namespace) -> Any:
-    try:
-        from edgecraft.strategies import STRATEGY_SCHEMAS
-    except ImportError as exc:
-        raise _lab_unavailable() from exc
-    return STRATEGY_SCHEMAS
-
-
-def _market_diagnostics(args: argparse.Namespace) -> dict[str, Any]:
-    try:
-        from edgecraft.analytics import market_diagnostics
-        from edgecraft.data import MarketDataProvider
-    except ImportError as exc:
-        raise _lab_unavailable() from exc
-    symbols = _symbols(args.symbols, args.benchmark)
-    data = MarketDataProvider().load(symbols, args.start, args.end)
-    return market_diagnostics(data, benchmark=args.benchmark.strip().upper())
-
-
-def _backtest(args: argparse.Namespace) -> dict[str, Any]:
-    try:
-        from edgecraft.models import BacktestRequest
-        from edgecraft.research import run_research
-    except ImportError as exc:  # pragma: no cover - optional extra
-        raise _lab_unavailable() from exc
-    request = BacktestRequest.model_validate(_read_json(args.config))
-    if args.cost_multiplier != 1.0:
-        request = request.model_copy(
-            update={"cost_model": _scale_cost_model(request.cost_model, args.cost_multiplier)}
-        )
-    return run_research(_load_data(request, args.data_source), request)
-
-
-def _walk_forward(args: argparse.Namespace) -> dict[str, Any]:
-    try:
-        from edgecraft.models import BacktestRequest
-        from edgecraft.walkforward import walk_forward_validate
-    except ImportError as exc:
-        raise _lab_unavailable() from exc
-    request = BacktestRequest.model_validate(_read_json(args.config))
-    return walk_forward_validate(
-        _load_data(request, args.data_source),
-        request,
-        train_sessions=args.train_sessions,
-        test_sessions=args.test_sessions,
-        step_sessions=args.step_sessions,
-        benchmark=args.benchmark,
-    )
-
-
-def _scale_cost_model(model: Any, multiplier: float) -> Any:
-    from edgecraft.models import CostModel
-
-    return CostModel(
-        commission_bps=model.commission_bps * multiplier,
-        spread_bps=model.spread_bps * multiplier,
-        slippage_bps=model.slippage_bps * multiplier,
-    )
-
-
-def _load_data(request: Any, source: str):
-    from edgecraft.data import MarketDataProvider, synthetic_market_data
-
-    if source == "synthetic":
-        return synthetic_market_data(
-            request.symbols,
-            periods=max(1_500, 504 + 126 * 4),
-            seed=request.validation.random_seed,
-        )
-    return MarketDataProvider().load(
-        request.symbols, request.start.isoformat(), request.end.isoformat()
-    )
-
-
 def _read_json(path: Path) -> Any:
     with path.open(encoding="utf-8") as handle:
         return json.load(handle)
-
-
-def _symbols(value: str, benchmark: str) -> list[str]:
-    clean = [symbol.strip().upper() for symbol in value.split(",") if symbol.strip()]
-    benchmark = benchmark.strip().upper()
-    if benchmark not in clean:
-        clean.append(benchmark)
-    if not clean:
-        raise ValueError("at least one symbol is required")
-    return list(dict.fromkeys(clean))
 
 
 def _emit(payload: Any, output: Path | None) -> None:
@@ -1272,12 +1180,14 @@ CommandHandler = Callable[[argparse.Namespace], Any]
 COMMAND_HANDLERS: dict[str, CommandHandler] = {
     "fund-validate": _fund_validate,
     "fund-init": _fund_init,
+    "fund-retire": _fund_retire,
     "fund-context": _fund_context,
     "fund-cycle-key": _fund_cycle_key,
     "fund-schema": _fund_schema,
     "fund-postmortem-schema": _fund_postmortem_schema,
     "fund-run": _fund_run,
     "fund-snapshot": _fund_snapshot,
+    "fund-scan": _fund_scan,
     "monitor": _fund_monitor,
     "fund-show": _fund_show,
     "fund-report": _fund_report,
@@ -1289,10 +1199,6 @@ COMMAND_HANDLERS: dict[str, CommandHandler] = {
     "fund-visualize": _fund_visualize,
     "fund-cycle": _fund_cycle,
     "fund-verify": _fund_verify,
-    "strategies": _strategies,
-    "market": _market_diagnostics,
-    "backtest": _backtest,
-    "walk-forward": _walk_forward,
 }
 
 

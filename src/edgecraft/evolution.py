@@ -90,6 +90,8 @@ def effective_playbooks(
     ledger: PaperFundLedger, fund_id: str, root: Path = Path("playbooks")
 ) -> tuple[LoadedPlaybook, ...]:
     """Checked-in seeds plus immutable experiment versions from completed reviews."""
+    if root == Path("playbooks") and not ledger.get_mandate(fund_id).prediction_only:
+        root = Path("history/v1-multi-asset/playbooks")
     books = {book.spec.id: book for book in load_playbooks(root)}
     for event in ledger.list_events(fund_id):
         if event.event_type == "postmortem_completed":

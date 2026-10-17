@@ -17,7 +17,7 @@ from typing import Any, Protocol
 
 from edgecraft.paper_fund import AssetClass, BookLevel, FundQuote, QuoteStatus
 
-USER_AGENT = "Edgecraft-paper-fund/1.0 public-market-data"
+USER_AGENT = "Edgecraft-paper-fund/2.0 public-market-data"
 
 
 class MarketDataError(RuntimeError):
@@ -62,6 +62,9 @@ def _quote(
     status: QuoteStatus = QuoteStatus.OPEN,
     bids: tuple[BookLevel, ...] = (),
     asks: tuple[BookLevel, ...] = (),
+    fee_rate: Decimal | None = None,
+    fee_exponent: int | None = None,
+    fee_quantum: Decimal | None = None,
 ) -> FundQuote:
     return FundQuote(
         quote_id=f"code-{uuid.uuid4()}",
@@ -75,6 +78,9 @@ def _quote(
         status=status,
         bids=bids,
         asks=asks,
+        fee_rate=fee_rate,
+        fee_exponent=fee_exponent,
+        fee_quantum=fee_quantum,
     )
 
 
@@ -93,45 +99,6 @@ def _book_levels(rows: Any) -> tuple[BookLevel, ...]:
             continue
         levels.append(level)
     return tuple(levels)
-
-
-@dataclass(frozen=True)
-class CoinbaseProvider:
-    def quote(self, instrument_id: str, *, observed_at: datetime | None = None) -> FundQuote:
-        now = _now(observed_at)
-        url = (
-            f"https://api.exchange.coinbase.com/products/{urllib.parse.quote(instrument_id)}/ticker"
-        )
-        payload = _get_json(url)
-        timestamp = datetime.fromisoformat(str(payload["time"]).replace("Z", "+00:00"))
-        return _quote(
-            instrument_id=instrument_id,
-            asset_class=AssetClass.CRYPTO,
-            price=Decimal(str(payload["price"])),
-            source_timestamp=timestamp.astimezone(UTC),
-            observed_at=now,
-            source_name="Coinbase Exchange public ticker",
-            source_url=url,
-        )
-
-
-@dataclass(frozen=True)
-class BinanceProvider:
-    def quote(self, instrument_id: str, *, observed_at: datetime | None = None) -> FundQuote:
-        now = _now(observed_at)
-        base, _, quote_currency = instrument_id.partition("-")
-        symbol = f"{base}{'USDT' if quote_currency == 'USD' else quote_currency}"
-        url = f"https://api.binance.com/api/v3/ticker/price?symbol={urllib.parse.quote(symbol)}"
-        payload = _get_json(url)
-        return _quote(
-            instrument_id=instrument_id,
-            asset_class=AssetClass.CRYPTO,
-            price=Decimal(str(payload["price"])),
-            source_timestamp=now,
-            observed_at=now,
-            source_name="Binance public ticker",
-            source_url=url,
-        )
 
 
 @dataclass(frozen=True)
@@ -197,12 +164,6 @@ class PolymarketProvider:
             if isinstance(market["outcomes"], str)
             else market["outcomes"]
         )
-        tokens = (
-            json.loads(market["clobTokenIds"])
-            if isinstance(market["clobTokenIds"], str)
-            else market["clobTokenIds"]
-        )
-        token_id = tokens[outcomes.index(outcome.title())]
         closed = bool(market.get("closed"))
         prices = (
             json.loads(market["outcomePrices"])
@@ -211,31 +172,131 @@ class PolymarketProvider:
         )
         bids: tuple[BookLevel, ...] = ()
         asks: tuple[BookLevel, ...] = ()
+        fee_rate, exponent = None, None
+        source_timestamp = now
         if closed and prices:
+            if market.get("umaResolutionStatus") != "resolved":
+                raise MarketDataError("closed Polymarket market is not confirmed resolved")
             price = Decimal(str(prices[outcomes.index(outcome.title())]))
             status = (
                 QuoteStatus.SETTLED if price in {Decimal("0"), Decimal("1")} else QuoteStatus.OPEN
             )
             source_url = gamma_url
         else:
+            version = market.get("version", "v1")
+            if version not in ("v1", "v2"):
+                raise MarketDataError("unsupported Polymarket protocol")
+            tokens = _array(market["positionIds"] if version == "v2" else market["clobTokenIds"])
+            token_id = tokens[outcomes.index(outcome.title())]
+            fee_rate, exponent = _polymarket_fees(market)
             source_url = f"https://clob.polymarket.com/book?token_id={token_id}"
+            if not market.get("acceptingOrders"):
+                raise MarketDataError("Polymarket market is not accepting orders")
             book = _get_json(source_url)
             bids = _book_levels(book.get("bids"))
             asks = _book_levels(book.get("asks"))
-            mid = _get_json(f"https://clob.polymarket.com/price?token_id={token_id}&side=buy")
-            price = Decimal(str(mid["price"]))
+            price = book_mid(bids, asks)
+            if book.get("timestamp"):
+                source_timestamp = datetime.fromtimestamp(float(book["timestamp"]) / 1000, UTC)
             status = QuoteStatus.OPEN
         return _quote(
             instrument_id=instrument_id,
             asset_class=AssetClass.PREDICTION,
             price=price,
-            source_timestamp=now,
+            source_timestamp=source_timestamp,
             observed_at=now,
             source_name="Polymarket CLOB public API",
             source_url=source_url,
             status=status,
             bids=bids,
             asks=asks,
+            fee_rate=fee_rate,
+            fee_exponent=exponent,
+            fee_quantum=Decimal("0.00001"),
+        )
+
+
+def _array(value: Any) -> list:
+    return json.loads(value) if isinstance(value, str) else value
+
+
+def book_mid(bids: tuple[BookLevel, ...], asks: tuple[BookLevel, ...]) -> Decimal:
+    if not bids or not asks:
+        raise MarketDataError("a two-sided book is required")
+    bid = max(level.price for level in bids)
+    ask = min(level.price for level in asks)
+    if not Decimal("0") < bid <= ask < Decimal("1"):
+        raise MarketDataError("crossed or invalid prediction book")
+    return (bid + ask) / 2
+
+
+def _polymarket_fees(market: dict) -> tuple[Decimal, int]:
+    if market.get("feesEnabled") is False:
+        return Decimal("0"), 1
+    schedule = market.get("feeSchedule") or {}
+    if market.get("feesEnabled") is not True or "rate" not in schedule:
+        raise MarketDataError("Polymarket fee schedule unavailable")
+    exponent = schedule.get("exponent")
+    if exponent not in (1, 2):
+        raise MarketDataError("unsupported Polymarket fee exponent")
+    return Decimal(str(schedule["rate"])), int(exponent)
+
+
+KALSHI_API = "https://external-api.kalshi.com/trade-api/v2"
+
+
+@dataclass(frozen=True)
+class KalshiProvider:
+    def quote(self, instrument_id: str, *, observed_at: datetime | None = None) -> FundQuote:
+        match = re.fullmatch(r"kalshi:([A-Za-z0-9_.-]+):(YES|NO)", instrument_id)
+        if not match:
+            raise MarketDataError("Kalshi IDs must be kalshi:<ticker>:YES|NO")
+        ticker, outcome = match.groups()
+        url = f"{KALSHI_API}/markets/{urllib.parse.quote(ticker, safe='')}"
+        market = _get_json(url)["market"]
+        now = _now(observed_at)
+        if market.get("status") == "settled" and market.get("result") in ("yes", "no"):
+            return _quote(
+                instrument_id=instrument_id,
+                asset_class=AssetClass.PREDICTION,
+                price=Decimal(int(market["result"].upper() == outcome)),
+                source_timestamp=now,
+                observed_at=now,
+                source_name="Kalshi public API",
+                source_url=url,
+                status=QuoteStatus.SETTLED,
+            )
+        if market.get("status") != "active":
+            raise MarketDataError("Kalshi market is not active or finally settled")
+        series_ticker = market.get("series_ticker") or str(market["event_ticker"]).split("-")[0]
+        series = _get_json(f"{KALSHI_API}/series/{urllib.parse.quote(series_ticker, safe='')}")[
+            "series"
+        ]
+        if (
+            series.get("fee_type") not in {"quadratic", "quadratic_with_maker_fees"}
+            or series.get("fee_multiplier") is None
+        ):
+            raise MarketDataError("unsupported or missing Kalshi fee schedule")
+        book_url = url + "/orderbook"
+        book = _get_json(book_url)["orderbook_fp"]
+        side, other = ("yes", "no") if outcome == "YES" else ("no", "yes")
+        bids = tuple(BookLevel(price=p, size=q) for p, q in book.get(side + "_dollars", []))
+        asks = tuple(
+            BookLevel(price=1 - Decimal(p), size=q) for p, q in book.get(other + "_dollars", [])
+        )
+        return _quote(
+            instrument_id=instrument_id,
+            asset_class=AssetClass.PREDICTION,
+            price=book_mid(bids, asks),
+            source_timestamp=now,
+            observed_at=now,
+            source_name="Kalshi public API",
+            source_url=book_url,
+            bids=bids,
+            asks=asks,
+            fee_rate=Decimal("0.07") * Decimal(str(series["fee_multiplier"])),
+            fee_exponent=1,
+            fee_quantum=Decimal("0.01"),
         )
 
 
@@ -246,11 +307,16 @@ class MarketDataRouter:
     def quote(self, instrument_id: str, asset_class: AssetClass) -> FundQuote:
         providers: list[QuoteProvider]
         if asset_class is AssetClass.CRYPTO:
-            providers = [CoinbaseProvider(), BinanceProvider()]
+            raise MarketDataError("spot crypto trading was retired in v2")
         elif asset_class is AssetClass.STOCK:
             providers = [YahooProvider(), StooqProvider()]
         elif asset_class is AssetClass.PREDICTION:
-            providers = [PolymarketProvider()]
+            if instrument_id.startswith("polymarket:"):
+                providers = [PolymarketProvider()]
+            elif instrument_id.startswith("kalshi:"):
+                providers = [KalshiProvider()]
+            else:
+                raise MarketDataError("prediction instrument must name Polymarket or Kalshi")
         else:
             raise MarketDataError(f"unsupported asset class {asset_class}")
         errors: list[str] = []
