@@ -342,3 +342,27 @@ def test_legacy_prediction_only_mandate_keeps_flat_fees():
     legacy = FundMandate(supported_asset_classes=(AssetClass.PREDICTION,))
     assert execution_fee(legacy, quote, Decimal("0.5"), Decimal(100)) == Decimal("0.025")
     assert legacy.scheduled_horizon_hours == 72
+
+
+def test_scanner_skips_listed_empty_books_before_spending_fetch_budget():
+    class Router:
+        def quote(self, *args):
+            raise AssertionError("empty listing should not spend book budget")
+
+    report = shortlist(
+        [
+            dict(
+                venue="kalshi",
+                market_id="empty",
+                question="Will a release occur?",
+                end_at="2026-10-16T00:00:00Z",
+                indicative_bid="0",
+                indicative_ask="0",
+            )
+        ],
+        Router(),
+        mandate(),
+        now=NOW,
+    )
+    assert report["coverage"]["book_markets_attempted"] == 0
+    assert report["excluded"][0]["reason"] == "listing_has_no_usable_book"

@@ -159,11 +159,9 @@ class PolymarketProvider:
         market_id, outcome = match.groups()
         gamma_url = f"https://gamma-api.polymarket.com/markets/{market_id}"
         market = _get_json(gamma_url)
-        outcomes = (
-            json.loads(market["outcomes"])
-            if isinstance(market["outcomes"], str)
-            else market["outcomes"]
-        )
+        outcomes = [str(label).upper() for label in _array(market["outcomes"])]
+        if set(outcomes) != {"YES", "NO"} or len(outcomes) != 2:
+            raise MarketDataError("only binary YES/NO markets are supported")
         closed = bool(market.get("closed"))
         prices = (
             json.loads(market["outcomePrices"])
@@ -177,7 +175,7 @@ class PolymarketProvider:
         if closed and prices:
             if market.get("umaResolutionStatus") != "resolved":
                 raise MarketDataError("closed Polymarket market is not confirmed resolved")
-            price = Decimal(str(prices[outcomes.index(outcome.title())]))
+            price = Decimal(str(prices[outcomes.index(outcome)]))
             status = (
                 QuoteStatus.SETTLED if price in {Decimal("0"), Decimal("1")} else QuoteStatus.OPEN
             )
@@ -187,7 +185,7 @@ class PolymarketProvider:
             if version not in ("v1", "v2"):
                 raise MarketDataError("unsupported Polymarket protocol")
             tokens = _array(market["positionIds"] if version == "v2" else market["clobTokenIds"])
-            token_id = tokens[outcomes.index(outcome.title())]
+            token_id = tokens[outcomes.index(outcome)]
             fee_rate, exponent = _polymarket_fees(market)
             source_url = f"https://clob.polymarket.com/book?token_id={token_id}"
             if not market.get("acceptingOrders"):

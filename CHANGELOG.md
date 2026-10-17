@@ -61,3 +61,9 @@ The full record is in [history/v1-multi-asset](history/v1-multi-asset/README.md)
 - **Expected effect:** scheduled snapshots write `state/prediction-progress.svg`; public v1 images stay preserved.
 - **Measure:** runtime remains clean after chart/report generation; cycle provenance records the deployed commit without a generated-file dirty flag.
 - **Fund:** v2.
+
+## 2026-10-17 · Spend discovery requests on supported, potentially liquid contracts
+- **Why:** runtime discovery encountered team-labelled Polymarket outcomes and Kalshi listings with no indicative bid/ask. They consumed the bounded book budget without producing usable research candidates.
+- **Expected effect:** restrict binary discovery to YES/NO labels, normalize their case, and exclude obviously unusable listing spreads before fetching depth. Fresh books still own execution; indicative metadata never becomes a fill.
+- **Measure:** scanner exclusion reasons, book-attempt coverage, and sourced candidates per session. No fees, limits, or access checks are weakened.
+- **Fund:** v2.

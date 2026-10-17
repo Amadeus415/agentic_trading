@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -34,6 +35,11 @@ def discover_markets(*, pages: int = 2) -> list[dict[str, Any]]:
         )
         markets = _get_json(f"https://gamma-api.polymarket.com/markets?{params}")
         for market in markets:
+            labels = market.get("outcomes") or []
+            if isinstance(labels, str):
+                labels = json.loads(labels)
+            if {str(label).lower() for label in labels} != {"yes", "no"}:
+                continue  # Team-labelled and multi-outcome contracts need another schema.
             rows.append(
                 dict(
                     venue="polymarket",
@@ -55,6 +61,8 @@ def discover_markets(*, pages: int = 2) -> list[dict[str, Any]]:
                     venue="kalshi",
                     market_id=market["ticker"],
                     question=market.get("title", ""),
+                    indicative_bid=market.get("yes_bid_dollars"),
+                    indicative_ask=market.get("yes_ask_dollars"),
                     rules="\n".join(
                         filter(None, [market.get("rules_primary"), market.get("rules_secondary")])
                     ),
@@ -91,6 +99,13 @@ def shortlist(
     ]
     for market in interleaved:
         reason = None
+        if market.get("indicative_bid") is not None and market.get("indicative_ask") is not None:
+            bid, ask = (
+                Decimal(str(market["indicative_bid"])),
+                Decimal(str(market["indicative_ask"])),
+            )
+            if not 0 < bid <= ask < 1 or ask - bid > Decimal("0.10"):
+                reason = "listing_has_no_usable_book"
         if PRICE_BET.search(market["question"]):
             reason = "asset_price_bet_requires_reference_model"
         try:
