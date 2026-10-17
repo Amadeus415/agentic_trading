@@ -38,6 +38,7 @@ import {
   getLatestState,
   latestHypothesesByInstrument,
   listCycles,
+  listEvents,
   normalizeSeriesTo100,
   summaryMetrics,
 } from "@/lib/fund";
@@ -127,6 +128,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Fun
   const pnlTone = toneForSigned(metrics.profitAndLoss);
   const drawdownTone = metrics.drawdown > 0 ? "negative" : "neutral";
   const recentCycles = [...cycles].reverse().slice(0, 6);
+  const retired = listEvents(fund.fund_id).some((event) => event.event_type === "fund_retired");
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
@@ -140,7 +142,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Fun
               paper
             </Badge>
             <Badge variant="outline" className="font-mono text-[10px] capitalize">
-              {history.status}
+              {retired ? "retired" : history.status}
             </Badge>
           </div>
           <p className="mt-0.5 text-sm text-muted-foreground">
@@ -176,7 +178,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Fun
         />
         <StatCard
           label="Drawdown"
-          value={formatPct(metrics.drawdown)}
+          value={formatPct(-metrics.drawdown)}
           deltaTone={drawdownTone}
           hint={`Peak ${formatUsd(metrics.peakNav)}`}
         />

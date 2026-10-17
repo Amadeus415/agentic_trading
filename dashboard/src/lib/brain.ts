@@ -233,21 +233,21 @@ function adaptivePrompts(
   activity: FundActivityMemory,
 ): string[] {
   const prompts = [
-    "This is a short-term active book: express researched 4-72h views with orders.",
-    "A sourced catalyst, target, invalidation, and size is a valid thesis; lack of a calibrated probability model is not a hold reason.",
-    "U.S. cash-equity close is not a reason to stay in cash; native crypto and prediction markets remain in scope.",
+    "Scan every eligible playbook within the configured mandate and express every positive after-cost edge with a complete belief.",
+    "State p_win, target, invalidation, driver, and playbook. Uncertainty is not itself a reason to hold; quantify it and let deterministic sizing decide.",
+    "Trade only the configured asset classes. For prediction-only funds, buy YES or NO with cash and read the exact settlement rules.",
     "Re-test every open position against its current falsifiers before adding risk.",
     "Compare new opportunities with the opportunity cost of every existing position.",
   ];
   if (activity.idle_cash) {
     prompts.unshift(
-      "The book is 100% cash. A scheduled hold will be rejected. Submit researched short-term buy/sell/short/cover orders with fresh quotes.",
+      "The book is 100% cash. Search all active playbooks aggressively and submit every belief that clears estimated costs; cash is valid only when each candidate's logged expected value is below the deterministic threshold.",
     );
     if (activity.consecutive_all_cash_holds) {
       prompts.splice(
         1,
         0,
-        `The last ${activity.consecutive_all_cash_holds} completed cycle(s) were all-cash holds. Idle cash is a process miss, not prudence.`,
+        `The last ${activity.consecutive_all_cash_holds} completed cycle(s) were all-cash holds. Broaden the scan and audit rejected candidates for research timidity without manufacturing a trade.`,
       );
     }
   }
