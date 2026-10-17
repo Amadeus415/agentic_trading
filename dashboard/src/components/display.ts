@@ -68,8 +68,8 @@ export function truncateId(id: string, head = 8): string {
   return `${id.slice(0, head)}…`;
 }
 
-export function cycleHref(cycleKey: string): string {
-  return `/cycles/${encodeURIComponent(cycleKey)}`;
+export function cycleHref(cycleKey: string, fundId?: string): string {
+  return `/cycles/${encodeURIComponent(cycleKey)}${fundId ? `?fund=${encodeURIComponent(fundId)}` : ""}`;
 }
 
 export function openPositions<T extends { quantity: string | number | null }>(

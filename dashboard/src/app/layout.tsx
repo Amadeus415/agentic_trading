@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
+import { listFunds } from "@/lib/fund";
 
 import { AppShell } from "@/components/app-shell";
 
@@ -11,10 +12,12 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
+  let funds: string[] = [];
+  try { funds = listFunds().map((fund) => fund.fund_id); } catch { /* Empty setup remains readable. */ }
   return (
     <html lang="en" className="dark h-full antialiased">
       <body className="min-h-full flex flex-col">
-        <AppShell>{children}</AppShell>
+        <Suspense><AppShell funds={funds}>{children}</AppShell></Suspense>
       </body>
     </html>
   );

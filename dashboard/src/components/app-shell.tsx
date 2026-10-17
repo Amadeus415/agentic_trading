@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { BookOpen, Brain, ChartNoAxesCombined, LayoutDashboard, Menu, Receipt } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -58,6 +58,7 @@ function NavLinks({
   onNavigate?: () => void;
   compact?: boolean;
 }) {
+  const selected = useSearchParams().get("fund");
   return (
     <nav className={cn("flex gap-0.5", compact ? "flex-row" : "flex-col")}>
       {NAV.map(({ href, label, icon: Icon }) => {
@@ -65,7 +66,7 @@ function NavLinks({
         return (
           <Link
             key={href}
-            href={href}
+            href={selected ? `${href}?fund=${encodeURIComponent(selected)}` : href}
             onClick={onNavigate}
             className={cn(
               "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors",
@@ -85,8 +86,10 @@ function NavLinks({
   );
 }
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({ children, funds }: { children: React.ReactNode; funds: string[] }) {
+  const selected = useSearchParams().get("fund") ?? (funds.includes("edgecraft-predictions") ? "edgecraft-predictions" : funds[0]);
   const pathname = usePathname() ?? "/";
+  const router = useRouter();
   const [mobileOpen, setMobileOpen] = React.useState(false);
 
   const pageMeta = pathname.startsWith("/trades")
@@ -156,6 +159,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </h1>
           </div>
 
+          {funds.length > 0 && <select aria-label="Select paper fund" value={selected}
+            className="max-w-48 rounded border border-border bg-card p-1 text-xs"
+            onChange={(event) => { router.push(`/?fund=${encodeURIComponent(event.target.value)}`); }}>
+            {funds.map((fund) => <option key={fund} value={fund}>{fund === "edgecraft-aggressive" ? "v1 · Multi-asset history" : fund === "edgecraft-predictions" ? "v2 · Prediction markets" : fund}</option>)}
+          </select>}
           <div className="hidden items-center gap-2 sm:flex">
             <span className="rounded-md border border-border bg-card px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
               paper

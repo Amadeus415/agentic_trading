@@ -12,14 +12,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getDefaultFund, listCycles, toCycleListItems } from "@/lib/fund";
+import { getSelectedFund, type FundSearchParams, listCycles, toCycleListItems } from "@/lib/fund";
 import { cn } from "@/lib/utils";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export default async function CyclesPage() {
-  const fund = getDefaultFund();
+export default async function CyclesPage({ searchParams }: { searchParams: FundSearchParams }) {
+  const fund = await getSelectedFund(searchParams);
   if (!fund) return <FundEmpty />;
 
   const cycles = toCycleListItems(listCycles(fund.fund_id)).reverse();
@@ -85,7 +85,7 @@ export default async function CyclesPage() {
                   </TableCell>
                   <TableCell className="font-mono font-medium">
                     <Link
-                      href={cycleHref(c.cycle_key)}
+                      href={cycleHref(c.cycle_key, fund.fund_id)}
                       className="hover:underline"
                     >
                       {c.cycle_key}

@@ -5,7 +5,8 @@ import { TradesView, type CycleTradeMeta } from "@/components/trades-view";
 import {
   extractFillsFromCycles,
   listCycles,
-  listFunds,
+  getSelectedFund,
+  type FundSearchParams,
   toCycleListItems,
 } from "@/lib/fund";
 import type { TradeRow } from "@/lib/types";
@@ -13,9 +14,8 @@ import type { TradeRow } from "@/lib/types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export default async function TradesPage() {
-  const funds = listFunds();
-  const fund = funds[0] ?? null;
+export default async function TradesPage({ searchParams }: { searchParams: FundSearchParams }) {
+  const fund = await getSelectedFund(searchParams);
 
   if (!fund) {
     return (

@@ -27,7 +27,8 @@ import {
 } from "@/components/ui/table";
 import {
   fundBrain,
-  getDefaultFund,
+  getSelectedFund,
+  type FundSearchParams,
   getLatestState,
   listCycles,
   listEvents,
@@ -37,8 +38,8 @@ import { cn } from "@/lib/utils";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export default async function BrainPage() {
-  const fund = getDefaultFund();
+export default async function BrainPage({ searchParams }: { searchParams: FundSearchParams }) {
+  const fund = await getSelectedFund(searchParams);
   if (!fund) return <FundEmpty />;
 
   const cycles = listCycles(fund.fund_id);
@@ -160,7 +161,7 @@ export default async function BrainPage() {
                   <TableRow key={item.cycle_key}>
                     <TableCell className="pl-3.5 font-mono">
                       <Link
-                        href={cycleHref(item.cycle_key)}
+                        href={cycleHref(item.cycle_key, fund.fund_id)}
                         className="hover:underline"
                       >
                         {item.cycle_key}

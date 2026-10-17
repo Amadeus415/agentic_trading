@@ -39,27 +39,12 @@ if (funds.length === 0) {
   process.exit(0);
 }
 
-const fundId = funds[0].fund_id;
-const cycleCount = db
-  .prepare("SELECT COUNT(*) AS n FROM cycles WHERE fund_id = ?")
-  .get(fundId).n;
-
-const fillRows = db
-  .prepare("SELECT fills_json FROM cycles WHERE fund_id = ?")
-  .all(fundId);
-
-let fillCount = 0;
-for (const row of fillRows) {
-  try {
-    const fills = JSON.parse(row.fills_json);
-    if (Array.isArray(fills)) fillCount += fills.length;
-  } catch {
-    // ignore malformed JSON in smoke
-  }
+for (const fund of funds) {
+  const fundId = fund.fund_id;
+  const cycleCount = db.prepare("SELECT COUNT(*) AS n FROM cycles WHERE fund_id = ?").get(fundId).n;
+  const fillRows = db.prepare("SELECT fills_json FROM cycles WHERE fund_id = ?").all(fundId);
+  const fillCount = fillRows.reduce((count, row) => count + JSON.parse(row.fills_json).length, 0);
+  console.log(JSON.stringify({ fund_id: fundId, cycle_count: cycleCount, fill_count: fillCount }));
 }
-
-console.log("fund_id:", fundId);
-console.log("cycle_count:", cycleCount);
-console.log("fill_count:", fillCount);
-
+if (db.pragma("query_only", { simple: true }) !== 1) throw new Error("DB must be query-only");
 db.close();

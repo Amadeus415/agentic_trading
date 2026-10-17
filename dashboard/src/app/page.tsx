@@ -33,7 +33,8 @@ import {
   buildNavSeries,
   buildPerformanceHistory,
   extractFillsFromCycles,
-  getDefaultFund,
+  getSelectedFund,
+  type FundSearchParams,
   getLatestState,
   latestHypothesesByInstrument,
   listCycles,
@@ -47,8 +48,8 @@ import { readFundReport } from "@/lib/report";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export default async function OverviewPage() {
-  const fund = getDefaultFund();
+export default async function OverviewPage({ searchParams }: { searchParams: FundSearchParams }) {
+  const fund = await getSelectedFund(searchParams);
 
   if (!fund) {
     return <FundEmpty />;
@@ -79,7 +80,7 @@ export default async function OverviewPage() {
       last_cycle_key: null,
     },
   );
-  const report = readFundReport();
+  const report = readFundReport(fund.fund_id);
   const hypotheses = latestHypothesesByInstrument(cycles);
   const latestCycle = cycles[cycles.length - 1] ?? null;
   const openHypotheses = positions
@@ -215,7 +216,7 @@ export default async function OverviewPage() {
             <p className="text-xs text-muted-foreground">Next time deadline: {formatTs(report.review.next_review_at)}</p>
             <p className="text-xs text-muted-foreground">{report.review.completed_reviews} completed reviews. New versions keep their own track records.</p>
           </> : null}
-          <Link href="/attribution" className="text-xs underline">See trade results and strategy changes</Link>
+          <Link href={`/attribution?fund=${encodeURIComponent(fund.fund_id)}`} className="text-xs underline">See trade results and strategy changes</Link>
         </Panel>
 
         <Panel
@@ -224,7 +225,7 @@ export default async function OverviewPage() {
           trailing={
             latestCycle ? (
               <Link
-                href={cycleHref(latestCycle.cycle_key)}
+                href={cycleHref(latestCycle.cycle_key, fund.fund_id)}
                 className="text-foreground hover:underline"
               >
                 {latestCycle.cycle_key}
@@ -478,7 +479,7 @@ export default async function OverviewPage() {
         micro="Tape"
         title="Recent cycles"
         trailing={
-          <Link href="/cycles" className="hover:text-foreground hover:underline">
+          <Link href={`/cycles?fund=${encodeURIComponent(fund.fund_id)}`} className="hover:text-foreground hover:underline">
             all cycles
           </Link>
         }
@@ -519,7 +520,7 @@ export default async function OverviewPage() {
                   </TableCell>
                   <TableCell className="font-mono">
                     <Link
-                      href={cycleHref(c.cycle_key)}
+                      href={cycleHref(c.cycle_key, fund.fund_id)}
                       className="hover:underline"
                     >
                       {c.cycle_key}

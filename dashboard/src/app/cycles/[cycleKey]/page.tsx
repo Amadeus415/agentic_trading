@@ -25,7 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getCycle, getDefaultFund, listCycles } from "@/lib/fund";
+import { getCycle, getSelectedFund, type FundSearchParams, listCycles } from "@/lib/fund";
 import { cn } from "@/lib/utils";
 
 export const runtime = "nodejs";
@@ -51,12 +51,14 @@ function JournalBlock({
 
 export default async function CycleDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ cycleKey: string }>;
+  searchParams: FundSearchParams;
 }) {
   const { cycleKey: rawKey } = await params;
   const cycleKey = decodeURIComponent(rawKey);
-  const fund = getDefaultFund();
+  const fund = await getSelectedFund(searchParams);
   if (!fund) return <FundEmpty />;
 
   const cycle = getCycle(fund.fund_id, cycleKey);
@@ -75,7 +77,7 @@ export default async function CycleDetailPage({
       <header className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <Link
-            href="/cycles"
+            href={`/cycles?fund=${encodeURIComponent(fund.fund_id)}`}
             className="font-mono text-[10px] tracking-widest text-muted-foreground uppercase hover:text-foreground"
           >
             ← Cycles
@@ -117,7 +119,7 @@ export default async function CycleDetailPage({
           <div className="flex gap-3 font-mono text-xs tabular-nums">
             {prev ? (
               <Link
-                href={cycleHref(prev.cycle_key)}
+                href={cycleHref(prev.cycle_key, fund.fund_id)}
                 className="text-muted-foreground hover:text-foreground hover:underline"
               >
                 ← {prev.cycle_key}
@@ -125,7 +127,7 @@ export default async function CycleDetailPage({
             ) : null}
             {next ? (
               <Link
-                href={cycleHref(next.cycle_key)}
+                href={cycleHref(next.cycle_key, fund.fund_id)}
                 className="text-muted-foreground hover:text-foreground hover:underline"
               >
                 {next.cycle_key} →

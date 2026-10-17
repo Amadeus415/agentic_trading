@@ -9,13 +9,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { getSelectedFund, type FundSearchParams } from "@/lib/fund";
 import { readFundReport } from "@/lib/report";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export default function AttributionPage() {
-  const report = readFundReport();
+export default async function AttributionPage({ searchParams }: { searchParams: FundSearchParams }) {
+  const fund = await getSelectedFund(searchParams);
+  const report = fund ? readFundReport(fund.fund_id) : null;
   if (!report) {
     return (
       <FundEmpty
@@ -51,6 +53,23 @@ export default function AttributionPage() {
         />
       </section>
 
+      {report.prediction_scores && <Panel micro="FORECASTS" title="Does the model beat the market?" bodyClassName="space-y-3 p-3.5">
+        <p className="text-xs text-muted-foreground">{report.prediction_scores.interpretation}</p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <StatCard label={`Brier improvement · n=${report.prediction_scores.summary.model_brier_count}`} value={report.prediction_scores.summary.brier_improvement == null ? "—" : Number(report.prediction_scores.summary.brier_improvement).toFixed(4)} />
+          <StatCard label={`Sampled CLV · n=${report.prediction_scores.summary.sampled_clv_count}`} value={report.prediction_scores.summary.sampled_clv == null ? "—" : Number(report.prediction_scores.summary.sampled_clv).toFixed(4)} />
+          <StatCard label="Unique funded contracts" value={String(report.prediction_scores.summary.contracts)} />
+        </div>
+      </Panel>}
+      {report.lineage && <Panel micro="PROVENANCE" title="Performance by code revision" bodyClassName="space-y-3 p-3.5">
+        <p className="text-xs text-muted-foreground">NAV changes include marks on earlier positions. This timeline does not establish that a code change caused a return. Historical revisions are labelled inferred.</p>
+        <Table><TableHeader><TableRow><TableHead>Revision / why</TableHead><TableHead>Basis</TableHead><TableHead>Cycles</TableHead><TableHead>NAV change</TableHead><TableHead>Fees</TableHead></TableRow></TableHeader>
+          <TableBody>{report.lineage.segments.map((segment, index) => <TableRow key={`${segment.revision}-${index}`}>
+            <TableCell><p className="font-mono">{segment.revision.slice(0, 12)}{segment.revision.endsWith("+dirty") ? "+dirty" : ""}</p><p className="text-xs text-muted-foreground">{segment.commit}</p></TableCell>
+            <TableCell>{segment.basis}</TableCell><TableCell>{segment.cycles}</TableCell><TableCell>{formatUsd(Number(segment.nav_change))}</TableCell><TableCell>{formatUsd(Number(segment.fees))}</TableCell>
+          </TableRow>)}</TableBody>
+        </Table>
+      </Panel>}
       <Panel micro="BELIEFS" title="Calibration" bodyClassName="space-y-3 p-3.5">
         <p className="text-xs text-muted-foreground">
           Stated p_win buckets versus resolved outcomes. Sparse marks remain unscored.

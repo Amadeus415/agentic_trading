@@ -189,7 +189,15 @@ export function getFund(fundId: string): Fund | null {
 }
 
 export function getDefaultFund(): Fund | null {
-  return listFunds()[0] ?? null;
+  const funds = listFunds();
+  return funds.find((fund) => fund.fund_id === "edgecraft-predictions") ?? funds[0] ?? null;
+}
+
+export type FundSearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
+
+export async function getSelectedFund(searchParams: FundSearchParams): Promise<Fund | null> {
+  const selected = (await searchParams).fund;
+  return typeof selected === "string" ? getFund(selected) : getDefaultFund();
 }
 
 export function listCycles(fundId: string): Cycle[] {

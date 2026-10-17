@@ -7,6 +7,8 @@ import { resolveFundDbPath } from "./db";
 export type FundReport = {
   fund_id: string;
   generated_at: string;
+  lineage?: { segments: Array<{ revision: string; basis: string; commit: string; cycles: number; nav_change: string; fees: string }> };
+  prediction_scores?: { summary: { contracts: number; model_brier: string | null; market_brier: string | null; brier_improvement: string | null; sampled_clv: string | null; model_brier_count: number; sampled_clv_count: number }; interpretation: string };
   review?: {
     due: boolean;
     next_review_at: string;
@@ -38,12 +40,18 @@ export type FundReport = {
   }>;
 };
 
-export function readFundReport(): FundReport | null {
-  const reportPath = process.env.EDGECRAFT_FUND_REPORT?.trim() || path.join(path.dirname(resolveFundDbPath()), "fund-report.json");
-  try {
-    // Local runtime data must be read at request time, never bundled into a release.
-    return JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ reportPath, "utf8")) as FundReport;
-  } catch {
-    return null;
+export function readFundReport(fundId: string): FundReport | null {
+  const directory = path.dirname(resolveFundDbPath());
+  const configured = process.env.EDGECRAFT_FUND_REPORT?.trim();
+  const paths = configured ? [configured] : [
+    path.join(directory, `fund-report-${fundId.replace(/[^a-zA-Z0-9_-]/g, "_")}.json`),
+    path.join(directory, "fund-report.json"),
+  ];
+  for (const reportPath of paths) {
+    try {
+      const report = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ reportPath, "utf8")) as FundReport;
+      if (report.fund_id === fundId) return report;
+    } catch { /* Report may not have been generated for this fund. */ }
   }
+  return null;
 }

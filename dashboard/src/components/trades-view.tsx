@@ -470,7 +470,7 @@ export function TradesView({
                         </TableCell>
                         <TableCell className="max-w-[9rem] truncate font-mono text-muted-foreground">
                           <Link
-                            href={cycleHref(row.cycle_key)}
+                            href={cycleHref(row.cycle_key, fundId)}
                             className="hover:text-foreground hover:underline"
                             onClick={(e) => e.stopPropagation()}
                           >
@@ -604,7 +604,7 @@ export function TradesView({
                         </TableCell>
                         <TableCell className="font-mono font-medium">
                           <Link
-                            href={cycleHref(c.cycle_key)}
+                            href={cycleHref(c.cycle_key, fundId)}
                             className="hover:underline"
                             onClick={(e) => e.stopPropagation()}
                           >
@@ -768,7 +768,7 @@ export function TradesView({
                             Filter fills to cycle
                           </Button>
                           <Button size="xs" variant="ghost" className="font-mono" asChild>
-                            <Link href={cycleHref(selected.cycle_key)}>
+                            <Link href={cycleHref(selected.cycle_key, fundId)}>
                               Open cycle
                             </Link>
                           </Button>
