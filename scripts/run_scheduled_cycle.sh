@@ -50,6 +50,6 @@ fi
   --require-brain-journal --code-owned-quotes --size-beliefs
 "${RUN[@]}" fund-verify --config "$CONFIG" --ledger "$LEDGER"
 "${RUN[@]}" fund-visualize --config "$CONFIG" --ledger "$LEDGER" \
-  --output assets/prediction-progress.svg
+  --output state/prediction-progress.svg
 "${RUN[@]}" fund-report --config "$CONFIG" --ledger "$LEDGER" \
   --output state/fund-report.json

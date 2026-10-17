@@ -46,7 +46,7 @@ cd dashboard && npm run dev
 
 The fund selector scopes overview, trades, cycles, brain, and attribution to the chosen fund. V2 is the default when initialized. Generate `state/fund-report-edgecraft-aggressive.json` for the archive; the current `state/fund-report.json` serves v2. The reader checks `fund_id` before accepting either report. `EDGECRAFT_FUND_DB` and `EDGECRAFT_FUND_REPORT` can override local paths; reports from another fund remain unavailable rather than mislabelled.
 
-V2 scheduled chart output is `assets/prediction-progress.svg`; the v1 chart and its archived copy are retained. Publishing a public snapshot is a separate operator action. Never commit private databases, evidence packets, caches, or credentials.
+V2 scheduled chart output is `state/prediction-progress.svg` (gitignored so generated snapshots do not dirty the runtime); the v1 chart and its archived copy are retained. Publishing a public snapshot is a separate operator action. Never commit private databases, evidence packets, caches, or credentials.
 
 ## Release checks
 

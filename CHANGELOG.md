@@ -54,3 +54,10 @@ The full record is in [history/v1-multi-asset](history/v1-multi-asset/README.md)
 - **Expected effect:** parse decimal strike IDs, use the same quadratic taker curve for series that also charge maker fees, and exclude combos from scanner listings. Empty books remain rejected.
 - **Measure:** fixture coverage for both quadratic fee types and read-only live listing/book/fee checks on both venues. Initial TLS errors no longer reproduced in the development environment; deployed access still requires verification.
 - **Fund:** v2. Five v1 Codex automations were paused for explicit cutover; the runtime monitor, checkout, and ledger were not changed.
+
+
+## 2026-10-17 · Keep generated snapshots out of runtime source status
+- **Why:** writing v2 charts under unignored `assets/` would stamp later cycles dirty despite unchanged trading code and complicate deployment.
+- **Expected effect:** scheduled snapshots write `state/prediction-progress.svg`; public v1 images stay preserved.
+- **Measure:** runtime remains clean after chart/report generation; cycle provenance records the deployed commit without a generated-file dirty flag.
+- **Fund:** v2.

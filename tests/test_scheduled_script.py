@@ -54,7 +54,7 @@ def test_scheduled_script_is_fixed_to_paper_fund(tmp_path):
         "fund-verify --config examples/fund.mandate.predictions.json "
         "--ledger state/edgecraft-aggressive.db",
         "fund-visualize --config examples/fund.mandate.predictions.json "
-        "--ledger state/edgecraft-aggressive.db --output assets/prediction-progress.svg",
+        "--ledger state/edgecraft-aggressive.db --output state/prediction-progress.svg",
         "fund-report --config examples/fund.mandate.predictions.json "
         "--ledger state/edgecraft-aggressive.db --output state/fund-report.json",
     ]
