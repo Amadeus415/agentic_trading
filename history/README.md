@@ -5,7 +5,7 @@ Edgecraft changes over time. This folder holds the record of how it changed and 
 | Era | Fund ID | Dates | Result | Record |
 | --- | --- | --- | --- | --- |
 | v1: multi-asset | `edgecraft-aggressive` | 2026-08-22 → 2026-10-05 | $1,000 → $1,020.41, 22 closed trades | [v1-multi-asset](v1-multi-asset/README.md) |
-| v2: prediction markets | `edgecraft-predictions` | prepared 2026-10-17; starts at deployment | fresh $1,000, new track record | shared ledger after cutover |
+| v2: prediction markets | `edgecraft-predictions` | started 2026-10-17 | fresh $1,000, new track record | shared append-only ledger |
 
 Each era is a separate fund in the same append-only ledger. A new era never inherits the previous era's track record, and old cycles are never rewritten.
 

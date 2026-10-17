@@ -1,6 +1,6 @@
 # Local operation and explicit v2 cutover
 
-Development source is `agentic_trading/`; authoritative private state is in the sibling `agentic_trading_runtime/`. Use only a clean runtime on `main` for operation. Source changes and Git pushes do not deploy it. This rebuild leaves the runtime checkout and its ledger untouched; validation uses a private copy.
+Development source is `agentic_trading/`; authoritative private state is in the sibling `agentic_trading_runtime/`. Use only a clean runtime on `main` for operation. Source changes and Git pushes do not deploy it. The v2 cutover was completed on October 17, 2026 after validation on a private copy. V1 history and its pre-cutover state backup are preserved. The procedure below documents future verification and recovery.
 
 ## Cut over once
 

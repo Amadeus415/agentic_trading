@@ -86,3 +86,10 @@ The full record is in [history/v1-multi-asset](history/v1-multi-asset/README.md)
 - **Expected effect:** every release runs a locked Node 22 install, lint, tests, build, and production dependency audit alongside Python/security checks.
 - **Measure:** the dashboard CI job must pass. Development-only upstream advisories remain documented separately.
 - **Fund:** dashboard only.
+
+
+## 2026-10-17 · Deploy v2 without rewriting the v1 record
+- **Why:** the tested prediction-only experiment needs an authoritative runtime and updated schedules, while the original track record must remain intact.
+- **Expected effect:** `main` deploys by fast-forward; v1 retires flat at $1,020.41 after 96 cycles, and v2 starts at $1,000 with no inherited trades. Private state and SQLite backups precede cutover.
+- **Measure:** both funds verify; every original v1 cycle and event matches its backup (plus one retirement event). The runtime stays clean, the localhost dashboard serves both funds, and only v2 research/evolution prompts resume.
+- **Fund:** v1 archive and v2 active. No forced trading cycle was applied during deployment.
