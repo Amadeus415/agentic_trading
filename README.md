@@ -1,13 +1,15 @@
-# Edgecraft
+# Nightshift
 
-An autonomous prediction-market paper fund. An LLM does the research; deterministic Python holds the money.
+A prediction-market paper fund that agents run and improve every day. An LLM does the research; deterministic Python holds the money.
 
 [![CI](https://github.com/Amadeus415/agentic_trading/actions/workflows/ci.yml/badge.svg)](https://github.com/Amadeus415/agentic_trading/actions/workflows/ci.yml)
 ![Python 3.11–3.14](https://img.shields.io/badge/python-3.11–3.14-blue)
 ![Paper money only](https://img.shields.io/badge/money-simulated-lightgrey)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 
-I wanted to know whether an LLM can earn an after-cost edge by reading prediction-market rules and public news. Edgecraft trades Polymarket and Kalshi contracts with a simulated $1,000 bankroll. There is no broker, wallet, or real-order path, and there won't be one.
+I built this to learn how to run a codebase that keeps improving while non-deterministic agents work on it every day, and to see whether it could make money along the way. Research agents trade Polymarket and Kalshi contracts with a simulated $1,000 bankroll several times a day. Once a week a review agent reads the results and proposes changes, and each change has to earn its capital in a small paper experiment. There is no broker, wallet, or real-order path, and there won't be one.
+
+Nightshift was called Edgecraft until October 2026. The Python package and CLI still use `edgecraft`.
 
 ![v1 NAV vs SPY, with drawdown](results/charts/v1-equity.png)
 
@@ -40,6 +42,9 @@ flowchart LR
     G -->|missing evidence or fees| X[Stop the run]
     F --> L[(Append-only ledger)]
     L --> D[Dashboard + scoring]
+    L --> V[Weekly review agent]
+    V -->|proposed change| E[Paper experiment<br/>earns capital or is frozen]
+    E --> R
 ```
 
 1. Scan. The scanner filters live markets by spread, book depth, and time to resolution, then ranks a short list for research.
@@ -47,6 +52,7 @@ flowchart LR
 3. Gate. Python owns everything with money in it: half-Kelly sizing, a 25% position cap, a 35% cap on shared risk drivers, venue fee models (including Kalshi's quadratic taker fee), and exits.
 4. Fill. Orders consume the real public order book. Marks use the bid/ask midpoint.
 5. Record. Every cycle lands in a hash-chained, append-only SQLite ledger, tagged with the Git commit that ran it.
+6. Improve. A weekly review agent writes a postmortem and proposes the smallest change the evidence supports: a prompt edit, a rule tweak, or a new playbook. Each one runs as its own paper experiment with a capped budget. After 10 closed positions, positive after-cost P&L promotes it and anything else freezes it. Details in [`docs/EVOLUTION.md`](docs/EVOLUTION.md).
 
 Research runs on a schedule (four sessions a day through Codex automations). A code-only monitor marks open positions every five minutes and enforces stops, targets, and settlement without calling a model.
 
@@ -145,7 +151,7 @@ cd dashboard && npm ci && npm run dev   # http://localhost:3000
 
 The read-only dashboard shows both eras from the same ledger:
 
-![Edgecraft dashboard showing the v1 fund against the S&P 500](docs/images/dashboard.png)
+![Nightshift dashboard showing the v1 fund against the S&P 500](docs/images/dashboard.png)
 
 ## Repo map
 

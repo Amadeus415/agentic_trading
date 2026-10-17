@@ -177,7 +177,7 @@ def equity_chart(results: dict[str, Any], path: Path) -> Path:
         f"after a {_pct(equity['max_drawdown'], 0)} drawdown"
     )
     subtitle = (
-        f"Edgecraft v1 (stocks, crypto, Polymarket): NAV after each of {v1['cycles']} recorded cycles, "
+        f"Nightshift v1 (stocks, crypto, Polymarket): NAV after each of {v1['cycles']} recorded cycles, "
         f"{_day(equity['first_cycle_at'])} – {_day(equity['last_cycle_at'])}, 2026.\n"
         f"SPY total return over the same window: {_pct(spy['total_return'], 2, signed=True)}. "
         "v2 (prediction markets only) restarted at $1,000 on Oct 17."
