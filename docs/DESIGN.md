@@ -1,72 +1,33 @@
-# One fund, three loops
+# Prediction-market fund design
 
-Edgecraft is an aggressive autonomous paper fund. Its pillars are understandability, simplicity, and YOLO: search often, take meaningful positions, accept substantial simulated losses, and change tactics when results deteriorate.
+One operating path: Codex researches, deterministic Python applies, and a read-only dashboard explains the ledger.
 
-There is one researcher, one accounting engine, one bankroll, and one ledger. The dashboard reads that ledger; it cannot trade.
+## Separate eras, one ledger
 
-```text
-Public sources → Codex beliefs → Python sizing → Simulated fills
-                       ↑                              ↓
-             Effective playbook versions ← Review ← Ledger
-                                                      ↓
-                                             Python exit monitor
-```
+The v1 fund `edgecraft-aggressive` retains its immutable mandate and full multi-asset record. `edgecraft-predictions` receives a separate, one-time $1,000 deposit. This is a new experiment, not a reset of the old record or a claim that the combined bankroll grew. `fund-retire` appends an idempotent retirement event to a flat fund; subsequent new cycles are rejected while exact historical replays and verification remain available.
 
-## Trade
+Historical asset enums, accounting, and flat-bps fees remain for replay. The prediction mandate explicitly selects `prediction_taker_v1`; adding a prediction-only fund never changes an old fund's fee model. The old stock research lab is removed from the active package and preserved by the `v1-multi-asset` Git tag. Original playbooks live under `history/v1-multi-asset/playbooks`. Read-only stock price helpers remain for historical analysis and benchmark data, not the new tradable universe.
 
-Codex scans every eligible strategy across stocks, crypto, and prediction markets. It records a source-backed probability, target, invalidation, driver, and a 4–72 hour horizon. Directional beliefs enter the sizing pass even when the researcher is uncertain. Missing orders or advisory `hold` wording cannot silently suppress a complete belief.
+## Research and discovery
 
-Python turns beliefs into orders. Matching existing inventory stays open; an opposing belief closes and reverses it. Exits execute before new entries, and shorts precede buys so their proceeds can fund independent longs. A reversal's entry still has to earn its place.
+`fund-scan` reads bounded pages from both venues and alternates venue candidates before spending its book-fetch budget. It excludes obvious stock/crypto price bets, missing deadlines, and resolutions outside the one-year window. A subsequent semantic research check must exclude price bets missed by the conservative text filter. Spread and displayed best-ask depth determine research rank. Neither rank nor matching question text establishes alpha.
 
-All behavioral settings live in `trading` in [the active configuration](../examples/fund.mandate.aggressive.json), validated by `policy.py`:
+The consistency scanner flags same-market complementary purchase costs below $1 and cross-venue YES bid/ask gaps on similar questions. It does not infer exhaustive outcome sets or threshold/date relationships from text alone. Research can inspect those relationships, but must establish identical rules, dates, timezones, sources, and exclusions. No cross-venue atomic execution or automatic arbitrage is claimed.
 
-| Setting | Default |
-| --- | --- |
-| Kelly fraction | 1.00 |
-| Shared driver ceiling | 60% of NAV |
-| Prediction position ceiling | 60% of NAV |
-| Incubating strategy ceiling | 60% of NAV |
-| Active strategy ceiling | 120% of NAV across its positions |
-| Review cadence | One day or 10 newly closed positions |
-| Learning window | Most recent 20 closed positions per version |
+## Quotes and simulated execution
 
-Strategy budgets share the mandate's gross exposure budget, rather than being restricted to a combined 100% of NAV. Four starting strategies can receive 60% each within the existing 3× envelope. These are ceilings, not required investments. Driver, position, available cash, liquidity, and portfolio limits may reduce them.
+Instrument IDs are `polymarket:<Gamma market ID>:YES|NO` and `kalshi:<ticker>:YES|NO`. Public adapters cache immutable observed quotes; `fund-run --code-owned-quotes` replaces advisory marks with those code-fetched records. Open quotes need a valid two-sided book. Marks use the best bid/ask midpoint. Fills consume displayed asks for buys and bids for sells, refusing insufficient size rather than filling at the midpoint.
 
-Sizing uses a pure preview of the same accounting engine that applies the cycle. It finds a quantity that fits cash, displayed depth, costs, concentration, exposure, and turnover. It reserves modeled cost headroom so fees on later entries do not push an earlier position over its weight limit. It also rejects an entry when the modeled execution price erases its expected edge. Invalid quotes and unsupported inventory remain errors.
+Polymarket selects CTF token IDs for v1 and position IDs for v2. Unknown protocols or fee schedules fail closed. Closed markets are settled only when the resolution status confirms resolution and the purchased outcome is exactly 0 or 1. Kalshi requires final `settled` status and a binary result. Closed, disputed, void, or otherwise unsupported resolution states stop marking rather than inventing payouts.
 
-Previews do not write the ledger. The final packet is applied once, atomically. There is no changed-packet retry after a failed apply. Exact successful CLI replay uses the original recorded size and policy, even when current learning settings have changed.
+The prediction mandate uses recorded taker parameters: quantity × rate × [price × (1−price)]^exponent, rounded upward to the quoted fee quantum. Kalshi quadratic rates incorporate the public series multiplier; unsupported fee types are rejected. Polymarket reads `feesEnabled` and `feeSchedule`. Kalshi uses a conservative cent ceiling; Polymarket uses a conservative five-decimal ceiling. This cash-fee simulation does not model venue-specific share deductions or fractional fee carry. Applying a nonlinear fee curve to the VWAP rather than individual matches can overestimate fees. Entry fees and a conservative worst-price exit-fee reserve enter the after-cost edge check. Official binary settlements charge no trading fee.
 
-Follow [the scheduled contract](CODEX_SCHEDULED_TASK.md) for the actual operating commands.
+Reference contracts: [Polymarket books](https://docs.polymarket.com/market-data/prices-order-books), [Polymarket market fees](https://docs.polymarket.com/market-data/market-details), [Kalshi books](https://docs.kalshi.com/api-reference/market/get-market-orderbook), [Kalshi fees](https://kalshi.com/docs/kalshi-fee-schedule.pdf). Adapter fixtures validate parsing; live access must be checked before operation. TLS or denied-access failures are terminal research blockers, never cash-hold evidence.
 
-## Manage
+## Risk and learning
 
-The model-free monitor checks existing positions for stop, target, horizon expiry, and prediction settlement. The installer configures a five-minute interval. The installed LaunchAgent only changes when the installer is rerun.
+The fund buys cash-backed outcomes, never naked shorts. Half Kelly, 25% single-position and 35% driver ceilings sit inside a 1× gross/net mandate; Python also fits cash, turnover, depth, and drawdown limits. `p_win` means probability that the purchased outcome settles at $1. Target and invalidation prices govern optional early exits. The monitor enforces the original opening time and declared horizon (up to 8,760 hours), stops, targets, and official settlement.
 
-A missing position mark prevents partial action. Stock exits wait for the equity session. Stops use the next observed price with modeled gap slippage; they are not guaranteed fills at the stop level. The current weekday/hours check does not model exchange holidays or early closes.
+Every cycle carries the exact Git revision and current uncommitted/untracked status. `fund-lineage` groups consecutive revisions, labelling old deployment-time attribution inferred. The report includes first-funded-contract Brier improvement against the entry market and sampled CLV, grouped by playbook and revision. Profitable early exits are not binary outcomes. CLV requires an observed later pre-settlement quote; missing observations stay null. Daily-or-10-closed-position reviews create separate research versions with their own forward evidence.
 
-## Learn
-
-Each trading session checks `review.due`. A review writes one typed postmortem and appends effective strategy versions to the ledger. New prompts, universes, and rule changes can start as funded forward paper experiments without mandatory backtests. Submitted backtest artifacts must still pass their stated validation checks.
-
-The allocator examines each version's latest 20 completed positions. After 10 results, positive mean after-cost P&L promotes an incubating version; nonpositive mean freezes it. Positive active versions share budget according to mean P&L × √sample count, capped at 120% each. Frozen and retired versions receive no new capital. A review can propose a fresh replacement, whose record starts empty.
-
-Partial exits accumulate into one result when the position becomes flat. Sizing calibration also uses completed positions, separated by version, instead of repeated hold observations. Rates shrink toward the current belief with a prior sample equal to the learning window; a handful of losses adjusts confidence gradually. Prediction probabilities are calibrated only against actual binary settlements; profitable early exits are not substituted for settlement outcomes.
-
-This is a responsive paper-trading heuristic, not statistical proof of alpha. Different position sizes affect dollar expectancy. Read [the review contract](EVOLUTION.md) for patches, lifecycle, and replay rules.
-
-## Keep the experiment honest
-
-The initialized mandate, original deposit, costs, accounting, and simulated-only boundary are immutable. Behavioral settings cannot alter them. A different mandate requires a separately identified fund; it cannot inherit this fund's performance.
-
-The ledger records losses as well as wins. Every cycle contains its decision, evidence, marks, fills, state, policy, allocation, and risk audit. `fund-verify` replays accounting and verifies the hash chain. The detailed money contract is [FUND_ACCOUNTING.md](FUND_ACCOUNTING.md).
-
-| Code | Responsibility |
-| --- | --- |
-| `paper_fund.py` | Simulated execution, accounting, immutable mandate, ledger |
-| `policy.py`, `sizing.py` | Behavioral settings and deterministic quantities |
-| `marketdata/`, `monitor.py` | Public marks and mechanical exits |
-| `attribution.py`, `allocator.py`, `evolution.py` | Outcomes, budget changes, effective versions |
-| `cli.py`, `scripts/` | One operational path |
-| `dashboard/` | Read-only presentation |
-
-The optional lab provides research tools, not a second fund or a prerequisite for testing every new idea. Private state stays out of Git. Engineering tests and synthetic fixtures establish implementation behavior, never market profitability.
+Position P&L can cross revision boundaries. Revision segments, Brier scores, and sparse CLV are measurements, not proof of causality or a durable edge. Sampled depth can disappear before a real fill, settlement can be delayed, and the model's coverage and probabilities remain unproven assumptions.

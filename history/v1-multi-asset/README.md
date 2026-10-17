@@ -1,6 +1,6 @@
 # Era v1: multi-asset paper fund (August 22 – October 5, 2026)
 
-This is the frozen record of Edgecraft's first era. In v1, one Codex researcher traded stocks, crypto, and Polymarket contracts from a single $1,000 simulated bankroll. The ledger fund `edgecraft-aggressive` is still in the append-only database and still verifies, but no new cycles are applied to it. The code is preserved at git tag [`v1-multi-asset`](https://github.com/Amadeus415/agentic_trading/tree/v1-multi-asset).
+This is the frozen record of Edgecraft's first era. In v1, one Codex researcher traded stocks, crypto, and Polymarket contracts from a single $1,000 simulated bankroll. The ledger fund `edgecraft-aggressive` is still in the append-only database and still verifies, and is retired explicitly during the v2 deployment; this archive alone does not freeze the runtime. The code is preserved at git tag [`v1-multi-asset`](https://github.com/Amadeus415/agentic_trading/tree/v1-multi-asset).
 
 All fills were simulated. The samples are small, so read these numbers as evidence for a direction to take, not as proof of an edge.
 

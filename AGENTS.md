@@ -1,8 +1,8 @@
 # Edgecraft
 
-Build an understandable autonomous paper hedge fund powered by a Codex subscription. Aim for aggressive compounded growth and measurable outperformance against the S&P 500.
+Build an understandable autonomous prediction-market paper fund powered by a Codex subscription. Aim for aggressive compounded growth and measurable outperformance against the S&P 500.
 
-- Search eagerly, manage short-term positions, and learn from outcomes. Trade only when the expected edge clears costs; never force fills.
+- Search eagerly, manage sourced event-contract positions, and learn from outcomes. Trade only when the expected edge clears costs; never force fills.
 - Codex researches and proposes. Python owns quotes, sizing, exits, accounting, and limits. Every fill is simulated; no broker, wallet, transfer, or real-order tools.
 - Preserve the one-time bankroll and append-only ledger. Never erase losses, rewrite history, or weaken gates to pass a decision.
 - Trading runs follow `docs/CODEX_SCHEDULED_TASK.md`: one packet, one apply, verify, stop on failure. Research runs do not edit tracked source or policy.

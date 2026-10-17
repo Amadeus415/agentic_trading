@@ -86,7 +86,7 @@ Each cycle input has two required top-level members, `decision` and `quotes`, pl
 
 `FundDecision` records stable identities, UTC decision time, `trade` or `hold`, thesis/alternatives/risks, an auditable journal, embedded evidence, and zero or more explicit-side orders. A trade requires orders. A hold forbids orders. The sizing pass may turn a proposed trade into a hold when every entry is below the edge threshold.
 
-Scheduled cycles require `journal` with the observed market regime, opportunity set considered, portfolio intent, what changed, and lessons applied. Its `hypotheses` list records one current entry for every open or ordered instrument: stance, mechanism, catalysts, falsifiers, horizon, `p_win`, target/invalidation, playbook, driver, and evidence IDs. Scheduled hypotheses may not exceed 72 hours. Cash is allowed only after researched candidates are measured against costs. Historical packets with `confidence` remain replayable. This is concise decision rationale, not private chain-of-thought.
+Scheduled cycles require `journal` with the observed market regime, opportunity set considered, portfolio intent, what changed, and lessons applied. Its `hypotheses` list records one current entry for every open or ordered instrument: stance, mechanism, catalysts, falsifiers, horizon, `p_win`, target/invalidation, playbook, driver, and evidence IDs. Legacy scheduled hypotheses may not exceed 72 hours; the explicit v2 prediction execution model allows up to 8,760 hours. Cash is allowed only after researched candidates are measured against costs. Historical packets with `confidence` remain replayable. This is concise decision rationale, not private chain-of-thought.
 
 Historical v1 cycles without journals remain replayable. An absent optional journal is omitted from their canonical digest; once a journal is present it is part of the immutable request digest.
 
@@ -103,7 +103,7 @@ The normalized objects are stored verbatim in an immutable cycle row. Their cano
 - A fresh fund has one immutable capitalization event and no positions.
 - Every cycle stores the normalized decision, embedded evidence, quotes, simulated fills, resulting state, and a SHA-256 digest.
 - Scheduled cycles require a structured journal and a refreshed hypothesis for every open or ordered instrument.
-- Scheduled cycles reject hypotheses beyond 72 hours. They allow cash only after the sizing audit records why proposed entries missed the after-cost edge threshold.
+- Scheduled cycles enforce the active mandate horizon (72 hours for legacy execution, 8,760 for v2). They allow cash only after the sizing audit records why proposed entries missed the after-cost edge threshold.
 - Every completed cycle also stores a structured audit sidecar: risk-check outcomes (observed value vs limit), quote freshness, fee totals, mandate digest, Edgecraft version, optional model/prompt metadata, input file SHA-256, sleeve weights, and the sizing audit.
 - Hash-chained `cycle_completed` events retain the full decision, quotes, fills, settlements, state, and audit sidecar—not only a summary—so the event stream alone is a complete audit trail.
 - `(fund_id, cycle_key)` is unique. An identical replay returns the prior result; a different payload under that key is rejected.
@@ -115,3 +115,8 @@ The normalized objects are stored verbatim in an immutable cycle row. Their cano
 - Later cycles cannot carry an `as_of` earlier than the prior completed cycle.
 
 The domain is paper-only by construction: it defines no live mode and imports no broker adapter.
+
+
+## V2 execution and retirement
+
+The immutable `venue_fee_model` defaults to `flat_bps` for historical funds and selects `prediction_taker_v1` explicitly for v2. Historical mandate/request digests omit absent new defaults. V2 quotes record venue rate, exponent, and rounding quantum; replay uses those recorded parameters. New v2 fills require book depth and buy cash-backed YES or NO outcomes. Retirement appends a `fund_retired` event only when the fund is flat, rejects new cycles, and permits exact historical replays. See [Design](DESIGN.md) for fee approximations and [Operations](OPERATIONS.md) for separate-fund cutover.

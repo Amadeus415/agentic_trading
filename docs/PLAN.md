@@ -1,24 +1,11 @@
-# What counts as success
+# Prediction-market experiment: completion and evidence
 
-Edgecraft should be easy to explain: Codex researches, Python sizes and manages simulated positions, and a daily review tests new strategy versions using the same append-only ledger.
+Implemented: separate prediction-only mandate and bankroll, explicit venue fee model, public Polymarket/Kalshi adapters, book-mid marks and depth-aware fills, bounded scanner, three language-research playbooks, exact code provenance, revision lineage, first-funded-contract Brier/CLV scoring, v1 archive, retirement, and a read-only fund switcher.
 
-## Implemented in this refactor
+History is preserved: original ledger rows and images remain, original playbooks are archived, and the old implementation is tagged `v1-multi-asset`. Historical flat-bps accounting still replays. New versions cannot inherit the old fund's returns.
 
-- Full configured Kelly fraction, larger prediction and strategy budgets, and allocations that can use the existing gross exposure envelope.
-- Deterministic cash/liquidity/risk fitting so an oversized candidate need not reject every other idea.
-- Exits and reversals within the same cycle, with budget released by actual planned exits.
-- Funded forward paper experiments for prompts and rules; backtests are optional evidence.
-- Daily-or-10-trade reviews, recent per-version outcomes, promotion and freezing after 10 results.
-- Completed-position learning so partial exits and repeated hold observations cannot multiply sizing evidence.
-- A UTC close slot that allows an equity scan before market close in both Pacific clock regimes.
-- Five-minute monitor installation and compact documentation of one operating path.
+Deployment remains an explicit operator step under [Operations](OPERATIONS.md). Validation used a copy of the authoritative 96-cycle ledger. No trades were applied to the runtime by the rebuild. Initial API checks encountered a local certificate trust error. On October 17, read-only checks succeeded with normal TLS verification, including public listings and usable venue books/fees. Some empty books were correctly rejected. Live access must still be verified from the deployed runtime before resuming schedules.
 
-The production ledger and installed schedules are separate from source changes. [Operations](OPERATIONS.md) describes deployment and installation. Always verify the deployed revision and next accepted cycle before describing a change as operational.
+Forward evidence still required: sustained after-cost results, Brier improvement over the market across independent events, dense enough pre-settlement quotes for useful CLV, conservative execution checks, and longer date-aligned SPY comparisons. Threshold/date ladders and mutually exclusive sets need verified rules and exhaustive membership; the scanner deliberately does not infer those structures from titles. No validated asset-price reference model exists, so those contracts are excluded.
 
-## What still needs forward evidence
-
-Aggressiveness is a behavior, not a profitable edge. Establish it with sourced candidates and meaningful simulated fills. Establish improvement with a new version that earns budget on its own completed positions and a losing version that loses budget. Establish profitability with sustained after-cost NAV growth and a date-aligned S&P comparison.
-
-Current simulation limits remain: sampled public quotes, uncertain executable liquidity and borrow availability, weekday-only equity hours without holidays, and a dividend-excluding benchmark. Full Kelly depends heavily on estimated probabilities. Recent dollar P&L is a fast allocation heuristic, affected by position size and small samples.
-
-Keep collecting honest forward outcomes. Add a component only when a measured problem calls for it. Real-money execution is outside this project.
+Profitable LLM alpha, structural arbitrage, causal improvement from code changes, and real-money readiness are unproven.

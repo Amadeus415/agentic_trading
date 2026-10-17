@@ -1,77 +1,60 @@
 # Edgecraft
 
-**Can an autonomous fund powered by a Codex subscription beat the S&P 500?**
+**Can an LLM earn an after-cost edge by reading prediction-market rules and public news?**
 
-That's the experiment. Edgecraft starts with $1,000 of simulated money, researches public markets, takes short-term positions, and learns from the results. The ambition is aggressive growth: find opportunities often, act quickly, and improve the process over time.
+Edgecraft tests that question with simulated money. Codex researches; Python owns public quotes, fees, position sizes, exits, and accounting. There is no real-order, broker, wallet, or transfer path.
 
-All trades are paper trades. There is no real-money execution path.
+## Why prediction markets?
 
-## How it works
+The first multi-asset experiment ended its archived sample at **$1,020.41 from $1,000**, across **96 cycles and 22 closed paper trades**. Stocks lost **$41.28** over 12 trades; crypto gained **$17.52** over 4; prediction contracts gained **$44.16** over 6. These small, uneven samples justify a research direction, not a claim of profitable LLM alpha. The largest prediction loss was a crypto-price bet in disguise.
 
-Three loops run one fund:
+![Preserved v1 paper-fund history](history/v1-multi-asset/fund-progress.svg)
 
-1. **Trade.** Codex researches stocks, crypto, and prediction markets. It explains each idea, estimates its probability, and gives it a target, a stop, and a 4–72 hour horizon. Python fetches prices, sizes positions, checks limits, and records simulated fills.
-2. **Manage.** A Python monitor configured for five-minute checks checks existing positions and enforces exits. It needs no model call.
-3. **Learn.** Daily or after 10 completed positions, Codex reviews outcomes and proposes changes. New versions get a forward paper budget immediately and keep separate records. Recent winners earn larger budgets; recent losers freeze.
+[The complete v1 evidence](history/v1-multi-asset/README.md) includes the results data, trades, original playbooks, and lessons. The original code is tagged `v1-multi-asset`. Previous charts, Git history, private packets, and ledger rows are preserved.
 
-Codex does the research. Code owns the money math. An append-only SQLite ledger remembers what happened, including losses. The initial bankroll is deposited once.
+## The new experiment
 
-**Understandability, simplicity, YOLO.** Use the full configured Kelly fraction, allow up to 60% NAV per position, rotate and reverse quickly, and test new ideas with paper capital. Four starting strategies each have a 60% ceiling within the existing 3× gross envelope. Python fits orders to cash, liquidity, costs, and the immutable mandate. Cash remains valid when no researched opportunity clears costs.
+`edgecraft-predictions` starts with its **own $1,000 paper bankroll and no inherited results**, alongside v1 in the same append-only database. Its three playbooks target plausible strengths of language-model research:
 
-## Try it
+- **Resolution reading:** compare exact settlement rules with authoritative public facts.
+- **Consistency:** inspect equivalent events and complementary outcomes; code flags price gaps, research checks what the contracts actually mean.
+- **Long-tail news:** connect primary releases to less-followed event markets and quantify the probability update.
 
-You need Python 3.11–3.14, [uv](https://docs.astral.sh/uv/), and Node.js 22+ for the dashboard.
+The scanner reads Polymarket and Kalshi, filters for spread, displayed depth, and time to resolution, and ranks a bounded shortlist for research. Its rank measures research usability, not expected profit. Stock/crypto price bets are excluded until a validated reference model exists.
+
+Python buys YES or NO with cash, uses half Kelly with a 25% position ceiling and a 35% shared-driver ceiling, and fits orders to actual book depth and risk limits. Horizons can extend through resolution, up to one year. These are ceilings, never required exposure. Unknown fees, missing required evidence, or unavailable position marks stop the run.
+
+Polymarket marks use the best bid/ask midpoint; simulated fills consume the appropriate book side. Fees use recorded market parameters, including Kalshi's quadratic taker fee and series multiplier. [Design](docs/DESIGN.md) documents the execution assumptions and limitations.
+
+## Track whether changes help
+
+Every new cycle records the exact checked-out Git commit, including a dirty flag. [CHANGELOG.md](CHANGELOG.md) records why trading behavior changed and what to measure.
+
+```bash
+make fund-lineage      # NAV, fills, and fees by revision; old revisions are inferred
+make fund-report-file  # P&L, forecast scores, playbooks, and lineage
+```
+
+Forecast scoring compares the first funded probability per contract with the entry market probability using **Brier score**. Positive Brier improvement means the model forecast was closer to the official outcome. **Sampled CLV** compares the entry market price with the last recorded pre-settlement mark. Unresolved contracts and missing closing observations remain unscored. Refreshing a belief cannot multiply the sample. Reports include cuts by playbook and revision; correlation, selection, and small samples still limit conclusions.
+
+The read-only dashboard switches between funds and shows revision performance and forecast scores. A report from another fund is never substituted. SPY comparisons are price-only and depend on available aligned observations. Code lineage establishes which code ran, not causation.
+
+## Run locally
+
+Python 3.11–3.14, [uv](https://docs.astral.sh/uv/), and Node.js 22+ for the dashboard:
 
 ```bash
 make install
 make validate
 make fund-init
 make fund-context
-cd dashboard && npm ci && cd ..
-make dashboard
+make fund-scan
+make fund-report-file
+cd dashboard && npm ci && npm run dev
 ```
 
-Open [localhost:3000](http://localhost:3000). The dashboard shows fund value against SPY (an S&P 500 ETF), positions, trades, decision evidence, and learning progress. An empty ledger starts empty; setup does not invent trades.
+Open [localhost:3000](http://localhost:3000). Defaults use `examples/fund.mandate.predictions.json` and the existing `state/edgecraft-aggressive.db` database filename. Keeping that filename retains one ledger; the active fund ID is different. Never operate on a development copy as if it were authoritative runtime state.
 
-```bash
-make fund-show         # current book and history
-make fund-verify       # replay the accounting and verify the audit chain
-make fund-report-file  # refresh trade results and learning status
-```
+[Operations](docs/OPERATIONS.md) describes the explicit v1 retirement and deployment steps. [Scheduled trading](docs/CODEX_SCHEDULED_TASK.md) defines one packet, one apply, verify, and stop on failure. [Evolution](docs/EVOLUTION.md) governs separate forward experiments. Source changes alone do not deploy the runtime or resume schedules.
 
-For unattended trading, use a separate clean runtime checkout and the existing Codex schedules. Read [Operations](docs/OPERATIONS.md) for setup and [the trading instructions](docs/CODEX_SCHEDULED_TASK.md) for the exact cycle. Research uses ChatGPT-authenticated Codex, subject to subscription limits; the monitor is ordinary local Python. Local scheduled tasks require the host and app to be available ([OpenAI documentation](https://learn.chatgpt.com/docs/automations?surface=app)).
-
-## What is proven so far?
-
-The accounting, audit trail, public-data adapters, scheduled trading path, and read-only dashboard are implemented. They are useful engineering foundations. **A profitable trading edge is not established.**
-
-The latest runtime report is from **September 30, 2026 at 17:12 Pacific (October 1 at 00:12 UTC)**. The verified ledger contains **86 cycles**, with its latest portfolio snapshot at **September 29 at 15:21 UTC**: NAV is **$995.02**, down **$4.98 (0.50%)** from the $1,000 starting bankroll, with no open positions. Across **21 closed trades**, **10 were winners (47.6%)** and after-cost expectancy is **−$0.24 per trade** (95% interval: −$21.22 to +$20.74). The interval spans zero, so this sample does not establish a profitable edge. The last completed trade closed September 22; the fund has remained all cash since then.
-
-The recorded SPY quotes show a **1.53% price return**, versus the fund's **−0.50%** bankroll return. Only **five SPY quotes** are recorded, so the apparent **2.03 percentage-point shortfall** is a sparse comparison, not an established full-period benchmark result; dividends are excluded. The graph below shows verified fund NAV at each recorded cycle through September 29. The latest state is **16.38% below its recorded high-water mark**; the chart’s peak uses cycle snapshots only.
-
-![Verified simulated fund progress](assets/fund-progress.svg)
-
-The learning loop persists funded research versions and changes budgets using their most recent completed positions. Its 10-result promotion/freezing rule is an aggressive heuristic, not evidence that a prompt caused better returns. Stronger experiment validation and realistic execution need forward evidence. The dashboard's SPY comparison uses completed daily price closes; dividends are excluded, so it is not a total-return performance claim.
-
-Read [the assessment and next steps](docs/PLAN.md) for the remaining gaps and concrete success criteria.
-
-## The code is organized around the fund
-
-| Location | Responsibility |
-| --- | --- |
-| `src/edgecraft/paper_fund.py` | Money, positions, limits, and immutable ledger |
-| `src/edgecraft/policy.py`, `marketdata/`, `sizing.py`, `monitor.py` | One trading policy, public prices, position size, and exits |
-| `src/edgecraft/attribution.py`, `evolution.py`, `allocator.py` | Results, experiments, and strategy budgets |
-| `playbooks/` | Four starting strategies and their research prompts |
-| `scripts/` | Scheduled trading and local monitoring |
-| `dashboard/` | Read-only view of the fund |
-
-The optional research lab contains backtests and walk-forward tools. It supports research; it does not run a second fund. Detailed contracts live in [Design](docs/DESIGN.md) and [Accounting](docs/FUND_ACCOUNTING.md).
-
-## Keep it simple
-
-One researcher, one ledger, and three loops. Settings live in `trading` in the active config; each sized cycle records the settings it used. The immutable initial deposit and mandate preserve an honest experiment. Source changes require runtime deployment, and the new monitor interval requires reinstalling its LaunchAgent. See [Operations](docs/OPERATIONS.md).
-
-Profits are the objective, not a claim that refactoring or taking more risk guarantees them. Full Kelly is sensitive to probability errors, and aggressive paper experiments can suffer large losses. Real-money execution is outside this project.
-
-Source is public; ledgers, generated research, caches, and credentials stay out of Git. [Apache 2.0](LICENSE) · [Security](SECURITY.md).
+A profitable trading edge remains unproven. Public-book fills are simulations; actual execution, settlement delays, and dense closing prices are not established by unit tests. Source is public; private ledgers, caches, and credentials stay out of Git. [Apache 2.0](LICENSE) · [Security](SECURITY.md).

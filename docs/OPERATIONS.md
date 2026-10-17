@@ -1,99 +1,59 @@
-# Local autonomous operation
+# Local operation and explicit v2 cutover
 
-Edgecraft runs from one clean local checkout. Codex Scheduled Tasks provide the
-research model through the owner's ChatGPT subscription; the five-minute monitor after installation is
-plain Python and uses no model. The Mac and Codex app must be running when a
-task is due.
+Development source is `agentic_trading/`; authoritative private state is in the sibling `agentic_trading_runtime/`. Use only a clean runtime on `main` for operation. Source changes and Git pushes do not deploy it. This rebuild leaves the runtime checkout and its ledger untouched; validation uses a private copy.
 
-This is intentionally local. The source repository is public, while the ledger,
-market-data cache, generated packets, and logs are private local state. No API
-key, broker credential, or private state repository is needed.
+## Cut over once
 
-## Runtime layout
+Keep v1 trading/evolution automations paused while deploying. Stop the existing monitor LaunchAgent during the transition so it cannot race ledger changes. Preserve the whole private `state/` directory, including packets, marks, logs, reports, and SQLite sidecars; use SQLite's backup API for a consistent database copy rather than copying a live WAL database alone. Do not replace the ledger with the development copy.
 
-Use the development checkout for coding and a sibling clone for unattended
-operation:
-
-```text
-agentic_trading/          development checkout
-agentic_trading_runtime/  clean main branch + private gitignored state
-```
-
-Every scheduled research task begins with:
+After merging/pushing the tested source, from the runtime:
 
 ```bash
-./scripts/prepare_local_runtime.sh
-```
-
-Preparation probes the Git binaries on `PATH` and uses the first working one,
-so an unavailable Apple developer-tools Git does not block an installed runtime.
-Set `EDGECRAFT_GIT=/absolute/path/to/git` to require a specific binary.
-
-That command refuses a dirty runtime, uses its installed environment, verifies
-the ledger, and regenerates the canonical JSON report. It requires neither
-GitHub nor the package cache. Deploy code and locked dependencies explicitly
-with `./scripts/prepare_local_runtime.sh --update`; a push alone is not a deployment.
-
-## Cadences
-
-| Loop | Scheduler | Model |
-|:--|:--|:--|
-| US open | Codex Scheduled Task, weekdays | subscription-backed Codex |
-| US close | Codex Scheduled Task, weekdays | subscription-backed Codex |
-| Off-hours | Codex Scheduled Task, daily recommended | subscription-backed Codex |
-| Monitor | macOS LaunchAgent, five-minute interval after installation | none |
-| Evolution | Codex Scheduled Task, Sunday | subscription-backed Codex |
-
-Keep the weekday close scan before 1:00 PM Los Angeles time so stocks can fill. To use the existing UTC close slot in both daylight and standard time, 12:15 PM Los Angeles is suitable; research must finish before the exchange closes. Early closes and holidays remain unsupported by the simple hours check. Inspect the actual saved schedules; these instructions do not change them.
-
-Trading tasks follow [CODEX_SCHEDULED_TASK.md](CODEX_SCHEDULED_TASK.md). Each
-creates one packet and calls the fixed apply script once. A failed cycle key is
-terminal and is never rewritten or retried.
-
-The monitor calls `scripts/run_local_monitor.sh`. It verifies first, fetches all
-open-position marks, refuses partial action if any fetch fails, applies
-mechanical exits, verifies again, refreshes the report, and checks alerts.
-
-Trading tasks check whether a review is due daily or after 10 additional completed positions.
-The Sunday evolution task is a regular fallback. Both follow [EVOLUTION.md](EVOLUTION.md):
-one typed postmortem, one `fund-evolve` call. Accepted reviews persist separate
-research versions in the ledger; tracked files, mandate, accounting, and cash stay unchanged.
-
-## Install or repair
-
-From the clean runtime:
-
-```bash
-codex login status
 ./scripts/prepare_local_runtime.sh --update
-./scripts/install_local_monitor.sh
-launchctl print gui/$(id -u)/com.edgecraft.paper-monitor
-```
-
-`codex login status` should report ChatGPT login. Scheduled Tasks themselves are
-created and inspected in the Codex app. Keep every task pointed at the runtime
-checkout, not the development checkout.
-
-## Health checks
-
-Run these in `agentic_trading_runtime/`. The development checkout's ledger is an
-older copy and must not be used for operational status. A cash-only monitor can
-succeed without adding a cycle; inspect trading-task failures separately.
-
-```bash
-make fund-show
+.venv/bin/edgecraft fund-verify --config examples/fund.mandate.aggressive.json
+.venv/bin/edgecraft fund-report --config examples/fund.mandate.aggressive.json \
+  --output state/fund-report-edgecraft-aggressive.json
+.venv/bin/edgecraft fund-retire --config examples/fund.mandate.aggressive.json
+.venv/bin/edgecraft fund-verify --config examples/fund.mandate.aggressive.json
+make fund-init
 make fund-verify
 make fund-report-file
-tail -n 100 state/logs/monitor.error.log
+make fund-scan
+./scripts/install_local_monitor.sh
 ```
 
-For a full source release check:
+Preparation initializes/reopens v2 using the new default config and shared database; it does not retire v1 implicitly. `fund-retire` refuses open inventory and appends a retirement event once. If v1 has positions, stop the cutover and manage them under its existing mandate before retirement. Never force-close at invented marks or remove trades. Old accepted requests remain replayable, but new accounting cycles on a retired fund are rejected.
+
+The v2 initial deposit is independent experimental capital. It does not increase v1 NAV or reset its losses. The default database filename remains `state/edgecraft-aggressive.db`, containing both fund IDs. The development ledger is older and cannot establish current operational state.
+
+## Schedules and monitoring
+
+Update saved trading prompts to the durable v2 prompt in [CODEX_SCHEDULED_TASK.md](CODEX_SCHEDULED_TASK.md) and evolution prompts to the new config before resuming. Keep the existing cadence unless deliberately changing it; equity-session names now identify research windows. Do not resume until both public venues, required sources, and position marks work with normal TLS verification. A certificate, access, or integrity failure is an operating blocker, not a cash-hold decision.
+
+The installed monitor runs `scripts/run_local_monitor.sh` every five minutes. The new source points it at v2; the old runtime monitor continues running old source until deployment/reinstallation. It refuses partial action if any open-position mark fails, applies mechanical exits or settlement, verifies, then refreshes reports. A cash-only monitor need not add a cycle.
+
+Research uses subscription-backed Codex; the monitor is local Python. The Mac and app must be available for local scheduled tasks ([official documentation](https://learn.chatgpt.com/docs/automations?surface=app)). Check saved automation and LaunchAgent state directly; documentation does not prove installation.
+
+## Dashboard and reports
+
+```bash
+make fund-report-file
+make fund-lineage
+make fund-show
+make fund-verify
+cd dashboard && npm run dev
+```
+
+The fund selector scopes overview, trades, cycles, brain, and attribution to the chosen fund. V2 is the default when initialized. Generate `state/fund-report-edgecraft-aggressive.json` for the archive; the current `state/fund-report.json` serves v2. The reader checks `fund_id` before accepting either report. `EDGECRAFT_FUND_DB` and `EDGECRAFT_FUND_REPORT` can override local paths; reports from another fund remain unavailable rather than mislabelled.
+
+V2 scheduled chart output is `assets/prediction-progress.svg`; the v1 chart and its archived copy are retained. Publishing a public snapshot is a separate operator action. Never commit private databases, evidence packets, caches, or credentials.
+
+## Release checks
 
 ```bash
 make validate
-make security
-cd dashboard && npm run lint && npm test && npm run build && node scripts/smoke-db.mjs
+cd dashboard && npm run lint && npm test && npm run build
+EDGECRAFT_FUND_DB=/absolute/path/to/verified-copy.db node scripts/smoke-db.mjs
 ```
 
-All fills are simulated. None of these commands contains a broker, wallet,
-transfer, or real-order path.
+Verify the v1 fund before and after initializing v2 on a copy, compare all original cycle/event rows, and verify both funds. Live API checks are read-only and separate from fixture tests. If package installation encounters TLS problems, a complete cached installation can be validated offline; never disable certificate verification.

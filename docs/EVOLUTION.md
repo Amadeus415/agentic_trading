@@ -11,7 +11,7 @@ Read `review` in `make fund-context` or `state/fund-report.json`. A review is du
 
 ```bash
 uv run edgecraft fund-evolve \
-  --config examples/fund.mandate.aggressive.json \
+  --config examples/fund.mandate.predictions.json \
   --ledger state/edgecraft-aggressive.db \
   --postmortem state/weekly-postmortem.json
 make fund-verify
@@ -32,11 +32,11 @@ Stop on failure. Never modify a failed review to get it accepted. Exact successf
 
 The parent is `playbook_id`. Each non-retirement proposal creates a separate deterministic experiment ID in the ledger; `fund-context` returns its effective spec and prompt. Use that ID in hypotheses and orders. The parent keeps its rules and record. Runtime tasks never edit tracked files.
 
-Every valid prompt, universe, rule, or new-playbook proposal can enter a funded forward paper experiment without lab artifacts. `backtestable` describes whether a backtest is possible; it does not require one. New versions start with no inherited trades and a 60% NAV incubation ceiling. All strategy ceilings share the fund's gross budget, so many proposals cannot manufacture capital.
+Every valid prompt, universe, rule, or new-playbook proposal can enter a funded forward paper experiment without lab artifacts. `backtestable` describes whether a backtest is possible; it does not require one. New versions start with no inherited trades and a 35% NAV incubation ceiling under the v2 policy. All strategy ceilings share the fund's gross budget, so many proposals cannot manufacture capital.
 
 When artifacts are supplied, they must show positive walk-forward out-of-sample return and deflated Sharpe probability of at least 0.95. Passing artifacts add a `validated` transition before incubation. Failing artifacts leave the version `proposed` with zero budget. Do not omit a known failed validation to repackage the same idea as a fresh experiment. Historical shadow versions retain their zero budget; propose a new version to forward-test a revised idea.
 
-The allocator uses each version's most recent 20 completed positions. After 10 results, positive mean after-cost P&L promotes an incubating version to `active`; nonpositive mean freezes an incubating or active version. Active versions share budget by mean P&L × √sample count, capped at 120% NAV each. These are aggressive experimental heuristics, not confidence claims. Partial exits count once, when the position becomes flat.
+The allocator uses each version's most recent 20 completed positions. After 10 results, positive mean after-cost P&L promotes an incubating version to `active`; nonpositive mean freezes an incubating or active version. Active versions share budget by mean P&L × √sample count, capped at the active policy ceiling (60% NAV each in v2). These are aggressive experimental heuristics, not confidence claims. Partial exits count once, when the position becomes flat.
 
 Frozen or retired versions receive no new entries. Existing inventory keeps its normal exits. A review can propose a replacement version with a new record. All proposals are checked before one atomic event stores the effective versions and transitions. `fund-context` and sizing derive current allocations from the same outcomes; `fund-evolve` persists lifecycle transitions.
 
