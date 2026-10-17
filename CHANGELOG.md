@@ -79,3 +79,10 @@ The full record is in [history/v1-multi-asset](history/v1-multi-asset/README.md)
 - **Expected effect:** a user LaunchAgent serves the built dashboard at `127.0.0.1:3000`, restarts it on failure/login, and reads the authoritative shared ledger without write access.
 - **Measure:** HTTP checks for v1/v2 views, SQLite read-only smoke, and LaunchAgent state. Logs remain private under `state/logs/`.
 - **Fund:** read-only views of both eras.
+
+
+## 2026-10-17 · Check the dashboard release in CI
+- **Why:** Python-only CI did not cover the read-only UI or its vulnerable dependency lock.
+- **Expected effect:** every release runs a locked Node 22 install, lint, tests, build, and production dependency audit alongside Python/security checks.
+- **Measure:** the dashboard CI job must pass. Development-only upstream advisories remain documented separately.
+- **Fund:** dashboard only.
