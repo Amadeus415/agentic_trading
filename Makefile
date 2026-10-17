@@ -1,8 +1,9 @@
-.PHONY: install test lint security fund-init fund-context fund-cycle-key fund-show fund-report fund-lineage fund-scan fund-report-file fund-verify fund-visualize fund-monitor fund-alerts scheduled-cycle validate dashboard
+.PHONY: install test lint security results results-data fund-init fund-context fund-cycle-key fund-show fund-report fund-lineage fund-scan fund-report-file fund-verify fund-visualize fund-monitor fund-alerts scheduled-cycle validate dashboard
 
 FUND_CONFIG ?= examples/fund.mandate.predictions.json
 FUND_LEDGER ?= state/edgecraft-aggressive.db
 EDGECRAFT ?= $(if $(wildcard .venv/bin/edgecraft),.venv/bin/edgecraft,uv run --no-sync edgecraft)
+RESULTS_LEDGER ?= $(FUND_LEDGER)
 
 install:
 	uv sync --extra dev
@@ -53,6 +54,15 @@ fund-verify:
 
 fund-visualize:
 	$(EDGECRAFT) fund-visualize --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
+
+# Rebuild results/results.json and results/charts/*.png from the committed data (offline).
+results:
+	uv run --extra dev python -m edgecraft.results report
+
+# Refresh results/data: snapshot a ledger read-only, then fetch public outcomes and SPY closes.
+results-data:
+	uv run python -m edgecraft.results extract --ledger $(RESULTS_LEDGER)
+	uv run python -m edgecraft.results fetch
 
 # Read-only Next.js dashboard over the paper ledger (Node/npm required).
 dashboard:
