@@ -1,60 +1,85 @@
 # Edgecraft
 
-**Can an LLM earn an after-cost edge by reading prediction-market rules and public news?**
+**An autonomous prediction-market fund where an LLM does the research and deterministic code holds the money.**
 
-Edgecraft tests that question with simulated money. Codex researches; Python owns public quotes, fees, position sizes, exits, and accounting. There is no real-order, broker, wallet, or transfer path.
+[![CI](https://github.com/Amadeus415/agentic_trading/actions/workflows/ci.yml/badge.svg)](https://github.com/Amadeus415/agentic_trading/actions/workflows/ci.yml)
+![Python 3.11–3.14](https://img.shields.io/badge/python-3.11–3.14-blue)
+![Paper money only](https://img.shields.io/badge/money-simulated-lightgrey)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 
-## Why prediction markets?
+Edgecraft asks one question: **can an LLM earn an after-cost edge by reading prediction-market rules and public news?** It trades Polymarket and Kalshi contracts with a simulated $1,000 bankroll. No broker, wallet, or real-order path exists.
 
-The first multi-asset experiment ended its archived sample at **$1,020.41 from $1,000**, across **96 cycles and 22 closed paper trades**. Stocks lost **$41.28** over 12 trades; crypto gained **$17.52** over 4; prediction contracts gained **$44.16** over 6. These small, uneven samples justify a research direction, not a claim of profitable LLM alpha. The largest prediction loss was a crypto-price bet in disguise.
+![Edgecraft dashboard showing the v1 fund against the S&P 500](docs/images/dashboard.png)
 
-![Preserved v1 paper-fund history](history/v1-multi-asset/fund-progress.svg)
+## How it works
 
-[The complete v1 evidence](history/v1-multi-asset/README.md) includes the results data, trades, original playbooks, and lessons. The original code is tagged `v1-multi-asset`. Previous charts, Git history, private packets, and ledger rows are preserved.
+```mermaid
+flowchart LR
+    S[Scanner<br/>Polymarket + Kalshi] --> R[LLM agent<br/>reads rules + sources]
+    R -->|typed decision packet| G{Python gates<br/>sizing · fees · limits}
+    G -->|pass| F[Simulated fill<br/>against real order book]
+    G -->|missing evidence or fees| X[Stop the run]
+    F --> L[(Append-only ledger)]
+    L --> D[Dashboard + scoring]
+```
 
-## The new experiment
+1. **Scan.** The scanner filters live markets by spread, book depth, and time to resolution, then ranks a short list for research.
+2. **Research.** The agent reads exact settlement rules and primary sources and proposes a probability for each contract it researches.
+3. **Gate.** Python owns everything with money in it: half-Kelly sizing, a 25% position cap, a 35% cap on shared risk drivers, venue fee models (including Kalshi's quadratic taker fee), and exits.
+4. **Fill.** Orders consume the real public order book. Marks use the bid/ask midpoint.
+5. **Record.** Every cycle lands in an append-only ledger, tagged with the exact Git commit that ran it.
 
-`edgecraft-predictions` starts with its **own $1,000 paper bankroll and no inherited results**, alongside v1 in the same append-only database. Its three playbooks target plausible strengths of language-model research:
+## Design choices
+
+| Choice | Why |
+| --- | --- |
+| **The agent proposes; code decides** | The LLM never touches cash, sizing, or accounting. It cannot invent a fill or inject capital. |
+| **Fail closed** | Unknown fees, missing evidence, or missing marks stop the run instead of guessing. |
+| **Every cycle is pinned to a commit** | `make fund-lineage` shows NAV, fills, and fees per code revision, so strategy changes are measured, not remembered. |
+| **Honest scoring** | Forecasts are scored against resolved outcomes with **Brier score** and **closing-line value**, not just P&L. Refreshing a belief can't inflate the sample. |
+| **History is never rewritten** | Each strategy era is its own fund in the same ledger. A new version starts at $1,000 and inherits nothing. |
+
+## Results
+
+| Era | Dates | Result |
+| --- | --- | --- |
+| **v1: multi-asset** | Aug 22 – Oct 5, 2026 | **$1,000 → $1,020.41** over 96 cycles and 22 closed trades. Ahead of SPY by 1.5 pp. |
+| **v2: prediction markets** | Started Oct 17, 2026 | Fresh $1,000, building its own track record |
+
+v1 traded stocks, crypto, and prediction contracts. Stocks lost $41.28 over 12 trades; crypto gained $17.52 over 4; prediction contracts gained **$44.16 over 6**. The sample is far too small to prove an edge, but it pointed the next experiment at prediction markets. The full record is in [history/v1-multi-asset](history/v1-multi-asset/README.md), and the original code is tagged `v1-multi-asset`.
+
+v2 runs three research playbooks, each aimed at something language models may actually be good at:
 
 - **Resolution reading:** compare exact settlement rules with authoritative public facts.
-- **Consistency:** inspect equivalent events and complementary outcomes; code flags price gaps, research checks what the contracts actually mean.
-- **Long-tail news:** connect primary releases to less-followed event markets and quantify the probability update.
+- **Consistency:** find equivalent or complementary contracts whose prices disagree, then check what the contracts really mean.
+- **Long-tail news:** connect primary-source releases to less-watched markets and quantify the update.
 
-The scanner reads Polymarket and Kalshi, filters for spread, displayed depth, and time to resolution, and ranks a bounded shortlist for research. Its rank measures research usability, not expected profit. Stock/crypto price bets are excluded until a validated reference model exists.
+## Run it
 
-Python buys YES or NO with cash, uses half Kelly with a 25% position ceiling and a 35% shared-driver ceiling, and fits orders to actual book depth and risk limits. Horizons can extend through resolution, up to one year. These are ceilings, never required exposure. Unknown fees, missing required evidence, or unavailable position marks stop the run.
-
-Polymarket marks use the best bid/ask midpoint; simulated fills consume the appropriate book side. Fees use recorded market parameters, including Kalshi's quadratic taker fee and series multiplier. [Design](docs/DESIGN.md) documents the execution assumptions and limitations.
-
-## Track whether changes help
-
-Every new cycle records the exact checked-out Git commit, including a dirty flag. [CHANGELOG.md](CHANGELOG.md) records why trading behavior changed and what to measure.
+Requires Python 3.11–3.14, [uv](https://docs.astral.sh/uv/), and Node.js 22+ for the dashboard.
 
 ```bash
-make fund-lineage      # NAV, fills, and fees by revision; old revisions are inferred
-make fund-report-file  # P&L, forecast scores, playbooks, and lineage
+make install           # dependencies
+make validate          # tests + lint
+make fund-init         # create the $1,000 paper fund
+make fund-scan         # rank markets worth researching
+make fund-report-file  # P&L, forecast scores, lineage
+cd dashboard && npm ci && npm run dev   # http://localhost:3000
 ```
 
-Forecast scoring compares the first funded probability per contract with the entry market probability using **Brier score**. Positive Brier improvement means the model forecast was closer to the official outcome. **Sampled CLV** compares the entry market price with the last recorded pre-settlement mark. Unresolved contracts and missing closing observations remain unscored. Refreshing a belief cannot multiply the sample. Reports include cuts by playbook and revision; correlation, selection, and small samples still limit conclusions.
+## Repo map
 
-The read-only dashboard switches between funds and shows revision performance and forecast scores. A report from another fund is never substituted. SPY comparisons are price-only and depend on available aligned observations. Code lineage establishes which code ran, not causation.
+| Path | What's there |
+| --- | --- |
+| [`src/edgecraft/`](src/edgecraft) | Scanner, sizing, policy gates, paper fund, scoring, lineage |
+| [`playbooks/`](playbooks) | The three v2 research playbooks and their prompts |
+| [`dashboard/`](dashboard) | Read-only Next.js + SQLite dashboard |
+| [`docs/`](docs) | [Design](docs/DESIGN.md), [accounting contract](docs/FUND_ACCOUNTING.md), [operations](docs/OPERATIONS.md), [how the fund learns](docs/EVOLUTION.md), [scheduled runs](docs/CODEX_SCHEDULED_TASK.md) |
+| [`history/`](history) | Archived eras, results, and deployment lineage |
+| [`CHANGELOG.md`](CHANGELOG.md) | Why each trading change was made and what it should move |
 
-## Run locally
+## Limits
 
-Python 3.11–3.14, [uv](https://docs.astral.sh/uv/), and Node.js 22+ for the dashboard:
+A profitable edge is **unproven**. Fills are simulated against public books; real execution, settlement delays, and slippage beyond displayed depth are not modeled. Lineage shows which code ran, not that a change caused a result. Private ledgers, caches, and credentials stay out of Git.
 
-```bash
-make install
-make validate
-make fund-init
-make fund-context
-make fund-scan
-make fund-report-file
-cd dashboard && npm ci && npm run dev
-```
-
-Open [localhost:3000](http://localhost:3000). Defaults use `examples/fund.mandate.predictions.json` and the existing `state/edgecraft-aggressive.db` database filename. Keeping that filename retains one ledger; the active fund ID is different. Never operate on a development copy as if it were authoritative runtime state.
-
-[Operations](docs/OPERATIONS.md) describes the explicit v1 retirement and deployment steps. [Scheduled trading](docs/CODEX_SCHEDULED_TASK.md) defines one packet, one apply, verify, and stop on failure. [Evolution](docs/EVOLUTION.md) governs separate forward experiments. Source changes alone do not deploy the runtime or resume schedules.
-
-A profitable trading edge remains unproven. Public-book fills are simulations; actual execution, settlement delays, and dense closing prices are not established by unit tests. Source is public; private ledgers, caches, and credentials stay out of Git. [Apache 2.0](LICENSE) · [Security](SECURITY.md).
+[Apache 2.0](LICENSE) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md)
