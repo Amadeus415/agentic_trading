@@ -19,6 +19,7 @@ All money is simulated. Never imply live brokerage activity.
 | Mandate | `examples/fund.mandate.predictions.json` |
 | Ledger | `state/edgecraft-aggressive.db` (shared by v1 and v2; the v2 fund is `edgecraft-predictions`) |
 | Session inputs | `state/fund-inputs/YYYY-MM-DD-session-*.json` |
+| Control fund | `examples/fund.mandate.baseline.json` (`edgecraft-baseline`, code-only; same ledger) |
 | Docs | `docs/FUND_ACCOUNTING.md` |
 
 Prefer `make` targets. Equivalent CLI uses the same config/ledger.
@@ -55,6 +56,7 @@ point at `make fund-init` — do not invent numbers.
     --cycle-key <last_cycle_key> --audit
   ```
 - **This session's researched input on disk:** run `uv run edgecraft fund-cycle-key` and check that `input_path`; if missing, say this session's packet is not written yet. Older same-day session files may still exist.
+- **Forecast trust and the control fund:** `make fund-report` → `forecast_skill` (trust per playbook); repeat `fund-show`/`fund-verify` with `--config examples/fund.mandate.baseline.json` to compare against the code-only baseline.
 - **Do not** start the dashboard or mutate the ledger for this skill.
 
 ## 2. Present the overview

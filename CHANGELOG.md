@@ -93,3 +93,28 @@ The full record is in [history/v1-multi-asset](history/v1-multi-asset/README.md)
 - **Expected effect:** `main` deploys by fast-forward; v1 retires flat at $1,020.41 after 96 cycles, and v2 starts at $1,000 with no inherited trades. Private state and SQLite backups precede cutover.
 - **Measure:** both funds verify; every original v1 cycle and event matches its backup (plus one retirement event). The runtime stays clean, the localhost dashboard serves both funds, and only v2 research/evolution prompts resume.
 - **Fund:** v1 archive and v2 active. No forced trading cycle was applied during deployment.
+
+
+## 2026-10-18 · Aim discovery at fast, lightly watched contracts
+- **Why:** the first v2 shortlist was 20 of Polymarket's most-traded markets (Fed decision, midterms, Ballon d'Or) and no Kalshi contracts: ranking by depth ÷ spread selected the most efficiently priced markets, where an LLM is least likely to have an edge. Holding up to a year also leaves $1,000 idle.
+- **Expected effect:** discovery covers four horizon windows on both venues; rank is attention ÷ days to resolution, with depth only a fill constraint. Candidates carry `annualized_if_wins` and the favorite-bias probability; `catalysts` lists contracts resolving within 48 hours; `event_flags` finds mutually exclusive outcomes whose YES bids sum above $1. Stalled reads retry once; HTTP, TLS, and access errors still fail closed.
+- **Measure:** scan coverage, catalyst counts, and the venue mix of candidates; v2 holding time and turnover in `fund-report`.
+- **Fund:** `edgecraft-predictions` research; `edgecraft-baseline` uses the same discovery.
+
+## 2026-10-18 · Learn from scored forecasts and size on measured trust
+- **Why:** promotion needed 10 closed trades per playbook, which takes months at long horizons, and 10 binary outcomes cannot separate skill from luck (v1's per-trade interval was −$19 to +$21). Sizing applied half Kelly to the model's raw probability; v1's largest loss was a 16%-of-NAV longshot.
+- **Expected effect:** every researched market gets a forecast stamped with the code-owned price. Settlements (and, earlier, market drift at least 12 hours after the forecast, counted at half weight) fit a trust λ per playbook; sizing bets on `market + λ × (p_win − market)`, so a playbook without measured skill cannot size up. Edges below a 30% annualized hurdle drop, and the fastest edges are funded first. The allocator promotes at estimated λ ≥ 0.10 and freezes at λ ≤ 0.05 (settled evidence only) after 30 scored forecasts; realized losses remain a kill switch. The exit-fee reserve is now expected (stop for losers, target for winners) rather than worst case at 50¢, which no longer rejects near-certain contracts held to settlement. Positions keep 5% headroom under the 25% cap so later entries' spread cannot block them.
+- **Measure:** `forecast_skill` in `fund-report`/`fund-context`: resolved and drift counts, skill vs market Brier, trust per playbook and category, and head-to-head results for experiment versions. Sizing audits record trust, believed p_win, and annualized return per order.
+- **Fund:** `edgecraft-predictions`. The immutable mandate is unchanged; `trading` gains `prior_trust`, `trust_prior_weight`, `promotion_forecasts`, `min_annualized_return`, and `min_depth_usd`.
+
+## 2026-10-18 · Add a code-only control fund
+- **Why:** without a no-model baseline, LLM research cannot be shown to add value. Two structural edges need no model: the favorite-longshot bias, and mutually exclusive outcomes whose YES bids sum above $1.
+- **Expected effect:** `edgecraft-baseline` ($1,000, same mandate, same ledger) buys favorites priced 80–98.5¢ that resolve within 21 days when `logistic(γ·logit(mid))` clears the ask and fees, and buys equal NO on every leg of a flagged exclusive event when the asks still lock in 1¢ per basket. Quarter Kelly, 10% position and 20% event caps. Every scan logs markets' own prices so settled outcomes refit γ (prior 1.15, weight 100 settlements). The five-minute monitor runs it at most every 30 minutes and writes cycles only when it buys.
+- **Measure:** baseline NAV versus the research fund on the dashboard; `favorite_bias.fitted_gamma` and resolved count in `state/fund-report-edgecraft-baseline.json`. If γ fits near 1, the favorite edge is absent and the strategy stops finding trades.
+- **Fund:** `edgecraft-baseline`, initialized by the first monitor run after deployment.
+
+## 2026-10-18 · Remove retired stock-era code
+- **Why:** v1 is retired; stock/crypto quote adapters, NAV backfill from stock history, stock-hours queueing, short-stock sizing, backtest-artifact validation, and the DCA research example no longer run on any live path.
+- **Expected effect:** less code on the money path. Ledger accounting still replays every v1 cycle, and v1 reports still generate.
+- **Measure:** `make validate`; `fund-verify` for both eras.
+- **Fund:** none; no trading behavior changes.

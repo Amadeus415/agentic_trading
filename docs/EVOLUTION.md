@@ -1,11 +1,39 @@
 # How the fund learns
 
-Read `review` in `make fund-context` or `state/fund-report.json`. A review is due one day after initialization/the last completed review, or after 10 additional completed positions, whichever comes first (`trading.review_days` and `trading.review_closed_trades` in the active config). Trading sessions check the trigger; the Sunday evolution task is a regular fallback. Time passing alone does not run a model: a Codex task must execute the review.
+The fund learns from **forecasts**, not just trades. Closed trades arrive slowly and each one is mostly luck; a forecast on any market, scored against that market's own price, arrives in hours and measures skill directly.
+
+## The forecast loop
+
+1. Each research session writes a forecast file (`state/fund-inputs/<key>.forecasts.json`) with a YES probability for every market it researched. `variant` names the playbook or experiment that produced it. Journal beliefs in the trade packet are logged as forecasts too.
+2. `fund-forecast` stamps each forecast with the **code-owned market price at that moment** and appends it to the hash-chained ledger. Forecasts on already-settled markets are refused. Only the first forecast per market and variant counts, so refreshes never inflate the sample.
+3. The five-minute monitor runs `fund-forecast-score`: it records each market's settlement and, for research forecasts, later marks.
+4. `forecast_skill` (in `fund-report` and `fund-context`) turns that into one number per variant, **trust** (λ):
+   - With 10+ resolved forecasts, λ is the maximum-likelihood fit of `outcome ~ market + λ × (forecast − market)`. Skill is the market's Brier score minus the forecast's: positive means the forecasts beat the price.
+   - Before that, with 10+ marks taken at least 12 hours after their forecasts, λ is how far the market drifted toward the forecast. Drift is partial information, so each mark counts half; earlier marks are ignored as noise.
+   - Evidence is blended with the policy prior (`prior_trust` 0.35, weight `trust_prior_weight` 20), so λ moves gradually.
+5. Sizing bets on `market + λ × (p_win − market)`. A playbook with λ ≈ 0 cannot trade, however confident it sounds.
+
+Results are also cut by `category` (a skill map of where the model beats the market) and **head to head**: any two variants that forecast the same 5+ resolved markets get a paired Brier comparison, which removes most of the noise of comparing different markets.
+
+## Lifecycle
+
+The allocator reads the estimated λ once a variant has `promotion_forecasts` (30) scored forecasts:
+
+| Evidence | Status | Budget |
+| --- | --- | --- |
+| Fewer than 30 scored forecasts | `incubating` | `incubation_weight` (35% NAV) |
+| Estimated λ ≥ 0.10 | `active` | shares `active_weight` (60% NAV cap) by λ × √sample |
+| Estimated λ ≤ 0.05 from settled forecasts | `frozen` | none (drift alone never freezes) |
+| 10+ closed trades with nonpositive mean P&L | `frozen` | none (kill switch) |
+
+All sleeves share the fund's gross budget, so many experiments cannot manufacture capital. Frozen or retired versions receive no new entries; existing inventory keeps its normal exits. `fund-evolve` persists allocator transitions.
 
 ## One review
 
+A review is due one day after initialization or the last completed review, or after 10 additional completed positions (`trading.review_days`, `trading.review_closed_trades`). Trading sessions check the trigger; the Sunday evolution task is a regular fallback.
+
 1. Run `make fund-report-file`, `make fund-context`, and `uv run edgecraft fund-postmortem-schema`.
-2. Read closed-trade results, calibration, recent journals, current playbooks, and their statuses. Distinguish economic P&L from repeated observations of the same belief.
+2. Read `forecast_skill` (variants, categories, head to head), closed-trade results, recent journals, and current playbooks. Distinguish economic P&L from repeated observations of the same belief.
 3. Write one schema-valid `state/weekly-postmortem.json`. Explain what worked, what failed, and the smallest supported experiment. No change is a valid result when evidence is weak.
 4. Apply once:
 
@@ -30,16 +58,10 @@ Stop on failure. Never modify a failed review to get it accepted. Exact successf
 | `new_playbook` | `thesis`, `universe`, `trigger`, `entry_rule`, `exit_rule`, `sizing_hints`, `required_evidence_types`, `prompt` |
 | `retire_playbook` | Empty patch |
 
-The parent is `playbook_id`. Each non-retirement proposal creates a separate deterministic experiment ID in the ledger; `fund-context` returns its effective spec and prompt. Use that ID in hypotheses and orders. The parent keeps its rules and record. Runtime tasks never edit tracked files.
+The parent is `playbook_id`. Each non-retirement proposal creates a separate deterministic experiment ID that starts `incubating` with no inherited record; `fund-context` returns its effective spec and prompt. Research sessions then forecast the same markets under the parent and the experiment, so the head-to-head comparison decides which one keeps budget. Runtime tasks never edit tracked files.
 
-Every valid prompt, universe, rule, or new-playbook proposal can enter a funded forward paper experiment without lab artifacts. `backtestable` describes whether a backtest is possible; it does not require one. New versions start with no inherited trades and a 35% NAV incubation ceiling under the v2 policy. All strategy ceilings share the fund's gross budget, so many proposals cannot manufacture capital.
+## The control fund
 
-When artifacts are supplied, they must show positive walk-forward out-of-sample return and deflated Sharpe probability of at least 0.95. Passing artifacts add a `validated` transition before incubation. Failing artifacts leave the version `proposed` with zero budget. Do not omit a known failed validation to repackage the same idea as a fresh experiment. Historical shadow versions retain their zero budget; propose a new version to forward-test a revised idea.
+`edgecraft-baseline` runs two structural strategies with no model (see [Design](DESIGN.md)). It is the bar the research fund must clear: if the LLM cannot beat a few lines of code, it is costing money. The baseline learns too: every scan logs each market's own price as a `market` forecast, and once those settle the favorite-longshot curve's γ is refit (blended with the `baseline_gamma` prior at a weight of 100 settled markets). Research scans in the same ledger use the fitted γ for `favorite_bias_p`.
 
-The allocator uses each version's most recent 20 completed positions. After 10 results, positive mean after-cost P&L promotes an incubating version to `active`; nonpositive mean freezes an incubating or active version. Active versions share budget by mean P&L × √sample count, capped at the active policy ceiling (60% NAV each in v2). These are aggressive experimental heuristics, not confidence claims. Partial exits count once, when the position becomes flat.
-
-Frozen or retired versions receive no new entries. Existing inventory keeps its normal exits. A review can propose a replacement version with a new record. All proposals are checked before one atomic event stores the effective versions and transitions. `fund-context` and sizing derive current allocations from the same outcomes; `fund-evolve` persists lifecycle transitions.
-
-Artifact validation checks result fields, not an independently rerun experiment. Never fabricate artifacts or treat synthetic returns as market evidence. A review with `proposals: []` is valid when no useful change is supported. When measured failures identify a concrete adjustment, prefer one testable change over waiting for statistical certainty.
-
-The original bankroll, initialized mandate, costs, accounting, and broker boundary remain outside this loop. `trading` settings change through tested source releases and are stored in each sized cycle's audit. Read [Design](DESIGN.md) for how trade, manage, and learn fit together.
+The original bankroll, initialized mandate, costs, accounting, and broker boundary remain outside this loop. `trading` settings change through tested source releases and are stored in each sized cycle's audit.

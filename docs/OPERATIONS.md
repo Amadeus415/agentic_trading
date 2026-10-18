@@ -30,7 +30,7 @@ The v2 initial deposit is independent experimental capital. It does not increase
 
 Update saved trading prompts to the durable v2 prompt in [CODEX_SCHEDULED_TASK.md](CODEX_SCHEDULED_TASK.md) and evolution prompts to the new config before resuming. Keep the existing cadence unless deliberately changing it; equity-session names now identify research windows. Do not resume until both public venues, required sources, and position marks work with normal TLS verification. A certificate, access, or integrity failure is an operating blocker, not a cash-hold decision.
 
-The installed monitor runs `scripts/run_local_monitor.sh` every five minutes. The new source points it at v2; the old runtime monitor continues running old source until deployment/reinstallation. It refuses partial action if any open-position mark fails, applies mechanical exits or settlement, verifies, then refreshes reports. A cash-only monitor need not add a cycle.
+The installed monitor runs `scripts/run_local_monitor.sh` every five minutes. For both the research fund and the code-only `edgecraft-baseline` fund it verifies, enforces exits and settlements, and scores open forecasts. It then runs `fund-baseline`, which scans at most once per `baseline_interval_minutes` and writes a cycle only when it buys; a failed public listing skips that pass. It refuses partial action if any open-position mark fails, verifies again, and refreshes `state/fund-report.json` and `state/fund-report-edgecraft-baseline.json`. The first run initializes the baseline fund's own one-time $1,000. A cash-only monitor need not add a cycle.
 
 Research uses subscription-backed Codex; the monitor is local Python. The Mac and app must be available for local scheduled tasks ([official documentation](https://learn.chatgpt.com/docs/automations?surface=app)). Check saved automation and LaunchAgent state directly; documentation does not prove installation.
 
@@ -44,7 +44,7 @@ make fund-verify
 cd dashboard && npm run dev
 ```
 
-The fund selector scopes overview, trades, cycles, brain, and attribution to the chosen fund. V2 is the default when initialized. Generate `state/fund-report-edgecraft-aggressive.json` for the archive; the current `state/fund-report.json` serves v2. The reader checks `fund_id` before accepting either report. `EDGECRAFT_FUND_DB` and `EDGECRAFT_FUND_REPORT` can override local paths; reports from another fund remain unavailable rather than mislabelled.
+The fund selector scopes overview, trades, cycles, brain, and attribution to the chosen fund. V2 is the default when initialized. Generate `state/fund-report-edgecraft-aggressive.json` for the archive; `state/fund-report.json` serves v2 and the monitor writes `state/fund-report-edgecraft-baseline.json` for the control fund. The reader checks `fund_id` before accepting either report. `EDGECRAFT_FUND_DB` and `EDGECRAFT_FUND_REPORT` can override local paths; reports from another fund remain unavailable rather than mislabelled.
 
 V2 scheduled chart output is `state/prediction-progress.svg` (gitignored so generated snapshots do not dirty the runtime); the v1 chart and its archived copy are retained. Publishing a public snapshot is a separate operator action. Never commit private databases, evidence packets, caches, or credentials.
 

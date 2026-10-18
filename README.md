@@ -36,25 +36,28 @@ The short version: v1 made 2% and fell 27% on the way. Three trades decided the 
 
 ```mermaid
 flowchart LR
-    S[Scanner<br/>Polymarket + Kalshi] --> R[LLM agent<br/>reads rules + sources]
-    R -->|typed decision packet| G{Python gates<br/>sizing · fees · limits}
+    S[Scanner<br/>soon-resolving,<br/>lightly watched] --> R[LLM agent<br/>reads rules + sources]
+    R -->|forecasts on every<br/>researched market| FL[(Forecast log)]
+    R -->|beliefs| G{Python sizing<br/>trust · velocity · Kelly}
+    FL -->|scored vs market:<br/>trust per playbook| G
     G -->|pass| F[Simulated fill<br/>against real order book]
-    G -->|missing evidence or fees| X[Stop the run]
     F --> L[(Append-only ledger)]
+    B[Code-only baseline<br/>favorite bias · NO baskets] --> F
     L --> D[Dashboard + scoring]
     L --> V[Weekly review agent]
     V -->|proposed change| E[Paper experiment<br/>earns capital or is frozen]
     E --> R
 ```
 
-1. Scan. The scanner filters live markets by spread, book depth, and time to resolution, then ranks a short list for research.
-2. Research. The agent reads exact settlement rules and primary sources and states a probability (`p_win`) for each contract it looks at, including the ones it passes on.
-3. Gate. Python owns everything with money in it: half-Kelly sizing, a 25% position cap, a 35% cap on shared risk drivers, venue fee models (including Kalshi's quadratic taker fee), and exits.
-4. Fill. Orders consume the real public order book. Marks use the bid/ask midpoint.
-5. Record. Every cycle lands in a hash-chained, append-only SQLite ledger, tagged with the Git commit that ran it.
-6. Improve. A weekly review agent writes a postmortem and proposes the smallest change the evidence supports: a prompt edit, a rule tweak, or a new playbook. Each one runs as its own paper experiment with a capped budget. After 10 closed positions, positive after-cost P&L promotes it and anything else freezes it. Details in [`docs/EVOLUTION.md`](docs/EVOLUTION.md).
+1. Scan. The scanner lists both venues across four horizon windows and ranks contracts that resolve soon (capital turns over) and that few traders watch (prices adjust slowly). Liquidity only has to be enough to fill.
+2. Research and forecast. The agent reads exact settlement rules and primary sources, then writes a YES probability for every market it researched, traded or not.
+3. Score. Code stamps each forecast with the market price at that moment and scores it when the market settles (or, earlier, by whether the price drifted toward it). Each playbook earns a trust number: how much of its disagreement with the market has proven right.
+4. Size. Python bets on `market + trust × (belief − market)`, drops edges that cannot clear a 30% annualized hurdle, funds the fastest edges first, and applies half Kelly, a 25% position cap, a 35% shared-risk cap, and real venue fees.
+5. Control. A second fund with no model trades two structural edges: favorites that settle more often than their price implies, and mutually exclusive outcomes whose YES bids sum above $1. If the LLM fund can't beat it, the LLM is costing money.
+6. Record. Every cycle and forecast lands in one append-only, hash-chained ledger, tagged with the exact Git commit that ran it.
+7. Improve. A weekly review agent proposes the smallest change the evidence supports: a prompt edit, a rule tweak, or a new playbook. Each one runs as its own paper experiment that forecasts the same markets as its parent. After 30 scored forecasts, measured trust promotes it or freezes it; 10 losing closed trades also freeze it. Details in [`docs/EVOLUTION.md`](docs/EVOLUTION.md).
 
-Research runs on a schedule (four sessions a day through Codex automations). A code-only monitor marks open positions every five minutes and enforces stops, targets, and settlement without calling a model.
+Research runs on a schedule (four sessions a day through Codex automations). A code-only monitor marks open positions every five minutes, enforces stops, targets, and settlement, scores forecasts, and runs the control fund without calling a model.
 
 ## Reproduce the report
 
@@ -112,10 +115,13 @@ v1 cycles did not record their commit, so this view is inferred from deploy time
 
 | Choice | Why |
 | --- | --- |
+| Learn from forecasts, not trades | Ten closed trades are mostly luck. Hundreds of forecasts scored against the market price at that moment measure skill in days and decide which playbooks get capital. Only the first forecast per contract counts, so restating a belief can't inflate the sample. |
+| Trust shrinks every belief | An LLM's confidence is not an edge. Sizing only keeps the share of its disagreement with the market that has proven right; zero trust means zero trades. |
+| Velocity over size | A 1¢ edge that settles tomorrow compounds faster than a 10¢ edge that settles next year. Rank and sizing both run on return per unit of time. |
+| A code-only control fund | The bar the LLM must clear. It also fits the favorite-longshot curve from every scanned market's settlement. |
 | The agent proposes; code decides | The LLM never touches cash, sizing, or accounting. It cannot invent a fill, pick its own size, or add capital. A model that is wrong 80% of the time is survivable if it can't spend. |
 | Fail closed | Unknown fees, stale quotes, missing evidence, or missing marks stop the run instead of guessing. |
 | Every cycle is pinned to a commit | `make fund-lineage` shows NAV, fills, and fees per code revision, so strategy changes are measured, not remembered. |
-| Score forecasts, not just P&L | One first forecast per contract, Brier against the market price at that moment. Restating a belief can't inflate the sample. |
 | History is never rewritten | Each era is its own fund in the same ledger. v2 started at $1,000 and inherits nothing from v1. |
 | Published numbers come from a script | The README tables and charts are generated from committed data, so they can be checked and rebuilt. |
 
@@ -135,6 +141,7 @@ v1 cycles did not record their commit, so this view is inferred from deploy time
 - No cycles ran between September 4 and September 17.
 - Polymarket outcomes were fetched after the fact from the public API and taken as final.
 - v2 has no completed cycles yet. Nothing on this page measures v2.
+- A v2 edge is unproven: the favorite-bias curve starts from a prior, and trust starts at 0.35 until forecasts are scored.
 
 ## Run the fund
 
@@ -145,7 +152,8 @@ make install           # dependencies
 make validate          # tests + lint
 make fund-init         # create the $1,000 paper fund
 make fund-scan         # rank markets worth researching
-make fund-report-file  # P&L, forecast scores, lineage
+make fund-baseline     # one pass of the code-only control fund
+make fund-report-file  # P&L, forecast trust, lineage
 cd dashboard && npm ci && npm run dev   # http://localhost:3000
 ```
 
@@ -157,7 +165,7 @@ The read-only dashboard shows both eras from the same ledger:
 
 | Path | What's there |
 | --- | --- |
-| [`src/edgecraft/`](src/edgecraft) | Scanner, sizing, policy gates, paper fund, scoring, lineage, results |
+| [`src/edgecraft/`](src/edgecraft) | Scanner, forecast log, sizing, baseline fund, paper fund, scoring, lineage, results |
 | [`results/`](results) | Measured results, charts, and the data that rebuilds them |
 | [`playbooks/`](playbooks) | The three v2 research playbooks and their prompts |
 | [`dashboard/`](dashboard) | Read-only Next.js + SQLite dashboard |
