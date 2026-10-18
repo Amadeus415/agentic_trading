@@ -1,7 +1,8 @@
-.PHONY: install test lint security results results-data fund-init fund-context fund-cycle-key fund-show fund-report fund-lineage fund-scan fund-report-file fund-verify fund-visualize fund-monitor fund-alerts scheduled-cycle validate dashboard
+.PHONY: install test lint security results results-data fund-init fund-context fund-cycle-key fund-show fund-report fund-lineage fund-scan fund-report-file fund-verify fund-visualize fund-monitor fund-alerts fund-forecast-score fund-baseline baseline-report scheduled-cycle validate dashboard
 
 FUND_CONFIG ?= examples/fund.mandate.predictions.json
 FUND_LEDGER ?= state/edgecraft-aggressive.db
+BASELINE_CONFIG ?= examples/fund.mandate.baseline.json
 EDGECRAFT ?= $(if $(wildcard .venv/bin/edgecraft),.venv/bin/edgecraft,uv run --no-sync edgecraft)
 RESULTS_LEDGER ?= $(FUND_LEDGER)
 
@@ -32,7 +33,17 @@ fund-show:
 	$(EDGECRAFT) fund-show --config $(FUND_CONFIG) --ledger $(FUND_LEDGER) --history
 
 fund-scan:
-	$(EDGECRAFT) fund-scan --config $(FUND_CONFIG) --output state/market-scan.json
+	$(EDGECRAFT) fund-scan --config $(FUND_CONFIG) --ledger $(FUND_LEDGER) --output state/market-scan.json
+
+fund-forecast-score:
+	$(EDGECRAFT) fund-forecast-score --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
+
+# The code-only control fund: favorite bias and exclusive NO baskets, no model.
+fund-baseline:
+	$(EDGECRAFT) fund-baseline --config $(BASELINE_CONFIG) --ledger $(FUND_LEDGER)
+
+baseline-report:
+	$(EDGECRAFT) fund-report --config $(BASELINE_CONFIG) --ledger $(FUND_LEDGER) --output state/fund-report-edgecraft-baseline.json
 
 fund-lineage:
 	$(EDGECRAFT) fund-lineage --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
@@ -74,3 +85,4 @@ scheduled-cycle:
 
 validate: test lint
 	uv run edgecraft fund-validate --config $(FUND_CONFIG)
+	uv run edgecraft fund-validate --config $(BASELINE_CONFIG)

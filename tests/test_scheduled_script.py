@@ -146,7 +146,13 @@ def test_preparation_uses_installed_environment_without_network(tmp_path):
         check=False,
     )
     assert result.returncode == 0
-    assert trace.read_text().splitlines() == ["fund-init", "fund-verify", "fund-report"]
+    assert trace.read_text().splitlines() == [
+        "fund-init",
+        "fund-verify",
+        "fund-init",
+        "fund-verify",
+        "fund-report",
+    ]
 
     # A missing installation must fail instead of silently downloading packages.
     binary.unlink()
@@ -163,3 +169,42 @@ def test_preparation_uses_installed_environment_without_network(tmp_path):
     )
 
     assert result.returncode == 2
+
+
+def test_session_forecasts_are_recorded_before_the_packet_applies(tmp_path):
+    trace = tmp_path / "trace"
+    install_fake_edgecraft(tmp_path, '#!/bin/sh\nprintf "%s\\n" "$*" >> "$TRACE"\n')
+    input_path = tmp_path / "input.json"
+    input_path.write_text("{}")
+    forecasts = tmp_path / "input.forecasts.json"
+    forecasts.write_text("{}")
+    env = {**os.environ, "TRACE": str(trace), "FUND_INPUT": str(input_path)}
+
+    result = subprocess.run([str(isolated_script(tmp_path))], env=env, check=False)
+
+    assert result.returncode == 0
+    commands = [line.split()[0] for line in trace.read_text().splitlines()]
+    assert commands[:4] == ["fund-init", "fund-verify", "fund-forecast", "fund-run"]
+    assert f"--input {forecasts}" in trace.read_text()
+
+
+def test_monitor_loop_runs_both_funds_and_the_code_only_baseline(tmp_path):
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    script = scripts / "run_local_monitor.sh"
+    shutil.copy2(ROOT / "scripts" / "run_local_monitor.sh", script)
+    trace = tmp_path / "trace"
+    install_fake_edgecraft(tmp_path, '#!/bin/sh\nprintf "%s\\n" "$*" >> "$TRACE"\n')
+    env = {**os.environ, "TRACE": str(trace), "EDGECRAFT_LEDGER_LOCKED": "1"}
+
+    result = subprocess.run([str(script)], env=env, check=False)
+
+    assert result.returncode == 0
+    calls = trace.read_text().splitlines()
+    commands = [line.split()[0] for line in calls]
+    assert commands.count("monitor") == 2
+    assert commands.count("fund-forecast-score") == 2
+    assert commands.index("fund-baseline") > max(
+        index for index, name in enumerate(commands) if name == "monitor"
+    )
+    assert any("fund-report-edgecraft-baseline.json" in line for line in calls)

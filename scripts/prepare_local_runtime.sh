@@ -60,6 +60,12 @@ fi
 "$RUN" fund-verify \
   --config examples/fund.mandate.predictions.json \
   --ledger state/edgecraft-aggressive.db
+"$RUN" fund-init \
+  --config examples/fund.mandate.baseline.json \
+  --ledger state/edgecraft-aggressive.db
+"$RUN" fund-verify \
+  --config examples/fund.mandate.baseline.json \
+  --ledger state/edgecraft-aggressive.db
 "$RUN" fund-report \
   --config examples/fund.mandate.predictions.json \
   --ledger state/edgecraft-aggressive.db \

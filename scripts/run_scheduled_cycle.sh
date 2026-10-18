@@ -31,6 +31,7 @@ else
 fi
 CYCLE_KEY="${DATE_UTC}-${SLOT}"
 INPUT="${FUND_INPUT:-state/fund-inputs/${CYCLE_KEY}.json}"
+FORECASTS="${INPUT%.json}.forecasts.json"
 
 if [[ ! -f "$INPUT" ]]; then
   echo "{\"ok\":false,\"error\":\"missing_fund_input\",\"detail\":\"$INPUT\"}" >&2
@@ -45,6 +46,10 @@ fi
 
 "${RUN[@]}" fund-init --config "$CONFIG" --ledger "$LEDGER"
 "${RUN[@]}" fund-verify --config "$CONFIG" --ledger "$LEDGER"
+if [[ -f "$FORECASTS" ]]; then
+  # Forecasts are recorded before the packet so they precede any fill they inform.
+  "${RUN[@]}" fund-forecast --config "$CONFIG" --input "$FORECASTS" --ledger "$LEDGER"
+fi
 "${RUN[@]}" fund-run --config "$CONFIG" --input "$INPUT" --ledger "$LEDGER" \
   --require-as-of-today --max-decision-age-seconds 1800 --require-cycle-key "$CYCLE_KEY" \
   --require-brain-journal --code-owned-quotes --size-beliefs
