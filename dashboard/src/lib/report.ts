@@ -9,6 +9,7 @@ export type FundReport = {
   generated_at: string;
   lineage?: { segments: Array<{ revision: string; basis: string; commit: string; cycles: number; nav_change: string; fees: string }> };
   prediction_scores?: { summary: { contracts: number; model_brier: string | null; market_brier: string | null; brier_improvement: string | null; sampled_clv: string | null; model_brier_count: number; sampled_clv_count: number }; interpretation: string };
+  forecast_skill?: ForecastSkill;
   review?: {
     due: boolean;
     next_review_at: string;
@@ -38,6 +39,25 @@ export type FundReport = {
     closed_at: string;
     realized_pnl_after_cost: string;
   }>;
+};
+
+export type VariantSkill = {
+  forecasts: number;
+  resolved: number;
+  skill: number | null;
+  drift_observed: number;
+  mean_drift_toward_forecast: number | null;
+  trust_basis: "prior" | "resolution" | "drift";
+  trust: number;
+};
+
+export type ForecastSkill = {
+  summary: VariantSkill;
+  variants: Record<string, VariantSkill>;
+  categories: Record<string, VariantSkill>;
+  head_to_head: Array<{ left: string; right: string; shared_resolved: number; left_advantage: number }>;
+  favorite_bias: { observed: number; resolved: number; fitted_gamma: number | null; gamma: number; prior_gamma: number };
+  interpretation: string;
 };
 
 export function readFundReport(fundId: string): FundReport | null {

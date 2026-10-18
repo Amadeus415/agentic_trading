@@ -10,7 +10,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getSelectedFund, type FundSearchParams } from "@/lib/fund";
-import { readFundReport } from "@/lib/report";
+import { readFundReport, type ForecastSkill } from "@/lib/report";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -61,6 +61,7 @@ export default async function AttributionPage({ searchParams }: { searchParams: 
           <StatCard label="Unique funded contracts" value={String(report.prediction_scores.summary.contracts)} />
         </div>
       </Panel>}
+      {report.forecast_skill && <ForecastTrust skill={report.forecast_skill} />}
       {report.lineage && <Panel micro="PROVENANCE" title="Performance by code revision" bodyClassName="space-y-3 p-3.5">
         <p className="text-xs text-muted-foreground">NAV changes include marks on earlier positions. This timeline does not establish that a code change caused a return. Historical revisions are labelled inferred.</p>
         <Table><TableHeader><TableRow><TableHead>Revision / why</TableHead><TableHead>Basis</TableHead><TableHead>Cycles</TableHead><TableHead>NAV change</TableHead><TableHead>Fees</TableHead></TableRow></TableHeader>
@@ -188,5 +189,62 @@ export default async function AttributionPage({ searchParams }: { searchParams: 
         edgecraft fund-report.
       </p>
     </div>
+  );
+}
+
+function fixed(value: number | null, digits = 4) {
+  return value == null ? "—" : value.toFixed(digits);
+}
+
+function ForecastTrust({ skill }: { skill: ForecastSkill }) {
+  const rows = Object.entries(skill.variants);
+  const bias = skill.favorite_bias;
+  return (
+    <Panel micro="TRUST" title="How much sizing trusts each playbook" bodyClassName="space-y-3 p-3.5">
+      <p className="text-xs text-muted-foreground">{skill.interpretation}</p>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <StatCard label="Research forecasts" value={String(skill.summary.forecasts)} />
+        <StatCard label={`Skill vs market · n=${skill.summary.resolved}`} value={fixed(skill.summary.skill)} />
+        <StatCard
+          label={`Favorite-bias γ · ${bias.resolved} settled of ${bias.observed}`}
+          value={bias.fitted_gamma == null ? `${bias.gamma.toFixed(2)} (prior)` : bias.gamma.toFixed(2)}
+        />
+      </div>
+      {rows.length > 0 && (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Playbook</TableHead>
+              <TableHead className="text-right">Forecasts</TableHead>
+              <TableHead className="text-right">Resolved</TableHead>
+              <TableHead className="text-right">Skill</TableHead>
+              <TableHead className="text-right">Drift</TableHead>
+              <TableHead className="text-right">Trust</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map(([name, row]) => (
+              <TableRow key={name}>
+                <TableCell className="font-mono text-xs">{name}</TableCell>
+                <TableCell className="text-right tabular-nums">{row.forecasts}</TableCell>
+                <TableCell className="text-right tabular-nums">{row.resolved}</TableCell>
+                <TableCell className="text-right tabular-nums">{fixed(row.skill)}</TableCell>
+                <TableCell className="text-right tabular-nums">{fixed(row.mean_drift_toward_forecast)}</TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {row.trust.toFixed(2)} <span className="text-muted-foreground">({row.trust_basis})</span>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+      {skill.head_to_head.map((match) => (
+        <p key={`${match.left}-${match.right}`} className="text-xs text-muted-foreground">
+          {match.left_advantage >= 0 ? match.left : match.right} beat{" "}
+          {match.left_advantage >= 0 ? match.right : match.left} by {Math.abs(match.left_advantage).toFixed(4)} Brier on{" "}
+          {match.shared_resolved} shared contracts.
+        </p>
+      ))}
+    </Panel>
   );
 }

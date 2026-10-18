@@ -15,6 +15,12 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 
+const FUND_LABELS: Record<string, string> = {
+  "edgecraft-aggressive": "v1 · Multi-asset history",
+  "edgecraft-predictions": "v2 · Prediction markets",
+  "edgecraft-baseline": "Control · Code-only baseline",
+};
+
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/trades", label: "Trades", icon: Receipt },
@@ -162,7 +168,7 @@ export function AppShell({ children, funds }: { children: React.ReactNode; funds
           {funds.length > 0 && <select aria-label="Select paper fund" value={selected}
             className="max-w-48 rounded border border-border bg-card p-1 text-xs"
             onChange={(event) => { router.push(`/?fund=${encodeURIComponent(event.target.value)}`); }}>
-            {funds.map((fund) => <option key={fund} value={fund}>{fund === "edgecraft-aggressive" ? "v1 · Multi-asset history" : fund === "edgecraft-predictions" ? "v2 · Prediction markets" : fund}</option>)}
+            {funds.map((fund) => <option key={fund} value={fund}>{FUND_LABELS[fund] ?? fund}</option>)}
           </select>}
           <div className="hidden items-center gap-2 sm:flex">
             <span className="rounded-md border border-border bg-card px-2 py-0.5 font-mono text-[10px] text-muted-foreground">

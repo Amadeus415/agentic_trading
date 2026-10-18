@@ -58,7 +58,7 @@ path) and prints `fund_id`, cycle count, and fill count.
 | `/trades` | Simulated fills and settlements, with cycle filters |
 | `/cycles` | Completed decision log (action, thesis, what changed, NAV) |
 | `/cycles/[cycleKey]` | Full packet: journal, hypotheses, orders, evidence, fills, risk audit |
-| `/attribution` | After-cost trade results, calibration, and strategy review history |
+| `/attribution` | After-cost trade results, forecast trust per playbook, calibration, and strategy review history |
 | `/brain` | Ledger-derived memory: activity, adaptive notes, cycle outcomes, instrument W/L |
 
 Pages read the SQLite ledger directly (`src/lib/fund.ts`). There is no JSON API
