@@ -101,7 +101,7 @@ def test_baseline_buys_a_soon_resolving_favorite_and_logs_market_forecasts(tmp_p
     assert [row["instrument_id"] for row in result["accepted"]] == ["polymarket:fav:YES"]
     position = ledger.get_state(BASELINE_FUND_ID).positions[0]
     assert position.playbook_id == "favorite_bias"
-    assert position.quantity * position.mark_price <= Decimal("100")  # 10% position cap
+    assert position.quantity * position.mark_price <= Decimal("150")  # 15% position cap
     assert result["market_forecasts"] == 3
     assert ledger.verify(BASELINE_FUND_ID).ok
     # Within the interval the next pass is a no-op; known markets are not re-logged.
@@ -129,7 +129,7 @@ def test_baseline_locks_in_an_exclusive_no_basket(tmp_path, monkeypatch):
     }
     assert len({p.quantity for p in state.positions}) == 1
     # The whole basket stays inside the shared-event budget.
-    assert sum(p.quantity * p.average_entry for p in state.positions) <= Decimal("200")
+    assert sum(p.quantity * p.average_entry for p in state.positions) <= Decimal("300")
 
 
 def test_baseline_holds_cash_when_nothing_clears_fees(tmp_path, monkeypatch):

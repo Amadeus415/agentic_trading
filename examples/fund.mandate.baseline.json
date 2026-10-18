@@ -32,9 +32,9 @@
     "venue_fee_model": "prediction_taker_v1"
   },
   "trading": {
-    "kelly_fraction": "0.25",
-    "max_driver_weight": "0.20",
-    "max_prediction_weight": "0.10",
+    "kelly_fraction": "0.50",
+    "max_driver_weight": "0.30",
+    "max_prediction_weight": "0.15",
     "min_annualized_return": "0.30",
     "min_depth_usd": "20",
     "baseline_min_price": "0.80",
