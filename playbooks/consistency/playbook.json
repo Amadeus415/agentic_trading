@@ -5,7 +5,7 @@
   "universe": [
     "binary event contracts on Polymarket and Kalshi; exclude asset-price bets"
   ],
-  "trigger": "The scanner flags equivalent questions or complementary prices.",
+  "trigger": "The scan flags cross-venue gaps, strike or date ladders, or events of unknown exclusivity.",
   "entry_rule": "Verify equivalent rules and settlement sources literally. Account for each leg, fees, depth, and non-atomic execution. Never call a textual match arbitrage.",
   "exit_rule": "Official settlement, price invalidation, target, or stated horizon; up to one year.",
   "sizing_hints": "Buy YES or NO with cash. Half Kelly with driver and position caps. No naked shorts.",

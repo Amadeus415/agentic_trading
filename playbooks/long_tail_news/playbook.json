@@ -5,7 +5,7 @@
   "universe": [
     "binary event contracts on Polymarket and Kalshi; exclude asset-price bets"
   ],
-  "trigger": "A new primary release materially changes an event probability.",
+  "trigger": "A scheduled or new primary release materially changes a lightly traded event's probability.",
   "entry_rule": "Find the primary release, compare its timestamp with the quote, state a base rate and evidence-driven probability update.",
   "exit_rule": "Official settlement, price invalidation, target, or stated horizon; up to one year.",
   "sizing_hints": "Buy YES or NO with cash. Half Kelly with driver and position caps. No naked shorts.",

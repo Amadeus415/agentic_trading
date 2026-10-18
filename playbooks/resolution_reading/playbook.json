@@ -5,7 +5,7 @@
   "universe": [
     "binary event contracts on Polymarket and Kalshi; exclude asset-price bets"
   ],
-  "trigger": "A primary source already determines or tightly constrains the event.",
+  "trigger": "A primary source already determines or tightly constrains an event resolving soon.",
   "entry_rule": "Quote the exact rule, source, date, timezone, and exception clauses. Explain remaining dispute risk.",
   "exit_rule": "Official settlement, price invalidation, target, or stated horizon; up to one year.",
   "sizing_hints": "Buy YES or NO with cash. Half Kelly with driver and position caps. No naked shorts.",

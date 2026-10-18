@@ -15,22 +15,34 @@ def test_starting_playbooks_have_separate_incubation_sleeves() -> None:
     assert len(playbooks) == 3
     assert len({item.spec.id for item in playbooks}) == 3
     assert all(item.prompt_hash for item in playbooks)
-    assert all(item.weight == Decimal("0.60") for item in allocations)
-    assert sum(item.weight for item in allocations) == Decimal("1.80")
+    assert all(item.weight == Decimal("0.35") for item in allocations)
+    assert sum(item.weight for item in allocations) == Decimal("1.05")
 
 
-def test_allocator_scales_evidence_and_freezes_negative_sleeve() -> None:
+def test_forecast_skill_promotes_informative_and_freezes_uninformative_playbooks() -> None:
     playbooks = load_playbooks(ROOT / "playbooks")
-    good_id = playbooks[0].spec.id
-    bad_id = playbooks[1].spec.id
-    trades = [{"playbook_id": good_id, "realized_pnl_after_cost": "2"} for _ in range(20)] + [
-        {"playbook_id": bad_id, "realized_pnl_after_cost": "-1"} for _ in range(30)
-    ]
-    allocations = {item.playbook_id: item for item in allocate_sleeves(playbooks, trades)}
-    assert allocations[good_id].status == "active"
-    assert allocations[good_id].weight > 0
-    assert allocations[bad_id].status == "frozen"
-    assert allocations[bad_id].weight == 0
+    good, bad, young = (book.spec.id for book in playbooks)
+    skill = {
+        good: {"scored": 40, "estimated_trust": 0.4},
+        bad: {"scored": 40, "estimated_trust": 0.0, "trust_basis": "resolution"},
+        young: {"scored": 5, "estimated_trust": 0.0},
+    }
+    allocations = {item.playbook_id: item for item in allocate_sleeves(playbooks, (), skill=skill)}
+    assert allocations[good].status == "active"
+    assert allocations[good].weight > 0
+    assert allocations[bad].status == "frozen"
+    assert allocations[bad].weight == 0
+    assert "no information" in allocations[bad].reason
+    assert allocations[young].status == "incubating"
+
+
+def test_realized_losses_freeze_a_playbook_even_with_good_forecasts() -> None:
+    playbooks = load_playbooks(ROOT / "playbooks")
+    book = playbooks[0].spec.id
+    trades = [{"playbook_id": book, "realized_pnl_after_cost": "-1"} for _ in range(30)]
+    skill = {book: {"scored": 40, "estimated_trust": 0.4}}
+    allocations = allocate_sleeves(playbooks, trades, skill=skill)
+    assert allocations[0].status == "frozen"
 
 
 def test_shadow_sleeve_records_but_does_not_receive_capital() -> None:
@@ -64,10 +76,10 @@ def test_retirement_is_sticky_and_active_sleeve_without_positive_score_does_not_
     playbooks = load_playbooks(ROOT / "playbooks")[:3]
     retired, active, profitable = (book.spec.id for book in playbooks)
     trades = [{"playbook_id": retired, "realized_pnl_after_cost": "2"}] * 25
-    trades += [{"playbook_id": profitable, "realized_pnl_after_cost": "2"}] * 25
     result = allocate_sleeves(
         playbooks,
         trades,
+        skill={profitable: {"scored": 50, "estimated_trust": 0.3}},
         status_overrides={retired: "retired", active: "active", profitable: "active"},
     )
     assert result[0].status == "retired"
@@ -96,3 +108,11 @@ def test_many_paper_experiments_cannot_multiply_the_fund_budget() -> None:
         playbooks, (), gross_budget=Decimal("1"), policy=TradingPolicy(incubation_weight="2")
     )
     assert Decimal("0.999999999999999999999999") <= sum(item.weight for item in allocations) <= 1
+
+
+def test_unresolved_drift_can_promote_but_never_freeze() -> None:
+    playbooks = load_playbooks(ROOT / "playbooks")
+    book = playbooks[0].spec.id
+    skill = {book: {"scored": 40, "estimated_trust": -0.2, "trust_basis": "drift"}}
+    allocations = allocate_sleeves(playbooks, (), skill=skill)
+    assert allocations[0].status == "incubating"
