@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|.*(place|cancel)_(equity|option)_order.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"$CLAUDE_PROJECT_DIR/scripts/deny_broker_tools.py\"",
+            "timeout": 10,
+            "statusMessage": "Blocking broker mutation tools"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -32,9 +32,9 @@ def test_deny_broker_tools_blocks_place_equity_order(monkeypatch, capsys) -> Non
         ),
     )
     assert module.main() == 0
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["decision"] == "deny"
-    assert "paper-only" in payload["reason"]
+    payload = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert payload["permissionDecision"] == "deny"
+    assert "paper-only" in payload["permissionDecisionReason"]
 
 
 def test_deny_broker_tools_allows_unrelated_tools(monkeypatch, capsys) -> None:
@@ -42,7 +42,15 @@ def test_deny_broker_tools_allows_unrelated_tools(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         module.sys,
         "stdin",
-        io.StringIO(json.dumps({"tool_name": "web.search", "tool_input": {"query": "AAPL"}})),
+        io.StringIO(json.dumps({"tool_name": "WebSearch", "tool_input": {"query": "AAPL"}})),
     )
     assert module.main() == 0
     assert capsys.readouterr().out == ""
+
+
+def test_deny_broker_tools_blocks_shell_calls_that_name_order_tools(monkeypatch, capsys) -> None:
+    module = _module()
+    event = {"tool_name": "Bash", "tool_input": {"command": "mcp call place_option_order"}}
+    monkeypatch.setattr(module.sys, "stdin", io.StringIO(json.dumps(event)))
+    assert module.main() == 0
+    assert json.loads(capsys.readouterr().out)["hookSpecificOutput"]["permissionDecision"] == "deny"

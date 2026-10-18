@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed Codex PreToolUse guard: never allow broker mutation tools."""
+"""Fail-closed Claude Code PreToolUse guard: never allow broker mutation tools."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ def main() -> int:
     try:
         event = json.load(sys.stdin)
     except (json.JSONDecodeError, OSError):
-        return _deny("Edgecraft could not parse the Codex tool event.")
+        return _deny("Edgecraft could not parse the Claude Code tool event.")
     tool_name = str(event.get("tool_name", ""))
     if _is_protected(tool_name, event.get("tool_input", {})):
         return _deny(
@@ -38,8 +38,16 @@ def _is_protected(tool_name: str, tool_input: Any) -> bool:
 
 
 def _deny(reason: str) -> int:
-    json.dump({"decision": "deny", "reason": reason}, sys.stdout)
-    print(file=sys.stderr)
+    json.dump(
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": reason,
+            }
+        },
+        sys.stdout,
+    )
     return 0
 
 
