@@ -23,40 +23,30 @@ from edgecraft.paper_fund import FundMandate, PaperFundLedger
 from edgecraft.playbooks import LoadedPlaybook, PlaybookSpec, PlaybookStatus
 
 
-def test_evolution_records_validated_incubated_and_allocator_promoted_path(tmp_path: Path) -> None:
-    walk = tmp_path / "walk.json"
-    research = tmp_path / "research.json"
-    walk.write_text(
-        json.dumps(
-            {
-                "schema_version": "edgecraft.walk-forward.v1",
-                "summary": {"passed": True, "oos_return": 0.08},
-            }
-        )
-    )
-    research.write_text(
-        json.dumps({"results": [{"metrics": {"deflated_sharpe_probability": 0.97}}]})
-    )
+def _mandate() -> FundMandate:
+    raw = json.loads(Path("examples/fund.mandate.predictions.json").read_text())
+    return FundMandate.model_validate(raw["mandate"])
+
+
+def test_experiment_incubates_then_allocator_promotes_it_on_forecast_skill(tmp_path: Path) -> None:
     proposal = ChangeProposal(
         proposal_id="p1",
         kind=ChangeKind.PLAYBOOK_PARAM,
-        playbook_id="crypto_momentum",
-        rationale="Shorten time stop after measured decay.",
-        patch={"exit_rule": "Exit after 48 hours."},
-        backtestable=True,
-        validation_artifacts=(str(walk), str(research)),
+        playbook_id="resolution_reading",
+        rationale="Exit earlier when the primary source is delayed.",
+        patch={"exit_rule": "Exit after 48 hours without the release."},
     )
     postmortem = Postmortem(
-        generated_at=datetime(2026, 9, 1, tzinfo=UTC),
+        generated_at=datetime(2026, 10, 18, tzinfo=UTC),
         fund_id="fund",
-        what_worked=("momentum",),
+        what_worked=("rule reading",),
         what_failed=("slow exits",),
-        calibration_gaps=("60-70%",),
-        suspected_mechanism_failures=("decay",),
+        calibration_gaps=(),
+        suspected_mechanism_failures=("delayed releases",),
         proposals=(proposal,),
     )
     with PaperFundLedger(tmp_path / "fund.db") as ledger:
-        ledger.initialize("fund", FundMandate())
+        ledger.initialize("fund", _mandate())
         transitions = apply_postmortem(ledger, postmortem)
         promoted = reconcile_allocator_lifecycle(
             ledger,
@@ -65,12 +55,13 @@ def test_evolution_records_validated_incubated_and_allocator_promoted_path(tmp_p
                 SleeveAllocation(
                     playbook_id=transitions[-1]["playbook_id"],
                     status="active",
-                    trade_count=20,
-                    realized_pnl=Decimal("40"),
-                    expectancy=Decimal("2"),
-                    lower_confidence_bound=Decimal("1"),
+                    trade_count=0,
+                    realized_pnl=Decimal("0"),
+                    expectancy=None,
+                    forecasts_scored=40,
+                    estimated_trust=0.4,
                     weight=Decimal("0.25"),
-                    reason="positive evidence",
+                    reason="forecasts beat the market",
                 ),
             ),
         )
@@ -80,62 +71,12 @@ def test_evolution_records_validated_incubated_and_allocator_promoted_path(tmp_p
             for book in effective_playbooks(ledger, "fund")
             if book.spec.id == transitions[-1]["playbook_id"]
         )
-        assert candidate.spec.exit_rule == "Exit after 48 hours."
+        assert candidate.spec.exit_rule == "Exit after 48 hours without the release."
         assert latest_playbook_statuses(ledger, "fund")[candidate.spec.id] == "active"
-        assert candidate.spec.id != "crypto_momentum"
-    assert [item["to_status"] for item in transitions] == ["validated", "incubating"]
-    assert promoted[0]["to_status"] == "active"
-
-
-def test_non_backtestable_prompt_edit_enters_forward_paper_sleeve(tmp_path: Path) -> None:
-    proposal = ChangeProposal(
-        proposal_id="p2",
-        kind=ChangeKind.RESEARCH_PROMPT_EDIT,
-        playbook_id="crypto_momentum",
-        rationale="Ask for volume confirmation more explicitly.",
-        patch={"prompt": "require volume"},
-        backtestable=False,
-    )
-    postmortem = Postmortem(
-        generated_at=datetime(2026, 9, 1, tzinfo=UTC),
-        fund_id="fund",
-        what_worked=("momentum",),
-        what_failed=("slow exits",),
-        calibration_gaps=(),
-        suspected_mechanism_failures=(),
-        proposals=(proposal,),
-    )
-    with PaperFundLedger(tmp_path / "fund.db") as ledger:
-        ledger.initialize("fund", FundMandate())
-        transitions = apply_postmortem(ledger, postmortem)
+        assert candidate.spec.id != "resolution_reading"
     assert [item["to_status"] for item in transitions] == ["incubating"]
-
-
-def test_rule_experiment_needs_no_backtest_but_supplied_failed_artifact_stays_unfunded(
-    tmp_path: Path,
-) -> None:
-    from edgecraft.evolution import validate_proposal
-
-    proposal = ChangeProposal(
-        proposal_id="rule-test",
-        kind="playbook_param",
-        playbook_id="crypto_momentum",
-        rationale="Test a faster exit against forward outcomes.",
-        patch={"exit_rule": "Exit after 12 hours."},
-        backtestable=False,
-    )
-    assert validate_proposal(proposal).passed
-    artifact = tmp_path / "failed.json"
-    artifact.write_text(
-        json.dumps(
-            {
-                "schema_version": "edgecraft.walk-forward.v1",
-                "summary": {"passed": False, "oos_return": -0.1},
-            }
-        )
-    )
-    supplied = proposal.model_copy(update={"validation_artifacts": (str(artifact),)})
-    assert not validate_proposal(supplied).passed
+    assert promoted[0]["to_status"] == "active"
+    assert promoted[0]["estimated_trust"] == 0.4
 
 
 def test_evolution_rejects_changes_to_human_owned_boundary() -> None:
@@ -143,10 +84,9 @@ def test_evolution_rejects_changes_to_human_owned_boundary() -> None:
         ChangeProposal(
             proposal_id="bad",
             kind=ChangeKind.PLAYBOOK_PARAM,
-            playbook_id="crypto_momentum",
+            playbook_id="resolution_reading",
             rationale="cheat",
             patch={"fee_bps": 0},
-            backtestable=True,
         )
 
 
@@ -157,7 +97,7 @@ def test_persisted_lifecycle_status_controls_allocator() -> None:
             version=1,
             status=PlaybookStatus.INCUBATING,
             thesis="A test playbook.",
-            universe=("stocks",),
+            universe=("binary event contracts",),
             trigger="A catalyst occurs.",
             entry_rule="Positive after-cost edge.",
             exit_rule="Thesis invalidation.",
@@ -195,18 +135,17 @@ def test_review_replay_is_noop_and_prompt_candidate_preserves_parent(tmp_path: P
     proposal = ChangeProposal(
         proposal_id="prompt-1",
         kind="research_prompt_edit",
-        playbook_id="crypto_momentum",
+        playbook_id="resolution_reading",
         rationale="Measured missing volume evidence.",
         patch={"prompt": "Require volume evidence."},
-        backtestable=False,
     )
     review = _review(proposal)
     with PaperFundLedger(tmp_path / "fund.db") as ledger:
-        ledger.initialize("fund", FundMandate())
+        ledger.initialize("fund", _mandate())
         original = next(
             book
             for book in effective_playbooks(ledger, "fund")
-            if book.spec.id == "crypto_momentum"
+            if book.spec.id == "resolution_reading"
         )
         transitions = apply_postmortem(ledger, review)
         count = len(ledger.list_events("fund"))
@@ -225,20 +164,18 @@ def test_invalid_second_proposal_does_not_partially_complete_review(tmp_path: Pa
     valid = ChangeProposal(
         proposal_id="retire-1",
         kind="retire_playbook",
-        playbook_id="crypto_momentum",
+        playbook_id="resolution_reading",
         rationale="Poor results",
-        backtestable=False,
     )
     invalid = ChangeProposal(
         proposal_id="bad-2",
         kind="research_prompt_edit",
-        playbook_id="crypto_momentum",
+        playbook_id="resolution_reading",
         rationale="Invalid patch",
         patch={"nested": {"fee_bps": 0}},
-        backtestable=False,
     )
     with PaperFundLedger(tmp_path / "fund.db") as ledger:
-        ledger.initialize("fund", FundMandate())
+        ledger.initialize("fund", _mandate())
         count = len(ledger.list_events("fund"))
         with pytest.raises(ValueError, match="unsupported patch"):
             apply_postmortem(ledger, _review(valid, invalid))
@@ -249,7 +186,7 @@ def test_review_due_daily_or_after_ten_new_closed_trades(tmp_path: Path) -> None
     from datetime import timedelta
 
     with PaperFundLedger(tmp_path / "fund.db") as ledger:
-        ledger.initialize("fund", FundMandate())
+        ledger.initialize("fund", _mandate())
         anchor = ledger.list_events("fund")[0].occurred_at
         assert not review_status(ledger, "fund", [], now=anchor + timedelta(hours=23))["due"]
         assert review_status(ledger, "fund", [], now=anchor + timedelta(days=1))["due"]

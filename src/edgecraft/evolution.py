@@ -33,8 +33,6 @@ class ChangeProposal(BaseModel):
     playbook_id: str = Field(min_length=1, max_length=128)
     rationale: str = Field(min_length=1, max_length=4000)
     patch: dict[str, Any] = Field(default_factory=dict)
-    backtestable: bool
-    validation_artifacts: tuple[str, ...] = ()
 
     @model_validator(mode="after")
     def _protect_human_owned_boundary(self) -> ChangeProposal:
@@ -64,14 +62,6 @@ class Postmortem(BaseModel):
     calibration_gaps: tuple[str, ...]
     suspected_mechanism_failures: tuple[str, ...]
     proposals: tuple[ChangeProposal, ...] = ()
-
-
-class ValidationResult(BaseModel):
-    passed: bool
-    reason: str
-    out_of_sample_positive: bool = False
-    deflated_sharpe_probability: float | None = None
-    artifacts: tuple[str, ...] = ()
 
 
 def latest_playbook_statuses(ledger: PaperFundLedger, fund_id: str) -> dict[str, str]:
@@ -149,18 +139,35 @@ def build_postmortem(report: dict[str, Any]) -> Postmortem:
         name: _aggregate_trades([trade for trade in trades if trade["playbook_id"] == name])
         for name in {trade["playbook_id"] for trade in trades}
     }
+    variants = (report.get("forecast_skill") or {}).get("variants", {})
     worked = tuple(
-        f"{name}: expectancy {metrics['expectancy_after_cost']}"
-        for name, metrics in cuts.items()
-        if metrics["expectancy_after_cost"] is not None
-        and float(metrics["expectancy_after_cost"]) > 0
-    ) or ("No playbook has enough positive attributed evidence yet.",)
+        [
+            f"{name}: trust {metrics['trust']} on {metrics['scored']} scored forecasts "
+            f"(skill {metrics['skill']})"
+            for name, metrics in variants.items()
+            if (metrics.get("estimated_trust") or 0) > 0.1
+        ]
+        + [
+            f"{name}: expectancy {metrics['expectancy_after_cost']}"
+            for name, metrics in cuts.items()
+            if metrics["expectancy_after_cost"] is not None
+            and float(metrics["expectancy_after_cost"]) > 0
+        ]
+    ) or ("No playbook has enough positive measured evidence yet.",)
     failed = tuple(
-        f"{name}: expectancy {metrics['expectancy_after_cost']}"
-        for name, metrics in cuts.items()
-        if metrics["expectancy_after_cost"] is not None
-        and float(metrics["expectancy_after_cost"]) <= 0
-    ) or ("No measured negative playbook expectancy.",)
+        [
+            f"{name}: estimated trust {metrics['estimated_trust']} on "
+            f"{metrics['scored']} scored forecasts"
+            for name, metrics in variants.items()
+            if metrics.get("estimated_trust") is not None and metrics["estimated_trust"] <= 0.05
+        ]
+        + [
+            f"{name}: expectancy {metrics['expectancy_after_cost']}"
+            for name, metrics in cuts.items()
+            if metrics["expectancy_after_cost"] is not None
+            and float(metrics["expectancy_after_cost"]) <= 0
+        ]
+    ) or ("No measured negative playbook evidence.",)
     return Postmortem(
         generated_at=datetime.now(UTC),
         fund_id=report["fund_id"],
@@ -168,48 +175,10 @@ def build_postmortem(report: dict[str, Any]) -> Postmortem:
         what_failed=failed,
         calibration_gaps=gaps,
         suspected_mechanism_failures=(
-            "Repeated beliefs are scored separately from round-trip P&L.",
+            "Forecast trust, not trade count, decides promotion; refreshes never add samples.",
             f"Closed trade sample remains {summary['closed_trades']}; do not overfit.",
         ),
         proposals=(),
-    )
-
-
-def validate_proposal(proposal: ChangeProposal) -> ValidationResult:
-    if proposal.kind is ChangeKind.RETIRE_PLAYBOOK:
-        return ValidationResult(
-            passed=True, reason="Retirement reduces risk and needs no backtest."
-        )
-    if not proposal.validation_artifacts:
-        return ValidationResult(
-            passed=True,
-            reason="Forward paper experiment; no backtest claim. Results earn or lose budget.",
-        )
-    oos_positive = False
-    dsr: float | None = None
-    paths: list[str] = []
-    for raw_path in proposal.validation_artifacts:
-        path = Path(raw_path)
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        paths.append(str(path.resolve()))
-        if payload.get("schema_version") == "edgecraft.walk-forward.v1":
-            summary = payload.get("summary", {})
-            oos_positive = bool(summary.get("passed")) and float(summary.get("oos_return", 0)) > 0
-        for result in payload.get("results", []):
-            probability = result.get("metrics", {}).get("deflated_sharpe_probability")
-            if probability is not None:
-                dsr = max(dsr or 0, float(probability))
-    passed = oos_positive and dsr is not None and dsr >= 0.95
-    return ValidationResult(
-        passed=passed,
-        reason=(
-            "Positive walk-forward OOS and deflated Sharpe probability >= 0.95."
-            if passed
-            else "Requires positive walk-forward OOS and deflated Sharpe probability >= 0.95."
-        ),
-        out_of_sample_positive=oos_positive,
-        deflated_sharpe_probability=dsr,
-        artifacts=tuple(paths),
     )
 
 
@@ -238,7 +207,6 @@ def apply_postmortem(
     transitions: list[dict[str, Any]] = []
     versions: list[dict[str, Any]] = []
     for proposal in postmortem.proposals:
-        validation = validate_proposal(proposal)
         parent = books.get(proposal.playbook_id)
         if parent is None and proposal.kind is not ChangeKind.NEW_PLAYBOOK:
             raise ValueError(f"unknown playbook: {proposal.playbook_id}")
@@ -271,13 +239,8 @@ def apply_postmortem(
                 raise ValueError("experiment requires a nonempty research prompt")
             digest = hashlib.sha256(proposal.model_dump_json().encode()).hexdigest()[:12]
             target_id = f"{proposal.playbook_id[:48]}_{digest}"
-            targets = (
-                ["proposed"]
-                if not validation.passed
-                else ["validated", "incubating"]
-                if validation.artifacts
-                else ["incubating"]
-            )
+            # Every experiment earns or loses budget through its own forward forecasts.
+            targets = ["incubating"]
             spec.update({key: value for key, value in proposal.patch.items() if key != "prompt"})
             spec.update(
                 id=target_id, version=(parent.spec.version + 1 if parent else 1), status=targets[-1]
@@ -296,7 +259,6 @@ def apply_postmortem(
                 "parent_playbook_id": proposal.playbook_id,
                 "kind": proposal.kind.value,
                 "to_status": target,
-                "validation": validation.model_dump(mode="json"),
             }
             transitions.append(transition)
     ledger.record_operational_event(
@@ -329,11 +291,9 @@ def reconcile_allocator_lifecycle(
             "expectancy": (
                 str(allocation.expectancy) if allocation.expectancy is not None else None
             ),
-            "lower_confidence_bound": (
-                str(allocation.lower_confidence_bound)
-                if allocation.lower_confidence_bound is not None
-                else None
-            ),
+            "forecasts_scored": allocation.forecasts_scored,
+            "estimated_trust": allocation.estimated_trust,
+            "reason": allocation.reason,
             "source": "allocator",
         }
         ledger.record_operational_event(fund_id, "playbook_transition", transition)
