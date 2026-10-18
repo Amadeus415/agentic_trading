@@ -118,3 +118,9 @@ The full record is in [history/v1-multi-asset](history/v1-multi-asset/README.md)
 - **Expected effect:** less code on the money path. Ledger accounting still replays every v1 cycle, and v1 reports still generate.
 - **Measure:** `make validate`; `fund-verify` for both eras.
 - **Fund:** none; no trading behavior changes.
+
+## 2026-10-18 · Move research and reviews from Codex to Claude Code
+- **Why:** the fund's agent runs move to Claude Code. Codex automations and their PreToolUse hook were the only Codex dependency.
+- **Expected effect:** five Claude Code local scheduled tasks (four daily research sessions at the same Pacific times, one Sunday review) replace the five Codex automations and follow `docs/SCHEDULED_TASKS.md`. `.claude/settings.json` blocks broker order tools in every session. Accounting, sizing, the monitor, and cycle keys are unchanged.
+- **Measure:** cycles record the Claude model in `runtime.model`; one accepted cycle per session key, as before. A skipped run shows as a missing session key in `make fund-show`.
+- **Fund:** `edgecraft-predictions`. The Codex automations are paused once the Claude tasks exist, not deleted, so they can be resumed if needed.
