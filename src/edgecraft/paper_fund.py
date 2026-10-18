@@ -2307,7 +2307,7 @@ class PaperFundLedger:
         occurred_at: datetime | None = None,
     ) -> int:
         """Append a non-accounting lifecycle/operations event to the hash chain."""
-        if not event_type.startswith(("playbook_", "postmortem_", "alert_")):
+        if not event_type.startswith(("playbook_", "postmortem_", "alert_", "forecast_")):
             raise PaperFundValidationError("unsupported operational event type")
         with self._transaction() as conn:
             if conn.execute("SELECT 1 FROM funds WHERE fund_id = ?", (fund_id,)).fetchone() is None:
