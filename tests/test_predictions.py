@@ -7,8 +7,16 @@ import pytest
 
 from edgecraft.marketdata import KalshiProvider, MarketDataError, PolymarketProvider
 from edgecraft.paper_fund import AssetClass, FundMandate, execution_fee
+from edgecraft.policy import TradingPolicy
 from edgecraft.prediction_scoring import prediction_scores
-from edgecraft.scanner import consistency_flags, shortlist
+from edgecraft.scanner import (
+    _kalshi_rows,
+    _polymarket_rows,
+    cross_venue_flags,
+    event_flags,
+    prerank,
+    shortlist,
+)
 
 NOW = datetime(2026, 10, 15, tzinfo=UTC)
 
@@ -21,6 +29,10 @@ def mandate():
 
 @pytest.mark.parametrize("fee_type", ["quadratic", "quadratic_with_maker_fees"])
 def test_kalshi_complement_book_and_venue_fees(monkeypatch, fee_type):
+    from edgecraft.marketdata import _kalshi_series
+
+    _kalshi_series.cache_clear()  # Series fee schedules are memoized per process.
+
     def get(url):
         if url.endswith("/orderbook"):
             return {
@@ -107,45 +119,6 @@ def test_scoring_uses_settlement_not_profit_and_deduplicates_refreshes():
     assert Decimal(report["summary"]["brier_improvement"]) == Decimal("0.12")
     assert report["contracts"][0]["sampled_clv"] == "0.1"
     assert report["cuts"]["source_revision"][0]["source_revision"] == "abc"
-
-
-def test_scanner_excludes_price_bets_before_fetching():
-    class Router:
-        def quote(self, *args):
-            raise AssertionError("should not fetch")
-
-    report = shortlist(
-        [
-            {
-                "market_id": "1",
-                "venue": "polymarket",
-                "question": "Bitcoin above 100k?",
-                "end_at": "2026-10-16T00:00:00Z",
-            }
-        ],
-        Router(),
-        mandate(),
-        now=NOW,
-    )
-    assert not report["candidates"]
-    assert report["excluded"][0]["reason"] == "asset_price_bet_requires_reference_model"
-
-
-def test_cross_venue_match_is_only_a_rule_review_flag():
-    rows = [
-        dict(
-            venue=v,
-            question="Will the Fed cut rates?",
-            instrument_id=f"{v}:1:YES",
-            bid=bid,
-            ask=ask,
-            entry_fee_per_share="0",
-        )
-        for v, bid, ask in [("kalshi", "0.7", "0.8"), ("polymarket", "0.4", "0.5")]
-    ]
-    flags = consistency_flags(rows)
-    assert flags[0]["raw_price_gap"] == "0.2"
-    assert flags[0]["semantics_verified"] is False
 
 
 def test_prediction_horizons_extend_without_changing_legacy_limits():
@@ -294,38 +267,6 @@ def test_prediction_entry_and_settlement_replay_with_long_horizon_and_fee_metada
         assert ledger.verify("new").ok
 
 
-def test_scanner_book_budget_reaches_both_venues(monkeypatch):
-    from types import SimpleNamespace
-
-    from edgecraft.paper_fund import BookLevel
-
-    requested = []
-
-    class Router:
-        def quote(self, instrument, asset):
-            requested.append(instrument)
-            return SimpleNamespace(
-                bids=(BookLevel(price="0.4", size="100"),),
-                asks=(BookLevel(price="0.5", size="100"),),
-                model_dump=lambda **kwargs: {},
-            )
-
-    monkeypatch.setattr("edgecraft.scanner.execution_fee", lambda *args: Decimal("1"))
-    markets = [
-        dict(
-            venue=venue,
-            market_id=str(index),
-            question="Fed decision?",
-            end_at="2026-10-16T00:00:00Z",
-        )
-        for venue in ("polymarket", "kalshi")
-        for index in range(5)
-    ]
-    report = shortlist(markets, Router(), mandate(), now=NOW, max_books=2)
-    assert report["coverage"]["book_markets_attempted"] == 2
-    assert {instrument.split(":")[0] for instrument in requested} == {"polymarket", "kalshi"}
-
-
 def test_legacy_prediction_only_mandate_keeps_flat_fees():
     from edgecraft.paper_fund import FundQuote
 
@@ -344,25 +285,216 @@ def test_legacy_prediction_only_mandate_keeps_flat_fees():
     assert legacy.scheduled_horizon_hours == 72
 
 
-def test_scanner_skips_listed_empty_books_before_spending_fetch_budget():
+def _market(
+    market_id="1",
+    *,
+    venue="polymarket",
+    bid="0.40",
+    ask="0.42",
+    hours=24,
+    volume="0",
+    question="Will the agency publish the report?",
+    event="e1",
+    exclusive=False,
+):
+    end = NOW.timestamp() + hours * 3600
+    return dict(
+        venue=venue,
+        market_id=market_id,
+        event_id=f"{venue}:{event}",
+        event_title="Agency report",
+        mutually_exclusive=exclusive,
+        question=question,
+        rules="Resolves YES if the agency publishes.",
+        end_at=datetime.fromtimestamp(end, UTC).isoformat(),
+        yes_bid=Decimal(bid) if bid is not None else None,
+        yes_ask=Decimal(ask) if ask is not None else None,
+        yes_bid_size=None,
+        yes_ask_size=None,
+        volume_24h=Decimal(volume),
+        source_url="https://example.test",
+        listing_mid=None,
+    )
+
+
+class _BookRouter:
+    def __init__(self, size="1000"):
+        self.size = size
+        self.requested = []
+
+    def quote(self, instrument, asset):
+        from edgecraft.paper_fund import FundQuote
+
+        self.requested.append(instrument)
+        return FundQuote(
+            quote_id=f"q-{instrument}",
+            instrument_id=instrument,
+            asset_class="prediction",
+            price="0.41",
+            observed_at=NOW,
+            source_timestamp=NOW,
+            source_name="test",
+            source_url="https://example.test",
+            bids=[{"price": "0.40", "size": self.size}],
+            asks=[{"price": "0.42", "size": self.size}],
+            fee_rate="0",
+            fee_exponent=1,
+            fee_quantum="0.00001",
+        )
+
+
+def test_scanner_excludes_price_bets_and_empty_listings_before_fetching():
     class Router:
         def quote(self, *args):
-            raise AssertionError("empty listing should not spend book budget")
+            raise AssertionError("should not fetch")
 
     report = shortlist(
         [
-            dict(
-                venue="kalshi",
-                market_id="empty",
-                question="Will a release occur?",
-                end_at="2026-10-16T00:00:00Z",
-                indicative_bid="0",
-                indicative_ask="0",
-            )
+            _market("1", question="Bitcoin above 100k?"),
+            _market("2", question="XRP Up or Down - 6:30PM ET"),
+            _market("3", bid="0", ask="0"),
+            _market("4", hours=24 * 400),
         ],
         Router(),
         mandate(),
+        TradingPolicy(),
         now=NOW,
     )
+    assert not report["candidates"]
+    assert report["excluded"] == {
+        "asset_price_bet_requires_reference_model": 2,
+        "listing_has_no_usable_book": 1,
+        "outside_resolution_window": 1,
+    }
     assert report["coverage"]["book_markets_attempted"] == 0
-    assert report["excluded"][0]["reason"] == "listing_has_no_usable_book"
+
+
+def test_rank_prefers_soon_resolving_lightly_watched_markets():
+    sides, _ = prerank(
+        [
+            _market("busy", hours=6, volume="5000000"),
+            _market("slow", hours=24 * 60, volume="0"),
+            _market("sweet", hours=6, volume="200"),
+        ],
+        mandate(),
+        now=NOW,
+    )
+    order = list(dict.fromkeys(row["market_id"] for row in sides))
+    assert order == ["sweet", "busy", "slow"]
+
+
+def test_shortlist_reports_executable_terms_and_velocity():
+    router = _BookRouter()
+    report = shortlist([_market("1", hours=48)], router, mandate(), TradingPolicy(), now=NOW)
+    yes = next(row for row in report["candidates"] if row["instrument_id"].endswith(":YES"))
+    assert yes["ask"] == "0.42"
+    assert Decimal(yes["return_if_wins"]) == pytest.approx(
+        Decimal("0.58") / Decimal("0.42"), abs=Decimal("0.000001")
+    )
+    assert Decimal(yes["annualized_if_wins"]) > 100
+    assert report["catalysts"][0]["instrument_id"].startswith("polymarket:1:")
+
+
+def test_liquidity_is_a_constraint_not_the_goal():
+    thin = shortlist([_market("1")], _BookRouter(size="10"), mandate(), TradingPolicy(), now=NOW)
+    assert thin["candidates"] == []
+    assert thin["excluded"]["spread_or_depth"] == 2
+
+
+def test_book_budget_counts_markets_not_sides():
+    router = _BookRouter()
+    report = shortlist(
+        [_market(str(i), venue=v) for v in ("polymarket", "kalshi") for i in range(5)],
+        router,
+        mandate(),
+        TradingPolicy(),
+        now=NOW,
+        max_books=3,
+    )
+    assert report["coverage"]["book_markets_attempted"] == 3
+    assert len(requested := router.requested) == 6
+    assert len({instrument.rsplit(":", 1)[0] for instrument in requested}) == 3
+
+
+def test_exclusive_outcomes_with_bids_over_one_are_flagged_as_no_baskets():
+    markets = [
+        _market("a", bid="0.50", ask="0.52", exclusive=True),
+        _market("b", bid="0.35", ask="0.37", exclusive=True),
+        _market("c", bid="0.25", ask="0.27", exclusive=True),
+        _market("x", bid="0.60", ask="0.62", event="other"),
+        _market("y", bid="0.60", ask="0.62", event="other"),
+    ]
+    flags = event_flags(markets, mandate(), now=NOW)
+    assert len(flags) == 1  # "other" is not known to be mutually exclusive
+    assert flags[0]["legs"] == ["polymarket:a:NO", "polymarket:b:NO", "polymarket:c:NO"]
+    assert flags[0]["listing_edge_per_basket"] == "0.10"
+    assert flags[0]["semantics_verified"] is False
+
+
+def test_cross_venue_match_is_only_a_rule_review_flag():
+    rows = [
+        dict(
+            venue=v,
+            question="Will the Fed cut rates?",
+            instrument_id=f"{v}:1:YES",
+            bid=bid,
+            ask=ask,
+        )
+        for v, bid, ask in [("kalshi", "0.7", "0.8"), ("polymarket", "0.4", "0.5")]
+    ]
+    flags = cross_venue_flags(rows)
+    assert flags[0]["raw_price_gap"] == "0.2"
+    assert flags[0]["semantics_verified"] is False
+
+
+def test_listing_rows_normalize_both_venues():
+    poly = _polymarket_rows(
+        [
+            {
+                "id": "7",
+                "outcomes": '["Yes", "No"]',
+                "question": "Will it happen?",
+                "endDate": "2026-10-20T00:00:00Z",
+                "bestBid": 0.3,
+                "bestAsk": 0.32,
+                "volume24hr": 1200,
+                "events": [{"id": "55", "title": "Event", "negRisk": True}],
+            },
+            {"id": "8", "outcomes": '["Lakers", "Celtics"]'},
+        ]
+    )
+    assert len(poly) == 1
+    assert poly[0]["event_id"] == "polymarket:55"
+    assert poly[0]["mutually_exclusive"] is True
+    assert poly[0]["yes_ask"] == Decimal("0.32")
+    kalshi = _kalshi_rows(
+        [
+            {
+                "ticker": "KXT-1",
+                "event_ticker": "KXT",
+                "title": "Will T?",
+                "yes_sub_title": "Above 3",
+                "market_type": "binary",
+                "yes_bid_dollars": "0.10",
+                "yes_ask_dollars": "0.12",
+                "volume_24h_fp": "50.00",
+                "expected_expiration_time": "2026-10-20T00:00:00Z",
+            }
+        ]
+    )
+    assert kalshi[0]["question"] == "Will T? Above 3"
+    assert kalshi[0]["mutually_exclusive"] is None
+
+
+def test_threshold_ladders_are_skipped_without_an_event_lookup(monkeypatch):
+    def no_lookup(url):
+        raise AssertionError(f"unexpected lookup {url}")
+
+    monkeypatch.setattr("edgecraft.scanner._get_json", no_lookup)
+    ladder = [
+        _market(
+            f"T{strike}", venue="kalshi", bid="0.90", ask="0.92", event="ladder", exclusive=None
+        )
+        for strike in range(4)
+    ]
+    assert event_flags(ladder, mandate(), now=NOW) == []
