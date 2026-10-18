@@ -26,16 +26,13 @@ def test_scheduled_cycle_key_and_input_path_use_utc_date_and_slot() -> None:
     assert scheduled_input_path(now) == "state/fund-inputs/2026-08-25-session-us-open.json"
 
 
-def test_pacific_close_scan_has_its_own_key_before_market_close_in_both_seasons() -> None:
+def test_pacific_open_and_close_scans_have_separate_keys_in_both_seasons() -> None:
     from zoneinfo import ZoneInfo
-
-    from edgecraft.monitor import stock_market_is_open
 
     pacific = ZoneInfo("America/Los_Angeles")
     for month in (1, 7):
         open_scan = datetime(2026, month, 6, 10, 15, tzinfo=pacific)
         close_scan = datetime(2026, month, 6, 12, 15, tzinfo=pacific)
-        assert stock_market_is_open(close_scan)
         assert scheduled_slot(open_scan) == SESSION_US_OPEN
         assert scheduled_slot(close_scan) == SESSION_US_CLOSE
         assert scheduled_cycle_key(open_scan) != scheduled_cycle_key(close_scan)

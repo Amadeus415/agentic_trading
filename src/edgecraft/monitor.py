@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 from decimal import Decimal
-from zoneinfo import ZoneInfo
+from typing import Any
 
 from edgecraft.paper_fund import (
     DecisionAction,
@@ -21,14 +21,39 @@ from edgecraft.paper_fund import (
     QuoteStatus,
 )
 
-EASTERN = ZoneInfo("America/New_York")
 GAP_PENALTY_BPS = Decimal("20")
 
 
-def stock_market_is_open(at: datetime) -> bool:
-    local = at.astimezone(EASTERN)
-    minute = local.hour * 60 + local.minute
-    return local.weekday() < 5 and (9 * 60 + 30) <= minute < 16 * 60
+def latest_hypotheses(
+    cycles: Sequence[dict[str, Any]],
+) -> tuple[dict[str, tuple[FundHypothesis, datetime]], dict[str, datetime]]:
+    """Latest journaled hypothesis per instrument and when current inventory opened."""
+    latest: dict[str, tuple[FundHypothesis, datetime]] = {}
+    inventory: dict[str, Decimal] = {}
+    opened_at: dict[str, datetime] = {}
+    for cycle in cycles:
+        cycle_at = datetime.fromisoformat(str(cycle["as_of"]).replace("Z", "+00:00"))
+        for raw in (cycle["decision"].get("journal") or {}).get("hypotheses", []):
+            latest[str(raw["instrument_id"])] = (FundHypothesis.model_validate(raw), cycle_at)
+        for fill in [*cycle.get("fills", []), *cycle.get("settlements", [])]:
+            instrument_id = str(fill["instrument_id"])
+            side = str(fill["side"])
+            quantity = Decimal(str(fill["quantity"]))
+            current = inventory.get(instrument_id, Decimal("0"))
+            if side in {"buy", "short"} and current == 0:
+                opened_at[instrument_id] = cycle_at
+            if side in {"buy", "cover"}:
+                current += quantity
+            elif side in {"sell", "short"}:
+                current -= quantity
+            elif side == "settle":
+                current = Decimal("0")
+            if current == 0:
+                inventory.pop(instrument_id, None)
+                opened_at.pop(instrument_id, None)
+            else:
+                inventory[instrument_id] = current
+    return latest, opened_at
 
 
 def build_monitor_decision(
@@ -39,14 +64,13 @@ def build_monitor_decision(
     hypothesis_started_at: dict[str, datetime],
     quotes: Sequence[FundQuote],
     as_of: datetime,
-) -> tuple[FundDecision, list[dict[str, str]]]:
+) -> FundDecision:
     """Create a model-free decision that exits hit stops, targets, and time stops."""
     quote_by_id = {quote.instrument_id: quote for quote in quotes}
     hypothesis_by_id = {item.instrument_id: item for item in hypotheses}
     evidence: list[FundEvidence] = []
     orders: list[FundOrder] = []
     reasons: list[dict[str, str]] = []
-    queued: list[dict[str, str]] = []
 
     for position in state.positions:
         quote = quote_by_id[position.instrument_id]
@@ -97,9 +121,6 @@ def build_monitor_decision(
         if reason is None and elapsed_hours >= hypothesis.expected_horizon_hours:
             reason = "horizon_expired"
         if reason is None:
-            continue
-        if position.asset_class.value == "stock" and not stock_market_is_open(as_of):
-            queued.append({"instrument_id": position.instrument_id, "reason": reason})
             continue
         orders.append(
             FundOrder(
@@ -158,4 +179,4 @@ def build_monitor_decision(
         evidence=tuple(evidence),
         orders=tuple(orders),
     )
-    return decision, queued
+    return decision
