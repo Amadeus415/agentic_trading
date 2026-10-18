@@ -252,6 +252,8 @@ def _adaptive_prompts(
         "faster than a larger one that settles next year.",
         "State p_win, target, invalidation, driver, and playbook. Uncertainty is not itself "
         "a reason to hold; quantify it and let deterministic sizing decide.",
+        "State your honest p_win, never hedged toward the market price: sizing already "
+        "shrinks it by measured trust, so hedging discounts the edge twice.",
         "Trade only the configured asset classes. For prediction-only funds, buy YES or NO "
         "with cash and read the exact settlement rules.",
         "Re-test every open position against its current falsifiers before adding risk.",
