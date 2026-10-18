@@ -57,7 +57,7 @@ flowchart LR
 6. Record. Every cycle and forecast lands in one append-only, hash-chained ledger, tagged with the exact Git commit that ran it.
 7. Improve. A weekly review agent proposes the smallest change the evidence supports: a prompt edit, a rule tweak, or a new playbook. Each one runs as its own paper experiment that forecasts the same markets as its parent. After 30 scored forecasts, measured trust promotes it or freezes it; 10 losing closed trades also freeze it. Details in [`docs/EVOLUTION.md`](docs/EVOLUTION.md).
 
-Research runs on a schedule (four sessions a day through Codex automations). A code-only monitor marks open positions every five minutes, enforces stops, targets, and settlement, scores forecasts, and runs the control fund without calling a model.
+Research runs on a schedule (four sessions a day as Claude Code scheduled tasks). A code-only monitor marks open positions every five minutes, enforces stops, targets, and settlement, scores forecasts, and runs the control fund without calling a model.
 
 ## Reproduce the report
 
@@ -169,7 +169,7 @@ The read-only dashboard shows both eras from the same ledger:
 | [`results/`](results) | Measured results, charts, and the data that rebuilds them |
 | [`playbooks/`](playbooks) | The three v2 research playbooks and their prompts |
 | [`dashboard/`](dashboard) | Read-only Next.js + SQLite dashboard |
-| [`docs/`](docs) | [Design](docs/DESIGN.md), [accounting contract](docs/FUND_ACCOUNTING.md), [operations](docs/OPERATIONS.md), [how the fund learns](docs/EVOLUTION.md), [scheduled runs](docs/CODEX_SCHEDULED_TASK.md) |
+| [`docs/`](docs) | [Design](docs/DESIGN.md), [accounting contract](docs/FUND_ACCOUNTING.md), [operations](docs/OPERATIONS.md), [how the fund learns](docs/EVOLUTION.md), [scheduled runs](docs/SCHEDULED_TASKS.md) |
 | [`history/`](history) | Archived eras, results, and deployment lineage |
 | [`CHANGELOG.md`](CHANGELOG.md) | Why each trading change was made and what it should move |
 

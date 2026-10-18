@@ -28,11 +28,11 @@ The v2 initial deposit is independent experimental capital. It does not increase
 
 ## Schedules and monitoring
 
-Update saved trading prompts to the durable v2 prompt in [CODEX_SCHEDULED_TASK.md](CODEX_SCHEDULED_TASK.md) and evolution prompts to the new config before resuming. Keep the existing cadence unless deliberately changing it; equity-session names now identify research windows. Do not resume until both public venues, required sources, and position marks work with normal TLS verification. A certificate, access, or integrity failure is an operating blocker, not a cash-hold decision.
+Create the scheduled tasks and prompts listed in [SCHEDULED_TASKS.md](SCHEDULED_TASKS.md) before resuming. Keep the existing cadence unless deliberately changing it; equity-session names now identify research windows. Do not resume until both public venues, required sources, and position marks work with normal TLS verification. A certificate, access, or integrity failure is an operating blocker, not a cash-hold decision.
 
 The installed monitor runs `scripts/run_local_monitor.sh` every five minutes. For both the research fund and the code-only `edgecraft-baseline` fund it verifies, enforces exits and settlements, and scores open forecasts. It then runs `fund-baseline`, which scans at most once per `baseline_interval_minutes` and writes a cycle only when it buys; a failed public listing skips that pass. It refuses partial action if any open-position mark fails, verifies again, and refreshes `state/fund-report.json` and `state/fund-report-edgecraft-baseline.json`. The first run initializes the baseline fund's own one-time $1,000. A cash-only monitor need not add a cycle.
 
-Research uses subscription-backed Codex; the monitor is local Python. The Mac and app must be available for local scheduled tasks ([official documentation](https://learn.chatgpt.com/docs/automations?surface=app)). Check saved automation and LaunchAgent state directly; documentation does not prove installation.
+Research runs as Claude Code local scheduled tasks; the monitor is local Python. The Mac must be awake and the Claude desktop app open for scheduled tasks to fire ([official documentation](https://code.claude.com/docs/en/desktop-scheduled-tasks)). Check the app's routine list and LaunchAgent state directly; documentation does not prove installation. The former Codex automations stay paused.
 
 ## Dashboard and reports
 

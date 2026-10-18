@@ -1,6 +1,6 @@
 # Paper-fund accounting contract
 
-The paper fund is a deterministic state machine around one $1,000 bankroll. Codex supplies research, a typed decision, and sourced marks. It cannot supply cash or mutate stored state directly. For how the session, monitor, and evolution loops sit around this contract, see [DESIGN.md](DESIGN.md).
+The paper fund is a deterministic state machine around one $1,000 bankroll. Claude supplies research, a typed decision, and sourced marks. It cannot supply cash or mutate stored state directly. For how the session, monitor, and evolution loops sit around this contract, see [DESIGN.md](DESIGN.md).
 
 Run `make fund-context` for the current machine-readable JSON Schema. The executable static fixture is [fund-cycle.starting.example.json](../examples/fund-cycle.starting.example.json).
 

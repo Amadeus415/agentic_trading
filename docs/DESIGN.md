@@ -1,6 +1,6 @@
 # Prediction-market fund design
 
-One operating path: Codex researches and forecasts, deterministic Python sizes and applies, a code-only control fund sets the bar, and a read-only dashboard explains the ledger.
+One operating path: Claude researches and forecasts, deterministic Python sizes and applies, a code-only control fund sets the bar, and a read-only dashboard explains the ledger.
 
 ## Separate eras, one ledger
 
