@@ -1,0 +1,48 @@
+# Scheduled prediction-market research
+
+Research and reviews run as Claude Code local scheduled tasks in the Claude desktop app. Each run opens a fresh Claude session in the runtime checkout, follows this file, and stops. The model-free monitor is a separate LaunchAgent and needs no task.
+
+## The tasks
+
+Create each one in the desktop app under **Code → Routines → New routine → Local**, or ask Claude in a desktop session to create them from this table. Set the working folder to `/Users/colenba/02_pink_dolphin/01_Shipping/agentic_trading_runtime`, turn the worktree option off (the runtime's `state/` must be shared), and pick **Auto** permissions so an unattended run never waits on a prompt. Times are Pacific.
+
+| Name | Schedule | Prompt |
+| --- | --- | --- |
+| `nightshift-morning-research` | Daily 07:15 | [Research prompt](#research-prompt) |
+| `nightshift-midday-research` | Daily 10:15 | [Research prompt](#research-prompt) |
+| `nightshift-afternoon-research` | Daily 12:15 | [Research prompt](#research-prompt) |
+| `nightshift-evening-research` | Daily 18:15 | [Research prompt](#research-prompt) |
+| `nightshift-weekly-review` | Sundays 17:15 | [Review prompt](#review-prompt) |
+
+The four research times land in four different UTC session slots, so each gets its own cycle key. Local tasks run only while the Mac is awake and the app is open. After sleep, the app starts one catch-up run for the most recent missed time; the cycle key keeps a late run from duplicating a session that already succeeded. Turn on **Keep computer awake** in the app's settings if runs must not be skipped.
+
+The runtime's `.claude/settings.json` installs a PreToolUse hook that denies broker order tools in every session, whatever the permission mode.
+
+Operate only in `/Users/colenba/02_pink_dolphin/01_Shipping/agentic_trading_runtime`, using its installed `.venv/bin/edgecraft`. The active config is `examples/fund.mandate.predictions.json`; the fund is `edgecraft-predictions` in `state/edgecraft-aggressive.db`. The filename preserves the shared ledger. Never resume v1, inject capital, edit tracked files or policies, or use real-order tools.
+
+## One packet, one apply
+
+1. Run `./scripts/prepare_local_runtime.sh` offline. Trading/review runs never pass `--update`. Stop on unresolved preparation or integrity failure.
+2. Discover paths with `rg --files` or Glob. Read `make -s EDGECRAFT=.venv/bin/edgecraft fund-context`. Schemas are under `input_contract.decision_schema`, `input_contract.quote_schema`, and `forecast_contract.schema`; `forecast_skill` shows each playbook's measured trust. Complete a due review under [EVOLUTION.md](EVOLUTION.md), then refresh context.
+3. Run `make EDGECRAFT=.venv/bin/edgecraft fund-scan`. Both venue listings are required. Inspect bounded coverage, exclusions, and individual failures. A failed required source or missing position mark is terminal, not evidence that cash is attractive. Never bypass TLS verification or denied access.
+4. Research in rank order: `catalysts` (resolving within 48 hours) first, then the highest-ranked `candidates`. Rank favors contracts that resolve soon and that few traders watch; `annualized_if_wins` shows what a correct call earns per year of capital. Work all three playbooks: resolution reading, consistency (`cross_venue_flags`, strike and date ladders; `event_flags` baskets are already traded by the code-only baseline), and long-tail news. Read exact settlement rules and primary sources. Similar question text is only a review hint. Check dates, timezones, exclusions, and dispute risk. Exclude stock/crypto price bets.
+5. Write the session forecast file next to the packet: `state/fund-inputs/<cycle key>.forecasts.json`, shaped by `fund-context`'s `forecast_contract` (`uv run edgecraft fund-forecast-schema`). Forecast every market you researched, traded or not, 30 or more when the scan allows, as `p_yes` with `variant` set to the playbook or experiment ID and a `category`. When a review has created experiment versions, forecast the same markets under the parent and each child so they compete head to head. Code stamps each forecast with its own market price; never supply one.
+6. Run `fund-snapshot` for every open position and researched instrument. Use its returned quotes, not guessed cache files. Instrument arguments are `--instrument polymarket:<id>:YES:prediction` or `--instrument kalshi:<ticker>:NO:prediction`. Refresh candidate books immediately before the decision; cached scan quotes may have become stale.
+7. For each directional belief, state `p_win` as probability the purchased outcome settles at $1, playbook ID, shared-event driver, target, invalidation, source evidence, and a realistic horizon through resolution (maximum 8,760 hours). Buy YES or NO with cash. Do not short. Target/stop success is not the definition of `p_win`. Journal every open or ordered instrument and researched rejected candidates. Python shrinks each `p_win` toward the market by the playbook's measured trust, drops edges below the annualized hurdle, funds the fastest edges first, and owns every quantity.
+8. Save one complete packet to the `input_path` printed by `fund-context` or `fund-cycle-key`. It must use that UTC session key, fresh decision time, and unchanged source timestamps. Include runtime model and prompt version when known. Never invent evidence, fees, quotes, or quantities.
+9. Run `./scripts/run_scheduled_cycle.sh` exactly once. It records the forecast file, verifies, applies with code-owned quotes and belief sizing, verifies again, and writes the v2 chart and report.
+10. Inspect `make fund-show`, `make fund-verify`, and `make fund-report-file`. Report simulated fills/settlements, cash, exposure, NAV, provenance, forecast trust, and blockers honestly. No routine publishing or tracked-file commits are part of research runs.
+
+Before packet creation, missing paths, parser mistakes, or no search matches in read-only discovery are recoverable: correct the inspection and continue. Unresolved preparation/integrity failures, incomplete required research, missing position marks, packet validation failures, and any failed apply are terminal. Once saved, do not rewrite a packet to pass a gate. Do not retry failed applies or reuse a stopped key; use a fresh future session after the blocker is fixed. Only identical, explicitly permitted access recovery is allowed.
+
+## Sessions
+
+Keep the existing UTC slots for idempotency: 13:00–15:59 `session-eu`, 16:00–18:59 `session-us-open`, 19:00–22:59 `session-us-close`, otherwise `session-offhours`. Keys are `YYYY-MM-DD-<slot>`. These are legacy names for research windows; prediction trading does not depend on equity hours. The model-free five-minute monitor and the code-only baseline fund have their own timestamped keys.
+
+## Research prompt
+
+> Work only in the authoritative clean runtime `/Users/colenba/02_pink_dolphin/01_Shipping/agentic_trading_runtime`. Follow `docs/SCHEDULED_TASKS.md` exactly. Manage `edgecraft-predictions`, the existing $1,000 paper-only fund in the shared ledger `state/edgecraft-aggressive.db`, with `.venv/bin/edgecraft` and `make EDGECRAFT=.venv/bin/edgecraft`. Prepare offline without `--update`, verify, and read context; confirm the fund ID. If this session's cycle key already succeeded, verify and stop; never reuse a failed or stopped key. Complete at most one due review, then scan both public venues and research catalysts and top-ranked candidates first across all playbooks and experiment versions. Write the session forecast file for every researched market. Snapshot required code-owned quotes. Quote exact settlement rules and primary facts; exclude asset-price speculation and unverified equivalence claims. Quantify purchased-outcome settlement probability, target, invalidation, shared driver, playbook, evidence, and horizon. Python owns trust, fees, depth, sizes, exits, and risk. Save one complete packet for the printed key and apply once. Stop on required-access, integrity, validation, or apply failure; never bypass, rewrite, or retry a failed packet. Never trade v1, edit tracked files or policy, inject funds, commit, push, or call broker/wallet/transfer/order mutation tools. Verify and report simulated actions, cash, exposure, NAV, forecast trust, and blockers; keep private state out of Git.
+
+## Review prompt
+
+> Work only in the authoritative clean runtime `/Users/colenba/02_pink_dolphin/01_Shipping/agentic_trading_runtime` with `.venv/bin/edgecraft`. This is the weekly review fallback for `edgecraft-predictions` in `state/edgecraft-aggressive.db` under `examples/fund.mandate.predictions.json`; do not trade. Run `./scripts/prepare_local_runtime.sh` offline without `--update`, then `fund-context` and `make fund-report-file`, and confirm the fund ID. If `review.due` is false, verify and report that no review is due. When due, follow `docs/EVOLUTION.md`: read `forecast_skill` (variants, categories, head to head), closed positions, lineage, effective playbooks, and prior reviews; keep v1 separate and do not overfit small samples. Write one schema-valid `state/weekly-postmortem.json` (an empty proposal list is valid) and apply `fund-evolve` exactly once. Stop on preparation, integrity, schema, or evolve failure; never rewrite or retry a failed postmortem. Never edit tracked files, commit, push, inject funds, or call broker/wallet/transfer/order mutation tools. Finish with `make fund-verify` and `make fund-report-file`, and report lifecycle changes, sample limits, and blockers.
