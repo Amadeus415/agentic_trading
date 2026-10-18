@@ -79,7 +79,7 @@ results-data:
 dashboard:
 	cd dashboard && npm run dev
 
-# Codex writes this UTC session's researched input; this applies fake-money accounting only.
+# The Claude research task writes this UTC session's researched input; this applies fake-money accounting only.
 scheduled-cycle:
 	./scripts/run_scheduled_cycle.sh
 

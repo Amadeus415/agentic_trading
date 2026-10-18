@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Single fake-money scheduled apply path. Codex researches and writes this
+# Single fake-money scheduled apply path. A Claude scheduled task researches and writes this
 # session's structured input; this script only validates and applies
 # deterministic paper accounting.
 #

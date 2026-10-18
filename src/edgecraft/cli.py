@@ -68,7 +68,7 @@ def _add_fund_commands(commands: Any) -> None:
     commands.add_parser(
         "fund-context",
         parents=[fund],
-        help="Print the authoritative state and decision contract for Codex.",
+        help="Print the authoritative state and decision contract for the research agent.",
     )
     cycle_key = commands.add_parser(
         "fund-cycle-key",
@@ -421,7 +421,7 @@ def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
         "ok": True,
         "paper_only": True,
         "one_sentence": (
-            "Codex researches prediction contracts; deterministic "
+            "Claude researches prediction contracts; deterministic "
             "code applies it to an append-only $1,000 fake-money ledger."
         ),
         "schedule": {
