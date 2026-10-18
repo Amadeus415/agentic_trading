@@ -149,9 +149,32 @@ def _add_fund_commands(commands: Any) -> None:
         "fund-scan", parents=[fund], help="Scan both public prediction venues."
     )
     scan.add_argument("--pages", type=int, choices=range(1, 11), default=2)
-    scan.add_argument("--limit", type=int, choices=range(1, 101), default=20)
+    scan.add_argument("--limit", type=int, choices=range(1, 101), default=25)
     scan.add_argument("--max-books", type=int, choices=range(1, 201), default=40)
     scan.add_argument("--output", type=Path)
+    forecast = commands.add_parser(
+        "fund-forecast",
+        parents=[fund],
+        help="Record research forecasts, each stamped with a code-owned market price.",
+    )
+    forecast.add_argument("--input", required=True, type=Path)
+    commands.add_parser(
+        "fund-forecast-schema", help="Print the strict JSON schema for a forecast file."
+    )
+    score = commands.add_parser(
+        "fund-forecast-score",
+        parents=[fund],
+        help="Fetch outcomes and drift marks for open forecasts.",
+    )
+    score.add_argument("--limit", type=int, choices=range(1, 501), default=60)
+    baseline = commands.add_parser(
+        "fund-baseline",
+        parents=[fund],
+        help="Run the code-only favorite-bias and NO-basket control fund once.",
+    )
+    baseline.add_argument(
+        "--force", action="store_true", help="Run even if the policy interval has not elapsed."
+    )
     monitor = commands.add_parser(
         "monitor",
         parents=[fund],
@@ -242,12 +265,6 @@ def _add_fund_commands(commands: Any) -> None:
         "--webhook-env",
         help="Environment variable containing an HTTPS Slack-compatible webhook URL.",
     )
-    backfill = commands.add_parser(
-        "fund-backfill-nav",
-        parents=[fund],
-        help="Derive daily NAV from code-owned historical marks without rewriting the ledger.",
-    )
-    backfill.add_argument("--output", type=Path)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -309,6 +326,36 @@ def _ensure_fund_initialized(
     return False
 
 
+def _allocations(
+    ledger: PaperFundLedger, fund_id: str, mandate: FundMandate, policy: TradingPolicy
+) -> tuple[dict[str, Any], dict[str, Any], tuple[Any, ...]]:
+    """Report, forecast skill, and sleeve budgets derived from the same ledger."""
+    from edgecraft.allocator import allocate_sleeves
+    from edgecraft.attribution import build_fund_report
+    from edgecraft.evolution import effective_playbooks, latest_playbook_statuses
+
+    report = build_fund_report(ledger, fund_id, mandate, policy=policy)
+    skill = report["forecast_skill"]
+    allocations = allocate_sleeves(
+        effective_playbooks(ledger, fund_id),
+        report["round_trips"],
+        skill=skill["variants"],
+        status_overrides=latest_playbook_statuses(ledger, fund_id),
+        policy=policy,
+        gross_budget=mandate.max_gross_exposure_nav_multiple,
+    )
+    return report, skill, allocations
+
+
+def _sleeve_json(item: Any) -> dict[str, Any]:
+    return {
+        **item.__dict__,
+        "realized_pnl": str(item.realized_pnl),
+        "expectancy": str(item.expectancy) if item.expectancy is not None else None,
+        "weight": str(item.weight),
+    }
+
+
 def _fund_validate(args: argparse.Namespace) -> dict[str, Any]:
     fund_id, mandate, policy = _load_fund_config(args.config)
     return {
@@ -357,25 +404,16 @@ def _fund_retire(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
-    from edgecraft.allocator import allocate_sleeves
-    from edgecraft.attribution import build_fund_report
-    from edgecraft.evolution import effective_playbooks, latest_playbook_statuses
+    from edgecraft.evolution import effective_playbooks
+    from edgecraft.forecasts import ForecastFile
 
     fund_id, mandate, policy = _load_fund_config(args.config)
     with PaperFundLedger(args.ledger) as ledger:
         state = ledger.get_state(fund_id)
         cycles = ledger.list_cycles(fund_id)[-10:]
         brain = build_fund_brain(ledger, fund_id)
-        report = build_fund_report(ledger, fund_id, mandate, policy=policy)
-        status_overrides = latest_playbook_statuses(ledger, fund_id)
+        report, skill, allocations = _allocations(ledger, fund_id, mandate, policy)
         playbooks = effective_playbooks(ledger, fund_id)
-    allocations = allocate_sleeves(
-        playbooks,
-        report["round_trips"],
-        status_overrides=status_overrides,
-        policy=policy,
-        gross_budget=mandate.max_gross_exposure_nav_multiple,
-    )
     initial = mandate.initial_cash
     mandate_payload = mandate.model_dump(mode="json")
     mandate_payload.pop("growth_objective", None)
@@ -401,20 +439,18 @@ def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
         "brain": brain.model_dump(mode="json"),
         "review": report["review"],
         "playbooks": [item.model_dump(mode="json") for item in playbooks],
-        "sleeves": [
-            {
-                **item.__dict__,
-                "realized_pnl": str(item.realized_pnl),
-                "expectancy": str(item.expectancy) if item.expectancy is not None else None,
-                "lower_confidence_bound": (
-                    str(item.lower_confidence_bound)
-                    if item.lower_confidence_bound is not None
-                    else None
-                ),
-                "weight": str(item.weight),
-            }
-            for item in allocations
-        ],
+        "sleeves": [_sleeve_json(item) for item in allocations],
+        "forecast_skill": {
+            key: skill[key]
+            for key in ("summary", "variants", "categories", "head_to_head", "interpretation")
+        },
+        "forecast_contract": {
+            "input_path": scheduled_input_path().replace(".json", ".forecasts.json"),
+            "schema": ForecastFile.model_json_schema(mode="validation"),
+            "rule": "Forecast every researched market (target 30+), not only trades. "
+            "variant is the playbook or experiment ID that produced the forecast; forecast "
+            "the same markets under each live experiment so versions compete head to head.",
+        },
         "input_contract": {
             "shape": {
                 "decision": "FundDecision",
@@ -439,6 +475,10 @@ def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
             "decision_schema": FundDecision.model_json_schema(mode="validation"),
             "quote_schema": FundQuote.model_json_schema(mode="validation"),
             "rules": [
+                "Research the scan's catalysts and highest-ranked candidates first: capital "
+                "compounds fastest in contracts that resolve soon.",
+                "Sizing shrinks every p_win toward the market by the playbook's measured "
+                "trust and drops edges below the annualized hurdle; state honest beliefs.",
                 "Scan every active playbook eagerly and submit every positive after-cost edge.",
                 "Cash is a position, but a hold must log why each researched candidate fell "
                 "below the after-cost edge threshold.",
@@ -610,37 +650,27 @@ def _fund_run(args: argparse.Namespace) -> dict[str, Any]:
     sizing_audit: dict[str, Any] | None = (replay_audit or {}).get("sizing")
     sleeve_allocation: dict[str, Decimal] = (replay_audit or {}).get("sleeve_allocation", {})
     if args.size_beliefs and replay_audit is None:
-        from edgecraft.allocator import allocate_sleeves
-        from edgecraft.attribution import build_fund_report
-        from edgecraft.evolution import effective_playbooks, latest_playbook_statuses
+        from edgecraft.forecasts import trust_map
         from edgecraft.sizing import size_decision
 
         with PaperFundLedger(args.ledger) as sizing_ledger:
             state = sizing_ledger.get_state(fund_id)
-            fund_report = build_fund_report(sizing_ledger, fund_id, mandate, policy=policy)
-            calibration = fund_report["sizing_calibration"]
-            status_overrides = latest_playbook_statuses(sizing_ledger, fund_id)
-            playbooks = effective_playbooks(sizing_ledger, fund_id)
-        allocations = allocate_sleeves(
-            playbooks,
-            fund_report["round_trips"],
-            status_overrides=status_overrides,
-            policy=policy,
-            gross_budget=mandate.max_gross_exposure_nav_multiple,
-        )
+            _, skill, allocations = _allocations(sizing_ledger, fund_id, mandate, policy)
         sleeve_allocation = {item.playbook_id: item.weight for item in allocations}
+        trust = trust_map(skill, policy)
         sizing = size_decision(
             decision=decision,
             quotes=quotes,
             state=state,
             mandate=mandate,
-            calibration=calibration,
+            trust=trust,
             sleeve_weights=sleeve_allocation,
             policy=policy,
         )
         decision = sizing.decision
         sizing_audit = {
             "policy": policy.model_dump(mode="json"),
+            "trust": {name: str(value) for name, value in trust.items()},
             "accepted": sizing.accepted,
             "dropped": sizing.dropped,
         }
@@ -699,6 +729,14 @@ def _fund_run(args: argparse.Namespace) -> dict[str, Any]:
                     "sizing": sizing_audit,
                 },
             )
+            if args.size_beliefs and not result.replayed:
+                from edgecraft.forecasts import journal_forecasts
+
+                forecasts = journal_forecasts(decision, quotes)
+                if forecasts:
+                    ledger.record_operational_event(
+                        fund_id, "forecast_batch", {"source": "journal", "forecasts": forecasts}
+                    )
             verification = ledger.verify(fund_id)
     except Exception as exc:
         log_event(
@@ -749,7 +787,7 @@ def _fund_run(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _fund_snapshot(args: argparse.Namespace) -> dict[str, Any]:
-    from edgecraft.marketdata import MarketDataError, MarketDataRouter
+    from edgecraft.marketdata import MarketDataError, MarketDataRouter, fetch_quotes
     from edgecraft.paper_fund import AssetClass
 
     fund_id, _mandate, _policy = _load_fund_config(args.config)
@@ -763,13 +801,13 @@ def _fund_snapshot(args: argparse.Namespace) -> dict[str, Any]:
             raise ValueError("--instrument must use ID:stock|crypto|prediction")
         requested[instrument_id] = AssetClass(asset_class)
     router = MarketDataRouter()
-    quotes: list[FundQuote] = []
-    failures: list[dict[str, str]] = []
-    for instrument_id, asset in requested.items():
-        try:
-            quotes.append(router.quote(instrument_id, asset))
-        except Exception as exc:
-            failures.append({"instrument_id": instrument_id, "detail": str(exc)})
+    retired = [item for item, asset in requested.items() if asset is not AssetClass.PREDICTION]
+    fetched, failures = fetch_quotes(router, [item for item in requested if item not in retired])
+    failures += [
+        {"instrument_id": item, "detail": "stock and crypto trading were retired in v2"}
+        for item in retired
+    ]
+    quotes: list[FundQuote] = list(fetched.values())
     required_failures = [item for item in failures if item["instrument_id"] in required]
     if required_failures:
         raise MarketDataError(
@@ -795,61 +833,77 @@ def _fund_snapshot(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _fund_scan(args: argparse.Namespace) -> dict[str, Any]:
+    from edgecraft.baseline import fitted_gamma
     from edgecraft.marketdata import MarketDataRouter
     from edgecraft.scanner import scan_markets
 
-    _, mandate, _ = _load_fund_config(args.config)
+    _, mandate, policy = _load_fund_config(args.config)
     if not mandate.prediction_only:
         raise ValueError("scanner requires the prediction-only mandate")
+    with PaperFundLedger(args.ledger) as ledger:
+        gamma = fitted_gamma(ledger, policy)
     return scan_markets(
-        MarketDataRouter(), mandate, pages=args.pages, limit=args.limit, max_books=args.max_books
+        MarketDataRouter(),
+        mandate,
+        policy,
+        pages=args.pages,
+        limit=args.limit,
+        max_books=args.max_books,
+        gamma=gamma,
     )
+
+
+def _fund_forecast(args: argparse.Namespace) -> dict[str, Any]:
+    from edgecraft.forecasts import ForecastFile, record_research_forecasts
+    from edgecraft.marketdata import MarketDataRouter
+
+    fund_id, _, _ = _load_fund_config(args.config)
+    forecasts = ForecastFile.model_validate_json(args.input.read_text(encoding="utf-8"))
+    with PaperFundLedger(args.ledger) as ledger:
+        return record_research_forecasts(ledger, fund_id, forecasts, MarketDataRouter())
+
+
+def _fund_forecast_schema(_args: argparse.Namespace) -> dict[str, Any]:
+    from edgecraft.forecasts import ForecastFile
+
+    return _strict_schema(ForecastFile.model_json_schema(mode="validation"))
+
+
+def _fund_forecast_score(args: argparse.Namespace) -> dict[str, Any]:
+    from edgecraft.forecasts import score_forecasts
+    from edgecraft.marketdata import MarketDataRouter
+
+    fund_id, _, _ = _load_fund_config(args.config)
+    with PaperFundLedger(args.ledger) as ledger:
+        return score_forecasts(ledger, fund_id, MarketDataRouter(), limit=args.limit)
+
+
+def _fund_baseline(args: argparse.Namespace) -> dict[str, Any]:
+    from edgecraft.baseline import run_baseline
+    from edgecraft.marketdata import MarketDataError, MarketDataRouter
+
+    fund_id, mandate, policy = _load_fund_config(args.config)
+    with PaperFundLedger(args.ledger) as ledger:
+        _ensure_fund_initialized(ledger, fund_id, mandate)
+        try:
+            result = run_baseline(
+                ledger, fund_id, mandate, policy, MarketDataRouter(), force=args.force
+            )
+        except (MarketDataError, OSError) as exc:
+            # A failed public listing skips this pass; it never becomes a trade or a hold.
+            result = {"ok": False, "applied": False, "reason": "listing_failed", "detail": str(exc)}
+        result["verification"] = ledger.verify(fund_id).model_dump(mode="json")
+    return {"paper_only": True, "fund_id": fund_id, **result}
 
 
 def _fund_monitor(args: argparse.Namespace) -> dict[str, Any]:
     from edgecraft.marketdata import MarketDataRouter
-    from edgecraft.monitor import build_monitor_decision
-    from edgecraft.paper_fund import FundHypothesis
+    from edgecraft.monitor import build_monitor_decision, latest_hypotheses
 
     fund_id, mandate, policy = _load_fund_config(args.config)
     with PaperFundLedger(args.ledger) as ledger:
         state = ledger.get_state(fund_id)
-        cycles = ledger.list_full_cycles(fund_id)
-        latest: dict[str, tuple[FundHypothesis, datetime]] = {}
-        inventory: dict[str, Decimal] = {}
-        opened_at: dict[str, datetime] = {}
-        for cycle in cycles:
-            cycle_at = datetime.fromisoformat(str(cycle["as_of"]).replace("Z", "+00:00"))
-            journal = cycle["decision"].get("journal") or {}
-            for raw in journal.get("hypotheses", []):
-                latest[str(raw["instrument_id"])] = (
-                    FundHypothesis.model_validate(raw),
-                    cycle_at,
-                )
-            for fill in [*cycle.get("fills", []), *cycle.get("settlements", [])]:
-                instrument_id = str(fill["instrument_id"])
-                side = str(fill["side"])
-                quantity = Decimal(str(fill["quantity"]))
-                current = inventory.get(instrument_id, Decimal("0"))
-                if side == "buy":
-                    if current == 0:
-                        opened_at[instrument_id] = cycle_at
-                    current += quantity
-                elif side == "short":
-                    if current == 0:
-                        opened_at[instrument_id] = cycle_at
-                    current -= quantity
-                elif side == "sell":
-                    current -= quantity
-                elif side == "cover":
-                    current += quantity
-                elif side == "settle":
-                    current = Decimal("0")
-                if current == 0:
-                    inventory.pop(instrument_id, None)
-                    opened_at.pop(instrument_id, None)
-                else:
-                    inventory[instrument_id] = current
+        latest, opened_at = latest_hypotheses(ledger.list_full_cycles(fund_id))
     if not state.positions:
         return {
             "ok": True,
@@ -884,7 +938,7 @@ def _fund_monitor(args: argparse.Namespace) -> dict[str, Any]:
         }
     marked_state = state.model_copy(update={"positions": tuple(marked_positions)})
     as_of = max((quote.observed_at for quote in quotes), default=datetime.now(UTC))
-    decision, queued = build_monitor_decision(
+    decision = build_monitor_decision(
         fund_id=fund_id,
         state=marked_state,
         hypotheses=[latest[item.instrument_id][0] for item in marked_positions],
@@ -906,7 +960,6 @@ def _fund_monitor(args: argparse.Namespace) -> dict[str, Any]:
             "applied": False,
             "decision": decision.model_dump(mode="json"),
             "quotes": [quote.model_dump(mode="json") for quote in quotes],
-            "queued": queued,
             "failures": failures,
         }
     runtime = CycleRuntimeMetadata(
@@ -929,7 +982,6 @@ def _fund_monitor(args: argparse.Namespace) -> dict[str, Any]:
         "ok": True,
         "paper_only": True,
         "applied": True,
-        "queued": queued,
         "failures": failures,
         "result": result.model_dump(mode="json"),
         "verification": verification.model_dump(mode="json"),
@@ -1052,15 +1104,7 @@ def _fund_postmortem(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _fund_evolve(args: argparse.Namespace) -> dict[str, Any]:
-    from edgecraft.allocator import allocate_sleeves
-    from edgecraft.attribution import build_fund_report
-    from edgecraft.evolution import (
-        Postmortem,
-        apply_postmortem,
-        effective_playbooks,
-        latest_playbook_statuses,
-        reconcile_allocator_lifecycle,
-    )
+    from edgecraft.evolution import Postmortem, apply_postmortem, reconcile_allocator_lifecycle
 
     fund_id, mandate, policy = _load_fund_config(args.config)
     postmortem = Postmortem.model_validate_json(args.postmortem.read_text(encoding="utf-8"))
@@ -1068,14 +1112,7 @@ def _fund_evolve(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("postmortem fund_id does not match config")
     with PaperFundLedger(args.ledger) as ledger:
         transitions = apply_postmortem(ledger, postmortem)
-        report = build_fund_report(ledger, fund_id, mandate, policy=policy)
-        allocations = allocate_sleeves(
-            effective_playbooks(ledger, fund_id),
-            report["round_trips"],
-            status_overrides=latest_playbook_statuses(ledger, fund_id),
-            policy=policy,
-            gross_budget=mandate.max_gross_exposure_nav_multiple,
-        )
+        _, _, allocations = _allocations(ledger, fund_id, mandate, policy)
         transitions.extend(reconcile_allocator_lifecycle(ledger, fund_id, allocations))
         verification = ledger.verify(fund_id)
     return {
@@ -1104,15 +1141,6 @@ def _fund_alerts(args: argparse.Namespace) -> dict[str, Any]:
         "alerts": alerts,
         "sent": sent,
     }
-
-
-def _fund_backfill_nav(args: argparse.Namespace) -> dict[str, Any]:
-    from edgecraft.backfill import build_daily_nav_backfill
-    from edgecraft.marketdata import MarketDataRouter
-
-    fund_id, _mandate, _policy = _load_fund_config(args.config)
-    with PaperFundLedger(args.ledger) as ledger:
-        return build_daily_nav_backfill(ledger, fund_id, MarketDataRouter())
 
 
 def _pnl_snapshot(initial: Decimal, nav: Decimal) -> dict[str, str]:
@@ -1195,7 +1223,10 @@ COMMAND_HANDLERS: dict[str, CommandHandler] = {
     "fund-postmortem": _fund_postmortem,
     "fund-evolve": _fund_evolve,
     "fund-alerts": _fund_alerts,
-    "fund-backfill-nav": _fund_backfill_nav,
+    "fund-forecast": _fund_forecast,
+    "fund-forecast-schema": _fund_forecast_schema,
+    "fund-forecast-score": _fund_forecast_score,
+    "fund-baseline": _fund_baseline,
     "fund-visualize": _fund_visualize,
     "fund-cycle": _fund_cycle,
     "fund-verify": _fund_verify,
