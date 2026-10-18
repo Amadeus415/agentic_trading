@@ -52,7 +52,7 @@ flowchart LR
 1. Scan. The scanner lists both venues across four horizon windows and ranks contracts that resolve soon (capital turns over) and that few traders watch (prices adjust slowly). Liquidity only has to be enough to fill.
 2. Research and forecast. The agent reads exact settlement rules and primary sources, then writes a YES probability for every market it researched, traded or not.
 3. Score. Code stamps each forecast with the market price at that moment and scores it when the market settles (or, earlier, by whether the price drifted toward it). Each playbook earns a trust number: how much of its disagreement with the market has proven right.
-4. Size. Python bets on `market + trust × (belief − market)`, drops edges that cannot clear a 30% annualized hurdle, funds the fastest edges first, and applies half Kelly, a 25% position cap, a 35% shared-risk cap, and real venue fees.
+4. Size. Python bets on `market + trust × (belief − market)`, drops edges that cannot clear a 30% annualized hurdle, funds the fastest edges first, and applies full Kelly to that shrunk belief, a 25% position cap, a 50% shared-risk cap, and real venue fees.
 5. Control. A second fund with no model trades two structural edges: favorites that settle more often than their price implies, and mutually exclusive outcomes whose YES bids sum above $1. If the LLM fund can't beat it, the LLM is costing money.
 6. Record. Every cycle and forecast lands in one append-only, hash-chained ledger, tagged with the exact Git commit that ran it.
 7. Improve. A weekly review agent proposes the smallest change the evidence supports: a prompt edit, a rule tweak, or a new playbook. Each one runs as its own paper experiment that forecasts the same markets as its parent. After 30 scored forecasts, measured trust promotes it or freezes it; 10 losing closed trades also freeze it. Details in [`docs/EVOLUTION.md`](docs/EVOLUTION.md).
@@ -141,7 +141,7 @@ v1 cycles did not record their commit, so this view is inferred from deploy time
 - No cycles ran between September 4 and September 17.
 - Polymarket outcomes were fetched after the fact from the public API and taken as final.
 - v2 has no completed cycles yet. Nothing on this page measures v2.
-- A v2 edge is unproven: the favorite-bias curve starts from a prior, and trust starts at 0.35 until forecasts are scored.
+- A v2 edge is unproven: the favorite-bias curve starts from a prior, and trust starts at 0.60 until forecasts are scored.
 
 ## Run the fund
 

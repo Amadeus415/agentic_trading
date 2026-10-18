@@ -10,7 +10,7 @@ The fund learns from **forecasts**, not just trades. Closed trades arrive slowly
 4. `forecast_skill` (in `fund-report` and `fund-context`) turns that into one number per variant, **trust** (λ):
    - With 10+ resolved forecasts, λ is the maximum-likelihood fit of `outcome ~ market + λ × (forecast − market)`. Skill is the market's Brier score minus the forecast's: positive means the forecasts beat the price.
    - Before that, with 10+ marks taken at least 12 hours after their forecasts, λ is how far the market drifted toward the forecast. Drift is partial information, so each mark counts half; earlier marks are ignored as noise.
-   - Evidence is blended with the policy prior (`prior_trust` 0.35, weight `trust_prior_weight` 20), so λ moves gradually.
+   - Evidence is blended with the policy prior (`prior_trust` 0.60, weight `trust_prior_weight` 20), so λ moves gradually.
 5. Sizing bets on `market + λ × (p_win − market)`. A playbook with λ ≈ 0 cannot trade, however confident it sounds.
 
 Results are also cut by `category` (a skill map of where the model beats the market) and **head to head**: any two variants that forecast the same 5+ resolved markets get a paired Brier comparison, which removes most of the noise of comparing different markets.
@@ -21,8 +21,8 @@ The allocator reads the estimated λ once a variant has `promotion_forecasts` (3
 
 | Evidence | Status | Budget |
 | --- | --- | --- |
-| Fewer than 30 scored forecasts | `incubating` | `incubation_weight` (35% NAV) |
-| Estimated λ ≥ 0.10 | `active` | shares `active_weight` (60% NAV cap) by λ × √sample |
+| Fewer than 30 scored forecasts | `incubating` | `incubation_weight` (50% NAV) |
+| Estimated λ ≥ 0.10 | `active` | shares `active_weight` (100% NAV cap) by λ × √sample |
 | Estimated λ ≤ 0.05 from settled forecasts | `frozen` | none (drift alone never freezes) |
 | 10+ closed trades with nonpositive mean P&L | `frozen` | none (kill switch) |
 

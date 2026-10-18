@@ -30,9 +30,9 @@ Reference contracts: [Polymarket books](https://docs.polymarket.com/market-data/
 
 Python turns each researched belief into a quantity in three steps:
 
-1. **Trust.** The belief is shrunk toward the market midpoint: `market + λ × (p_win − market)`, with λ measured per playbook from its forecast log ([how the fund learns](EVOLUTION.md)). Unmeasured playbooks use the 0.35 prior.
+1. **Trust.** The belief is shrunk toward the market midpoint: `market + λ × (p_win − market)`, with λ measured per playbook from its forecast log ([how the fund learns](EVOLUTION.md)). Unmeasured playbooks use the 0.60 prior.
 2. **Velocity.** The after-cost edge must clear `min_annualized_return` (30%) over the stated horizon, and entries are funded in order of annualized return, so scarce cash goes to the fastest-compounding edges.
-3. **Kelly.** Fractional Kelly (half in the research fund) on the cost including fees, inside the 25% position cap (with 5% headroom so later entries' spread cannot push an earlier position over it), the 35% shared-driver cap, sleeve budgets, displayed depth, and the mandate. After the book walk, the edge must still clear the entry fee, an expected early-exit fee (losers at the stop, winners at the target; settlement is free), and exit slippage.
+3. **Kelly.** Full Kelly in the research fund (trust has already shrunk the belief, so halving again would discount it twice) on the cost including fees, inside the 25% position cap (with 5% headroom so later entries' spread cannot push an earlier position over it), the 50% shared-driver cap, sleeve budgets, displayed depth, and the mandate. After the book walk, the edge must still clear the entry fee, an expected early-exit fee (losers at the stop, winners at the target; settlement is free), and exit slippage.
 
 ## The code-only control fund
 
@@ -41,7 +41,7 @@ Python turns each researched belief into a quantity in three steps:
 - **Favorite bias.** Contracts priced between 80¢ and 98.5¢ that resolve within 21 days, bought when `logistic(γ × logit(mid))` exceeds the ask plus fees. γ starts at 1.15 and is refit from settled markets.
 - **Exclusive NO baskets.** Equal NO quantity on every leg of a flagged event when the executable asks still lock in at least 1¢ per basket, inside the shared-event cap.
 
-Its sizing uses quarter Kelly, a 10% position cap, and a 20% event cap. Its report is `state/fund-report-edgecraft-baseline.json`, and the dashboard's fund selector shows it beside the research fund.
+Its sizing uses half Kelly, a 15% position cap, and a 30% event cap. Its report is `state/fund-report-edgecraft-baseline.json`, and the dashboard's fund selector shows it beside the research fund.
 
 ## Risk and learning
 
