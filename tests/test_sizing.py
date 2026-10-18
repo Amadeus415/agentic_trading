@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
+
+import pytest
 
 from edgecraft.paper_fund import (
     AssetClass,
@@ -22,9 +26,16 @@ from edgecraft.paper_fund import (
     run_cycle_accounting,
 )
 from edgecraft.policy import TradingPolicy
-from edgecraft.sizing import size_decision
+from edgecraft.sizing import shrink_to_market, size_decision
 
-NOW = datetime(2026, 9, 1, 15, tzinfo=UTC)
+NOW = datetime(2026, 10, 18, 15, tzinfo=UTC)
+MANDATE = FundMandate.model_validate(
+    json.loads(Path("examples/fund.mandate.predictions.json").read_text())["mandate"]
+)
+
+
+def _id(name: str) -> str:
+    return f"polymarket:{name}:YES"
 
 
 def _state() -> FundState:
@@ -41,22 +52,27 @@ def _state() -> FundState:
     )
 
 
-def _quote(symbol: str, price: str, asset: AssetClass) -> FundQuote:
+def _quote(
+    name: str, bid: str = "0.38", ask: str = "0.40", size: str = "100000", fee_rate: str = "0"
+) -> FundQuote:
     return FundQuote(
-        quote_id=f"q-{symbol}",
-        instrument_id=symbol,
-        asset_class=asset,
-        price=price,
+        quote_id=f"q-{name}",
+        instrument_id=_id(name),
+        asset_class=AssetClass.PREDICTION,
+        price=(Decimal(bid) + Decimal(ask)) / 2,
         observed_at=NOW,
         source_timestamp=NOW,
         source_name="test",
         source_url="https://example.test",
+        bids=(BookLevel(price=bid, size=size),),
+        asks=(BookLevel(price=ask, size=size),),
+        fee_rate=fee_rate,
+        fee_exponent=1,
+        fee_quantum="0.00001",
     )
 
 
-def _decision(
-    orders: tuple[FundOrder, ...], hypotheses: tuple[FundHypothesis, ...]
-) -> FundDecision:
+def _decision(hypotheses: tuple[FundHypothesis, ...], orders: tuple[FundOrder, ...] = ()):
     return FundDecision(
         decision_id="d",
         fund_id="fund",
@@ -72,12 +88,7 @@ def _decision(
                 source_name="test",
                 source_url="https://example.test",
                 claim="test catalyst",
-                instrument_ids=tuple(
-                    dict.fromkeys(
-                        [order.instrument_id for order in orders]
-                        + [hypothesis.instrument_id for hypothesis in hypotheses]
-                    )
-                ),
+                instrument_ids=tuple(dict.fromkeys(h.instrument_id for h in hypotheses)),
             ),
         ),
         journal=DecisionJournal(
@@ -92,375 +103,206 @@ def _decision(
 
 
 def _belief(
-    symbol: str, stance: HypothesisStance, target: str, stop: str, driver: str
+    name: str,
+    p_win: str = "0.60",
+    *,
+    stance: HypothesisStance = HypothesisStance.LONG,
+    driver: str | None = None,
+    horizon: int = 48,
+    playbook: str = "resolution_reading",
 ) -> FundHypothesis:
     return FundHypothesis(
-        instrument_id=symbol,
+        instrument_id=_id(name),
         stance=stance,
-        statement="repeatable setup",
-        mechanism="public catalyst",
-        catalysts=("catalyst",),
-        falsifiers=("stop",),
-        expected_horizon_hours=24,
-        confidence="0.60",
-        p_win="0.60",
-        target_price=target,
-        invalidation_price=stop,
-        playbook_id="momentum",
-        driver=driver,
+        statement="primary source settles it",
+        mechanism="rule reading",
+        catalysts=("release",),
+        falsifiers=("rule surprise",),
+        expected_horizon_hours=horizon,
+        confidence=p_win,
+        p_win=p_win,
+        target_price="0.99",
+        invalidation_price="0.05",
+        playbook_id=playbook,
+        driver=driver or name,
         evidence_ids=("e",),
     )
 
 
-def _order(symbol: str, asset: AssetClass, side: OrderSide) -> FundOrder:
-    return FundOrder(
-        instrument_id=symbol,
-        asset_class=asset,
-        side=side,
+def _size(hypotheses, quotes, **kwargs):
+    kwargs.setdefault("mandate", MANDATE)
+    kwargs.setdefault("state", _state())
+    return size_decision(decision=_decision(tuple(hypotheses)), quotes=tuple(quotes), **kwargs)
+
+
+def test_belief_sizes_with_fractional_kelly_not_model_quantity() -> None:
+    order = FundOrder(
+        instrument_id=_id("A"),
+        asset_class=AssetClass.PREDICTION,
+        side=OrderSide.BUY,
         quantity="999",
-        rationale="model belief",
+        rationale="model quantity is advisory",
         evidence_ids=("e",),
     )
-
-
-def test_sizes_long_and_short_from_beliefs_not_model_quantity() -> None:
-    hypotheses = (
-        _belief("LONG", HypothesisStance.LONG, "110", "95", "growth"),
-        _belief("SHORT", HypothesisStance.SHORT, "90", "105", "rates"),
-    )
+    decision = _decision((_belief("A"),), (order,))
     result = size_decision(
-        decision=_decision(
-            (
-                _order("LONG", AssetClass.STOCK, OrderSide.BUY),
-                _order("SHORT", AssetClass.STOCK, OrderSide.SHORT),
-            ),
-            hypotheses,
-        ),
-        quotes=(
-            _quote("LONG", "100", AssetClass.STOCK),
-            _quote("SHORT", "100", AssetClass.STOCK),
-        ),
+        decision=decision,
+        quotes=(_quote("A"),),
         state=_state(),
-        mandate=FundMandate(max_single_position_weight="0.60"),
+        mandate=MANDATE,
+        policy=TradingPolicy(kelly_fraction="0.25"),
     )
-    assert len(result.decision.orders) == 2
-    assert all(order.quantity != Decimal("999") for order in result.decision.orders)
-    assert {order.quantity for order in result.decision.orders} == {Decimal("4")}
-    assert {item["driver"] for item in result.accepted} == {"growth", "rates"}
-
-
-def test_binary_rounding_and_shared_driver_cap() -> None:
-    hypotheses = (
-        _belief("PRED", HypothesisStance.LONG, "1", "0.2", "event"),
-        _belief("ALT", HypothesisStance.LONG, "2", "0.5", "event"),
-    )
-    result = size_decision(
-        decision=_decision(
-            (
-                _order("PRED", AssetClass.PREDICTION, OrderSide.BUY),
-                _order("ALT", AssetClass.CRYPTO, OrderSide.BUY),
-            ),
-            hypotheses,
-        ),
-        quotes=(
-            _quote("PRED", "0.4", AssetClass.PREDICTION),
-            _quote("ALT", "1", AssetClass.CRYPTO),
-        ),
-        state=_state(),
-        mandate=FundMandate(),
-    )
-    prediction = result.decision.orders[0]
-    assert prediction.quantity == prediction.quantity.to_integral_value()
-    assert sum(Decimal(item["notional"]) for item in result.accepted) <= Decimal("600")
-
-
-def test_binary_uses_probability_versus_market_price() -> None:
-    hypothesis = _belief("PRED", HypothesisStance.LONG, "0.35", "0.01", "event")
-    hypothesis = hypothesis.model_copy(
-        update={"p_win": Decimal("0.34"), "confidence": Decimal("0.34")}
-    )
-    result = size_decision(
-        decision=_decision((_order("PRED", AssetClass.PREDICTION, OrderSide.BUY),), (hypothesis,)),
-        quotes=(_quote("PRED", "0.16", AssetClass.PREDICTION),),
-        state=_state(),
-        mandate=FundMandate(),
-    )
-    assert len(result.decision.orders) == 1
-    notional = Decimal(result.accepted[0]["notional"])
-    assert Decimal("210") < notional <= Decimal("215")
-
-
-def test_calibration_haircut_can_drop_an_overconfident_trade() -> None:
-    hypothesis = _belief("LONG", HypothesisStance.LONG, "110", "95", "growth")
-    result = size_decision(
-        decision=_decision((_order("LONG", AssetClass.STOCK, OrderSide.BUY),), (hypothesis,)),
-        quotes=(_quote("LONG", "100", AssetClass.STOCK),),
-        state=_state(),
-        mandate=FundMandate(),
-        calibration=({"bucket": "60-70%", "count": 20, "realized_win_rate": "0"},),
-    )
-    assert result.decision.action is DecisionAction.HOLD
-    assert result.dropped[0]["reason"] == "below_edge_threshold"
-
-
-def test_directional_research_becomes_candidate_order_and_trade() -> None:
-    hypothesis = _belief("LONG", HypothesisStance.LONG, "110", "95", "growth")
-    advisory_hold = _decision(
-        (_order("LONG", AssetClass.STOCK, OrderSide.BUY),),
-        (hypothesis,),
-    ).model_copy(update={"action": DecisionAction.HOLD, "orders": ()})
-
-    result = size_decision(
-        decision=advisory_hold,
-        quotes=(_quote("LONG", "100", AssetClass.STOCK),),
-        state=_state(),
-        mandate=FundMandate(),
-    )
-
+    # (0.60 - 0.40) / 0.60 * 0.25 = 8.33% of NAV at the 0.39 midpoint.
+    assert result.decision.orders[0].quantity == 213
     assert result.decision.action is DecisionAction.TRADE
-    assert len(result.decision.orders) == 1
-    assert result.decision.orders[0].side is OrderSide.BUY
-    assert result.accepted[0]["instrument_id"] == "LONG"
+
+
+def test_trust_shrinks_belief_toward_market_and_zero_trust_never_trades() -> None:
+    assert shrink_to_market(Decimal("0.6"), Decimal("0.4"), Decimal("0.5")) == Decimal("0.50")
+    none = _size([_belief("A")], [_quote("A")], trust={"*": Decimal("0")})
+    assert none.decision.orders == ()
+    assert none.dropped[0]["reason"] == "below_edge_threshold"
+    half = _size([_belief("A")], [_quote("A")], trust={"resolution_reading": Decimal("0.5")})
+    assert half.accepted[0]["believed_p_win"] == "0.495"
+    assert half.accepted[0]["trust"] == "0.5"
+
+
+def test_unmeasured_playbook_falls_back_to_prior_trust() -> None:
+    result = _size(
+        [_belief("A")], [_quote("A")], trust={"*": Decimal("0.5"), "other": Decimal("0")}
+    )
+    assert result.accepted[0]["trust"] == "0.5"
+
+
+def test_velocity_drops_slow_edges_and_funds_fast_edges_first() -> None:
+    slow = _size([_belief("A", "0.45", horizon=8000)], [_quote("A")])
+    assert slow.dropped[0]["reason"] == "below_annualized_hurdle"
+    beliefs = [_belief("SLOW", "0.95", horizon=2000), _belief("FAST", "0.95", horizon=24)]
+    result = _size(beliefs, [_quote("SLOW"), _quote("FAST")])
+    assert [item["instrument_id"] for item in result.accepted] == [_id("FAST"), _id("SLOW")]
+    assert Decimal(result.accepted[0]["annualized_return"]) > Decimal(
+        result.accepted[1]["annualized_return"]
+    )
+
+
+def test_shared_driver_cap_limits_correlated_contracts() -> None:
+    beliefs = [_belief(name, "0.95", driver="election") for name in ("A", "B", "C")]
+    result = _size(beliefs, [_quote(name) for name in ("A", "B", "C")])
+    assert sum(Decimal(item["notional"]) for item in result.accepted) <= Decimal("350")
 
 
 def test_flat_research_does_not_suppress_directional_candidate() -> None:
-    directional = _belief("LONG", HypothesisStance.LONG, "110", "95", "growth")
-    rejected = _belief("FLAT", HypothesisStance.FLAT, "110", "95", "weak-signal")
-    advisory_hold = _decision(
-        (_order("LONG", AssetClass.STOCK, OrderSide.BUY),),
-        (directional, rejected),
-    ).model_copy(update={"action": DecisionAction.HOLD, "orders": ()})
+    beliefs = [_belief("A"), _belief("FLAT", stance=HypothesisStance.FLAT)]
+    result = _size(beliefs, [_quote("A"), _quote("FLAT")])
+    assert [order.instrument_id for order in result.decision.orders] == [_id("A")]
 
-    result = size_decision(
-        decision=advisory_hold,
-        quotes=(
-            _quote("LONG", "100", AssetClass.STOCK),
-            _quote("FLAT", "100", AssetClass.STOCK),
-        ),
-        state=_state(),
-        mandate=FundMandate(),
+
+def _held(name: str, quantity: str = "100") -> FundState:
+    return _state().model_copy(
+        update={
+            "cash": Decimal("960"),
+            "positions": (
+                FundPosition(
+                    instrument_id=_id(name),
+                    asset_class=AssetClass.PREDICTION,
+                    quantity=quantity,
+                    average_entry="0.40",
+                    mark_price="0.39",
+                    playbook_id="resolution_reading",
+                    driver=name,
+                ),
+            ),
+        }
     )
-
-    assert [order.instrument_id for order in result.decision.orders] == ["LONG"]
-    assert result.decision.action is DecisionAction.TRADE
 
 
 def test_directional_hypothesis_for_existing_position_is_maintained() -> None:
-    state = _state().model_copy(
-        update={
-            "positions": (
-                FundPosition(
-                    instrument_id="HELD",
-                    asset_class=AssetClass.STOCK,
-                    quantity="1",
-                    average_entry="100",
-                    mark_price="100",
-                    playbook_id="momentum",
-                    driver="growth",
-                ),
-            )
-        }
-    )
-    hypothesis = _belief("HELD", HypothesisStance.LONG, "110", "95", "growth")
-    advisory_hold = _decision(
-        (_order("HELD", AssetClass.STOCK, OrderSide.BUY),),
-        (hypothesis,),
-    ).model_copy(update={"action": DecisionAction.HOLD, "orders": ()})
-
-    result = size_decision(
-        decision=advisory_hold,
-        quotes=(_quote("HELD", "100", AssetClass.STOCK),),
-        state=state,
-        mandate=FundMandate(),
-    )
-
+    result = _size([_belief("A")], [_quote("A")], state=_held("A"))
     assert result.decision.action is DecisionAction.HOLD
-    assert result.decision.orders == ()
+
+
+def test_opposite_belief_exits_the_held_outcome() -> None:
+    result = _size([_belief("A", stance=HypothesisStance.SHORT)], [_quote("A")], state=_held("A"))
+    assert [order.side for order in result.decision.orders] == [OrderSide.SELL]
+    assert result.dropped[0]["reason"] == "buy_opposite_outcome"
 
 
 def test_sleeve_budget_is_shared_across_orders_and_existing_inventory() -> None:
-    state = _state().model_copy(
-        update={
-            "positions": (
-                FundPosition(
-                    instrument_id="HELD",
-                    asset_class=AssetClass.STOCK,
-                    quantity="0.3",
-                    average_entry="100",
-                    mark_price="100",
-                    playbook_id="momentum",
-                    driver="growth",
-                ),
-            )
-        }
+    result = _size(
+        [_belief("B", "0.95"), _belief("C", "0.95")],
+        [_quote("A"), _quote("B"), _quote("C")],
+        state=_held("A"),
+        sleeve_weights={"resolution_reading": Decimal("0.05")},
     )
-    hypotheses = tuple(
-        _belief(symbol, HypothesisStance.LONG, "110", "95", "growth") for symbol in ("A", "B")
-    )
-    result = size_decision(
-        decision=_decision(
-            tuple(_order(symbol, AssetClass.STOCK, OrderSide.BUY) for symbol in ("A", "B")),
-            hypotheses,
-        ),
-        quotes=tuple(_quote(symbol, "100", AssetClass.STOCK) for symbol in ("HELD", "A", "B")),
-        state=state,
-        mandate=FundMandate(),
-        sleeve_weights={"momentum": Decimal("0.05")},
-    )
-    assert sum(Decimal(item["notional"]) for item in result.accepted) <= Decimal("20")
-    assert len(result.decision.orders) == 1
+    assert sum(Decimal(item["notional"]) for item in result.accepted) <= Decimal("12")
 
 
 def test_unknown_playbook_cannot_bypass_allocator() -> None:
-    result = size_decision(
-        decision=_decision(
-            (_order("A", AssetClass.STOCK, OrderSide.BUY),),
-            (_belief("A", HypothesisStance.LONG, "110", "95", "growth"),),
-        ),
-        quotes=(_quote("A", "100", AssetClass.STOCK),),
-        state=_state(),
-        mandate=FundMandate(),
-        sleeve_weights={},
-    )
+    result = _size([_belief("A")], [_quote("A")], sleeve_weights={})
     assert result.dropped[0]["reason"] == "unknown_playbook"
 
 
-def test_round_trip_charges_both_entry_and_exit_fees() -> None:
-    belief = _belief("A", HypothesisStance.LONG, "101", "99", "growth").model_copy(
-        update={"p_win": Decimal("0.66")}
-    )
-    result = size_decision(
-        decision=_decision((_order("A", AssetClass.STOCK, OrderSide.BUY),), (belief,)),
-        quotes=(_quote("A", "100", AssetClass.STOCK),),
-        state=_state(),
-        mandate=FundMandate(fee_bps="10", slippage_bps="10"),
-    )
+def test_fees_can_erase_a_positive_midprice_edge() -> None:
+    result = _size([_belief("A", "0.41")], [_quote("A", fee_rate="0.25")])
     assert result.dropped[0]["reason"] == "below_edge_threshold"
 
 
 def test_entries_fit_cash_instead_of_rejecting_the_whole_cycle() -> None:
-    beliefs = tuple(
-        _belief(symbol, HypothesisStance.LONG, "120", "95", symbol).model_copy(
-            update={"p_win": Decimal("0.9")}
-        )
-        for symbol in ("A", "B", "C")
-    )
-    quotes = tuple(_quote(symbol, "100", AssetClass.STOCK) for symbol in ("A", "B", "C"))
-    mandate = FundMandate(max_single_position_weight="0.60", max_cycle_turnover="4000")
-    result = size_decision(
-        decision=_decision((), beliefs), quotes=quotes, state=_state(), mandate=mandate
-    )
+    names = ("A", "B", "C", "D", "E")
+    quotes = [_quote(name) for name in names]
+    result = _size([_belief(name, "0.95") for name in names], quotes)
     outcome = run_cycle_accounting(
-        mandate=mandate, prior_state=_state(), decision=result.decision, quotes=quotes
+        mandate=MANDATE, prior_state=_state(), decision=result.decision, quotes=quotes
     )
     assert outcome.risk.approved
-    assert Decimal("0") <= outcome.state.cash < Decimal("0.02")
-    assert len(outcome.fills) == 2
-    assert result.accepted[1]["capacity_adjustment"]
-    assert result.dropped[0]["reason"] == "portfolio_capacity"
+    assert Decimal("0") <= outcome.state.cash < Decimal("5")
+    assert any(item["capacity_adjustment"] for item in result.accepted) or result.dropped
 
 
 def test_invalid_quotes_remain_fatal_during_capacity_sizing() -> None:
-    import pytest
-
-    quotes = (
-        _quote("A", "100", AssetClass.STOCK).model_copy(
-            update={"observed_at": NOW.replace(year=2020)}
-        ),
-    )
+    stale = _quote("A").model_copy(update={"observed_at": NOW.replace(year=2020)})
     with pytest.raises(PaperFundValidationError, match="stale"):
-        size_decision(
-            decision=_decision((), (_belief("A", HypothesisStance.LONG, "110", "95", "growth"),)),
-            quotes=quotes,
-            state=_state(),
-            mandate=FundMandate(),
-        )
+        _size([_belief("A")], [stale])
 
 
-def test_opposite_belief_exits_and_reverses_in_one_cycle() -> None:
-    state = _state().model_copy(
-        update={
-            "cash": Decimal("800"),
-            "gross_exposure": Decimal("200"),
-            "net_exposure": Decimal("200"),
-            "positions": (
-                FundPosition(
-                    instrument_id="A",
-                    asset_class=AssetClass.STOCK,
-                    quantity="2",
-                    average_entry="100",
-                    mark_price="100",
-                    playbook_id="momentum",
-                    driver="growth",
-                ),
-            ),
-        }
+def test_kelly_fraction_scales_quantity() -> None:
+    full = _size([_belief("A", "0.45")], [_quote("A")], policy=TradingPolicy(kelly_fraction="1"))
+    half = _size([_belief("A", "0.45")], [_quote("A")], policy=TradingPolicy(kelly_fraction="0.5"))
+    assert full.decision.orders[0].quantity == pytest.approx(
+        2 * half.decision.orders[0].quantity, abs=1
     )
-    quotes = (_quote("A", "100", AssetClass.STOCK),)
-    mandate = FundMandate(max_single_position_weight="0.60", max_cycle_turnover="4000")
-    result = size_decision(
-        decision=_decision((), (_belief("A", HypothesisStance.SHORT, "90", "105", "growth"),)),
-        quotes=quotes,
-        state=state,
-        mandate=mandate,
-        sleeve_weights={"momentum": Decimal("0.60")},
-    )
-    assert [order.side for order in result.decision.orders] == [OrderSide.SELL, OrderSide.SHORT]
-    outcome = run_cycle_accounting(
-        mandate=mandate, prior_state=state, decision=result.decision, quotes=quotes
-    )
-    assert outcome.state.positions[0].quantity < 0
-    assert outcome.risk.approved
 
 
-def test_policy_and_version_calibration_control_sizing() -> None:
-    belief = _belief("A", HypothesisStance.LONG, "110", "95", "growth")
-    common = dict(
-        decision=_decision((), (belief,)),
-        quotes=(_quote("A", "100", AssetClass.STOCK),),
-        state=_state(),
-        mandate=FundMandate(max_single_position_weight="0.60"),
-        calibration=(
-            {
-                "playbook_id": "old_version",
-                "bucket": "60-70%",
-                "count": 20,
-                "realized_win_rate": "0",
-            },
-        ),
+def test_walking_a_thin_book_can_erase_the_edge() -> None:
+    quote = _quote("A").model_copy(
+        update={"asks": (BookLevel(price="0.40", size="10"), BookLevel(price="0.80", size="5000"))}
     )
-    aggressive = size_decision(**common)
-    fractional = size_decision(**common, policy=TradingPolicy(kelly_fraction="0.5"))
-    assert aggressive.decision.orders[0].quantity == 2 * fractional.decision.orders[0].quantity
-
-
-def test_displayed_spread_can_erase_a_positive_midprice_edge() -> None:
-    quote = _quote("A", "100", AssetClass.STOCK).model_copy(
-        update={
-            "asks": (BookLevel(price="109", size="100"),),
-        }
-    )
-    result = size_decision(
-        decision=_decision((), (_belief("A", HypothesisStance.LONG, "110", "95", "growth"),)),
-        quotes=(quote,),
-        state=_state(),
-        mandate=FundMandate(max_single_position_weight="0.60"),
-    )
+    result = _size([_belief("A", "0.60")], [quote])
     assert result.decision.orders == ()
     assert result.dropped[0]["reason"] == "execution_erases_edge"
 
 
 def test_size_fits_displayed_depth_without_inventing_liquidity() -> None:
-    quote = _quote("A", "100", AssetClass.STOCK).model_copy(
-        update={
-            "asks": (BookLevel(price="100", size="1"),),
-        }
-    )
-    result = size_decision(
-        decision=_decision((), (_belief("A", HypothesisStance.LONG, "110", "95", "growth"),)),
-        quotes=(quote,),
-        state=_state(),
-        mandate=FundMandate(max_single_position_weight="0.60"),
-    )
-    assert result.decision.orders[0].quantity == 1
+    result = _size([_belief("A", "0.95")], [_quote("A", size="7")])
+    assert result.decision.orders[0].quantity == 7
     assert "depth" in result.accepted[0]["capacity_adjustment"]
+
+
+def test_only_prediction_contracts_are_sized() -> None:
+    order = FundOrder(
+        instrument_id="AAPL",
+        asset_class=AssetClass.STOCK,
+        side=OrderSide.BUY,
+        rationale="retired asset class",
+        evidence_ids=("e",),
+    )
+    decision = _decision(()).model_copy(
+        update={"orders": (order,), "action": DecisionAction.TRADE, "journal": None}
+    )
+    with pytest.raises(PaperFundValidationError, match="prediction contracts only"):
+        size_decision(
+            decision=decision,
+            quotes=(),
+            state=_state(),
+            mandate=FundMandate(),
+        )

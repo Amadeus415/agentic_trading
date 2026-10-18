@@ -1,13 +1,23 @@
-"""Deterministic belief-to-quantity sizing for the paper fund."""
+"""Deterministic belief-to-quantity sizing for prediction contracts.
+
+Three steps turn a researched belief into a quantity:
+
+1. Trust: shrink the belief toward the market price by the playbook's measured
+   trust (`edgecraft.forecasts`). A belief the market already prices is no edge.
+2. Velocity: rank entries by after-cost return per day so scarce cash goes to
+   the fastest-compounding edges first, and drop edges too slow to clear the
+   annualized hurdle.
+3. Kelly: size with fractional Kelly inside sleeve, event, position, depth,
+   and mandate limits, previewed with the real accounting engine.
+"""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import ROUND_DOWN, Decimal
 from typing import Any
 
-from edgecraft.monitor import stock_market_is_open
 from edgecraft.paper_fund import (
     AssetClass,
     DecisionAction,
@@ -20,6 +30,7 @@ from edgecraft.paper_fund import (
     OrderSide,
     PaperFundCapacityError,
     PaperFundValidationError,
+    execution_fee,
     run_cycle_accounting,
 )
 from edgecraft.policy import TradingPolicy
@@ -27,8 +38,10 @@ from edgecraft.policy import TradingPolicy
 ZERO = Decimal("0")
 ONE = Decimal("1")
 BPS = Decimal("10000")
-MINIMUM_EDGE_BPS = Decimal("2")
-CALIBRATION_MINIMUM_COUNT = 5
+MINIMUM_EDGE = Decimal("0.0002")
+HOURS_PER_YEAR = Decimal("8760")
+POSITION_HEADROOM = Decimal("0.95")
+MAX_OPEN_PRICE = Decimal("0.999")
 
 
 @dataclass(frozen=True)
@@ -46,8 +59,8 @@ def _candidate_orders(
     """Turn complete directional research into deterministic candidate orders.
 
     Scheduled research supplies beliefs; Python owns whether those beliefs
-    become trades. Explicit orders remain supported for compatibility and
-    inventory exits, while omitted entry orders are derived from hypotheses.
+    become trades. Explicit orders remain supported for inventory exits, while
+    omitted entry orders are derived from hypotheses.
     """
     orders = list(decision.orders)
     explicit = {order.instrument_id for order in orders}
@@ -55,37 +68,30 @@ def _candidate_orders(
     position_by_id = {position.instrument_id: position for position in state.positions}
 
     for hypothesis in decision.journal.hypotheses if decision.journal else ():
-        if hypothesis.instrument_id in explicit:
+        if hypothesis.instrument_id in explicit or hypothesis.stance is HypothesisStance.FLAT:
             continue
         position = position_by_id.get(hypothesis.instrument_id)
-        if hypothesis.stance is HypothesisStance.FLAT:
-            continue
         if hypothesis.stance is HypothesisStance.EXIT:
-            if position is None:
-                continue
-            side = OrderSide.SELL if position.quantity > ZERO else OrderSide.COVER
-            orders.append(
-                FundOrder(
-                    instrument_id=hypothesis.instrument_id,
-                    asset_class=position.asset_class,
-                    side=side,
-                    quantity=abs(position.quantity),
-                    rationale=hypothesis.statement,
-                    evidence_ids=hypothesis.evidence_ids,
+            if position is not None:
+                orders.append(
+                    FundOrder(
+                        instrument_id=hypothesis.instrument_id,
+                        asset_class=position.asset_class,
+                        side=OrderSide.SELL,
+                        quantity=abs(position.quantity),
+                        rationale=hypothesis.statement,
+                        evidence_ids=hypothesis.evidence_ids,
+                    )
                 )
-            )
             continue
         if position is not None:
-            same_direction = (position.quantity > ZERO) == (
-                hypothesis.stance is HypothesisStance.LONG
-            )
-            if same_direction:
-                continue
+            if hypothesis.stance is HypothesisStance.LONG:
+                continue  # Maintained; no scale-in without a fresh entry decision.
             orders.append(
                 FundOrder(
                     instrument_id=hypothesis.instrument_id,
                     asset_class=position.asset_class,
-                    side=OrderSide.SELL if position.quantity > ZERO else OrderSide.COVER,
+                    side=OrderSide.SELL,
                     quantity=abs(position.quantity),
                     rationale=hypothesis.statement,
                     evidence_ids=hypothesis.evidence_ids,
@@ -96,12 +102,13 @@ def _candidate_orders(
             raise PaperFundValidationError(
                 f"directional candidate requires a quote: {hypothesis.instrument_id}"
             )
-        side = OrderSide.BUY if hypothesis.stance is HypothesisStance.LONG else OrderSide.SHORT
         orders.append(
             FundOrder(
                 instrument_id=hypothesis.instrument_id,
                 asset_class=quote.asset_class,
-                side=side,
+                side=OrderSide.BUY
+                if hypothesis.stance is HypothesisStance.LONG
+                else OrderSide.SHORT,
                 quantity=None,
                 p_win=hypothesis.p_win or hypothesis.confidence,
                 target_price=hypothesis.target_price,
@@ -113,29 +120,13 @@ def _candidate_orders(
                 evidence_ids=hypothesis.evidence_ids,
             )
         )
-    # Exit first; short proceeds can then fund independent longs.
-    priority = {OrderSide.SELL: 0, OrderSide.COVER: 0, OrderSide.SHORT: 1, OrderSide.BUY: 2}
-    return tuple(sorted(orders, key=lambda order: priority[order.side]))
+    # Exits first so their proceeds can fund new entries.
+    return tuple(sorted(orders, key=lambda order: order.side is OrderSide.BUY))
 
 
-def calibration_haircut(
-    p_win: Decimal,
-    calibration: Sequence[dict[str, Any]],
-    *,
-    minimum_count: int = 5,
-    prior_count: int = 20,
-) -> Decimal:
-    lower = min(9, max(0, int(p_win * 10))) * 10
-    bucket = f"{lower:02d}-{lower + 10:02d}%"
-    for row in calibration:
-        if row.get("bucket") == bucket and int(row.get("count", 0)) >= minimum_count:
-            count = Decimal(int(row["count"]))
-            measured = Decimal(str(row["realized_win_rate"]))
-            # Small forward samples adjust confidence gradually. They cannot
-            # turn a new version's probability into a permanent zero.
-            adjusted = (p_win * prior_count + measured * count) / (prior_count + count)
-            return min(p_win, adjusted)
-    return p_win
+def shrink_to_market(p_win: Decimal, market: Decimal, trust: Decimal) -> Decimal:
+    """Keep only the measured share of the forecast's disagreement with the market."""
+    return market + trust * (p_win - market)
 
 
 def _belief(order: FundOrder, hypothesis: Any | None) -> tuple[Decimal, Decimal, Decimal]:
@@ -153,31 +144,6 @@ def _belief(order: FundOrder, hypothesis: Any | None) -> tuple[Decimal, Decimal,
     return p_win, target, stop
 
 
-def _payoffs(
-    side: OrderSide, price: Decimal, target: Decimal, stop: Decimal
-) -> tuple[Decimal, Decimal]:
-    if side is OrderSide.BUY:
-        upside = (target - price) / price
-        downside = (price - stop) / price
-    elif side is OrderSide.SHORT:
-        upside = (price - target) / price
-        downside = (stop - price) / price
-    else:
-        return ZERO, ZERO
-    if upside <= ZERO or downside <= ZERO:
-        raise PaperFundValidationError("target and invalidation must bracket the current price")
-    return upside, downside
-
-
-def _round_quantity(quantity: Decimal, asset_class: AssetClass) -> Decimal:
-    quantum = {
-        AssetClass.STOCK: Decimal("0.0001"),
-        AssetClass.CRYPTO: Decimal("0.00000001"),
-        AssetClass.PREDICTION: Decimal("1"),
-    }[asset_class]
-    return quantity.quantize(quantum, rounding=ROUND_DOWN)
-
-
 def _fit_entry(
     order: FundOrder,
     prior_orders: Sequence[FundOrder],
@@ -187,10 +153,10 @@ def _fit_entry(
     state: FundState,
     mandate: FundMandate,
 ) -> tuple[FundOrder | None, str | None]:
-    """Find the largest quantity that fits; preview only, never write a ledger.
+    """Find the largest whole-contract quantity that fits; preview only.
 
     Use the real fill/cost/risk math rather than maintaining a second budget
-    engine. Search integer quantity units so the result is deterministic.
+    engine. Binary search keeps the result deterministic.
     """
     reason = None
 
@@ -213,18 +179,16 @@ def _fit_entry(
 
     if fits(order.quantity):
         return order, None
-    quantum = _round_quantity(ONE, order.asset_class).as_tuple().exponent
-    unit = ONE.scaleb(quantum)
-    low, high = 0, int(order.quantity / unit)
+    low, high = 0, int(order.quantity)
     while low < high:
         middle = (low + high + 1) // 2
-        if fits(Decimal(middle) * unit):
+        if fits(Decimal(middle)):
             low = middle
         else:
             high = middle - 1
     if low == 0:
         return None, reason
-    return order.model_copy(update={"quantity": Decimal(low) * unit}), reason
+    return order.model_copy(update={"quantity": Decimal(low)}), reason
 
 
 def size_decision(
@@ -233,14 +197,14 @@ def size_decision(
     quotes: Sequence[FundQuote],
     state: FundState,
     mandate: FundMandate,
-    calibration: Sequence[dict[str, Any]] = (),
+    trust: Mapping[str, Decimal] | None = None,
     sleeve_weights: dict[str, Decimal] | None = None,
     policy: TradingPolicy | None = None,
 ) -> SizingResult:
-    """Replace missing entry quantities with fractional-Kelly quantities.
+    """Replace missing entry quantities with trust-shrunk, velocity-ranked Kelly sizes.
 
-    Explicit quantities on exits are preserved. Entry quantities are ignored
-    whenever the packet supplies a complete belief, making sizing repeatable.
+    `trust=None` uses beliefs as stated (the code-only baseline already
+    calibrates its own probabilities). Explicit exit quantities are preserved.
     """
     policy = policy or TradingPolicy()
     decision = decision.model_copy(update={"orders": _candidate_orders(decision, quotes, state)})
@@ -263,13 +227,10 @@ def size_decision(
     nav_after_cost_budget = max(
         ZERO, state.nav - turnover_limit * (mandate.fee_bps + mandate.slippage_bps) / BPS
     )
-    # Release only inventory actually scheduled to exit in this cycle. The
-    # accounting preview verifies those exits before sizing replacement risk.
+    # Release only inventory actually scheduled to exit in this cycle.
     exit_quantities: dict[str, Decimal] = {}
     for order in decision.orders:
-        if order.side in {OrderSide.SELL, OrderSide.COVER}:
-            if order.asset_class is AssetClass.STOCK and not stock_market_is_open(decision.as_of):
-                continue
+        if order.side is OrderSide.SELL:
             position = position_by_id.get(order.instrument_id)
             quantity = order.quantity or (abs(position.quantity) if position else ZERO)
             exit_quantities[order.instrument_id] = (
@@ -290,15 +251,14 @@ def size_decision(
     accepted: list[dict[str, Any]] = []
     dropped: list[dict[str, Any]] = []
     orders: list[FundOrder] = []
+    prospects: list[dict[str, Any]] = []
 
     for order in decision.orders:
-        if order.asset_class is AssetClass.STOCK and not stock_market_is_open(decision.as_of):
-            dropped.append({"instrument_id": order.instrument_id, "reason": "market_closed_queued"})
-            continue
+        if order.asset_class is not AssetClass.PREDICTION:
+            raise PaperFundValidationError("belief sizing supports prediction contracts only")
         position = position_by_id.get(order.instrument_id)
-        is_exit = order.side in {OrderSide.SELL, OrderSide.COVER}
         hypothesis = hypotheses.get(order.instrument_id)
-        if is_exit:
+        if order.side is OrderSide.SELL:
             quantity = order.quantity or (abs(position.quantity) if position else None)
             if quantity is None:
                 raise PaperFundValidationError(
@@ -307,69 +267,61 @@ def size_decision(
             orders.append(order.model_copy(update={"quantity": quantity}))
             accepted.append({"instrument_id": order.instrument_id, "reason": "inventory_exit"})
             continue
-
+        if order.side is not OrderSide.BUY:
+            dropped.append({"instrument_id": order.instrument_id, "reason": "buy_opposite_outcome"})
+            continue
         quote = quote_by_id.get(order.instrument_id)
         if quote is None:
             raise PaperFundValidationError(f"missing quote for sized order {order.instrument_id}")
+        if not quote.asks:
+            dropped.append({"instrument_id": order.instrument_id, "reason": "no_displayed_asks"})
+            continue
         p_win, target, stop = _belief(order, hypothesis)
         playbook_id = order.playbook_id or (hypothesis.playbook_id if hypothesis else None)
-        calibrated = calibration_haircut(
-            p_win,
-            [row for row in calibration if row.get("playbook_id", playbook_id) == playbook_id],
-            minimum_count=CALIBRATION_MINIMUM_COUNT,
-            prior_count=policy.learning_window,
+        trust_value = None if trust is None else trust.get(playbook_id or "", trust.get("*", ZERO))
+        believed = (
+            p_win if trust_value is None else shrink_to_market(p_win, quote.price, trust_value)
         )
-        trading_cost = (mandate.fee_bps + mandate.slippage_bps) * Decimal("2") / BPS
-        if mandate.venue_fee_model == "prediction_taker_v1":
-            from edgecraft.paper_fund import execution_fee
-
-            if order.side is OrderSide.SHORT:
-                dropped.append(
-                    {"instrument_id": order.instrument_id, "reason": "buy_opposite_outcome"}
-                )
-                continue
-            # Compare probability points with per-share costs. Preview below
-            # includes the actual rounded fee for the final fitted quantity.
-            trading_cost = (
-                execution_fee(mandate, quote, quote.price, Decimal("100")) / 100
-                + quote.price * mandate.slippage_bps * 2 / BPS
+        ask = min(level.price for level in quote.asks)
+        cost = ask + execution_fee(mandate, quote, ask, Decimal("100")) / 100
+        edge = believed - cost
+        horizon = Decimal(
+            order.horizon_hours or (hypothesis.expected_horizon_hours if hypothesis else 8760)
+        )
+        annualized = edge / cost * HOURS_PER_YEAR / horizon
+        base = {"instrument_id": order.instrument_id, "believed_p_win": str(believed)}
+        if edge < MINIMUM_EDGE:
+            dropped.append({**base, "reason": "below_edge_threshold", "edge": str(edge)})
+            continue
+        if annualized < policy.min_annualized_return:
+            dropped.append(
+                {**base, "reason": "below_annualized_hurdle", "annualized": str(annualized)}
             )
-        minimum_edge = MINIMUM_EDGE_BPS / BPS
-        if order.asset_class is AssetClass.PREDICTION:
-            if order.side is OrderSide.BUY:
-                edge = calibrated - quote.price
-                denom = ONE - quote.price
-            else:
-                edge = quote.price - calibrated
-                denom = quote.price
-            expected_return = edge - trading_cost
-            if denom <= ZERO or expected_return < minimum_edge:
-                dropped.append(
-                    {
-                        "instrument_id": order.instrument_id,
-                        "reason": "below_edge_threshold",
-                        "expected_return": str(expected_return),
-                        "minimum": str(minimum_edge),
-                    }
-                )
-                continue
-            full_kelly = max(ZERO, edge / denom)
-        else:
-            upside, downside = _payoffs(order.side, quote.price, target, stop)
-            expected_return = calibrated * upside - (ONE - calibrated) * downside - trading_cost
-            if expected_return < minimum_edge:
-                dropped.append(
-                    {
-                        "instrument_id": order.instrument_id,
-                        "reason": "below_edge_threshold",
-                        "expected_return": str(expected_return),
-                        "minimum": str(minimum_edge),
-                    }
-                )
-                continue
-            payoff_ratio = upside / downside
-            full_kelly = max(ZERO, (payoff_ratio * calibrated - (ONE - calibrated)) / payoff_ratio)
-        weight = full_kelly * policy.kelly_fraction
+            continue
+        prospects.append(
+            dict(
+                order=order,
+                quote=quote,
+                hypothesis=hypothesis,
+                p_win=p_win,
+                believed=believed,
+                trust=trust_value,
+                target=target,
+                stop=stop,
+                playbook_id=playbook_id,
+                cost=cost,
+                edge=edge,
+                annualized=annualized,
+            )
+        )
+
+    # Scarce cash goes to the fastest-compounding edge first.
+    prospects.sort(key=lambda item: (item["annualized"], item["edge"]), reverse=True)
+    for item in prospects:
+        order, quote, hypothesis = item["order"], item["quote"], item["hypothesis"]
+        playbook_id = item["playbook_id"]
+        position = position_by_id.get(order.instrument_id)
+        weight = (item["edge"] / (ONE - item["cost"])) * policy.kelly_fraction
         driver = order.driver or (hypothesis.driver if hypothesis else None) or "untagged"
         if (
             position
@@ -385,17 +337,17 @@ def size_decision(
             continue
         if playbook_id in sleeve_weights:
             weight = min(weight, sleeve_weights[playbook_id])
-        remaining_driver = max(
-            ZERO,
-            state.nav * policy.max_driver_weight - driver_used.get(driver, ZERO),
-        )
-        position_limit = mandate.max_single_position_weight
-        if order.asset_class is AssetClass.PREDICTION:
-            position_limit = min(position_limit, policy.max_prediction_weight)
+        position_limit = min(mandate.max_single_position_weight, policy.max_prediction_weight)
         weight = min(weight, position_limit)
+        remaining_driver = max(
+            ZERO, state.nav * policy.max_driver_weight - driver_used.get(driver, ZERO)
+        )
+        # Headroom: later entries pay spread, which lowers NAV and would push
+        # a position sized exactly at the cap over it, blocking every later entry.
         remaining_position = max(
             ZERO,
-            nav_after_cost_budget * position_limit - instrument_used.get(order.instrument_id, ZERO),
+            nav_after_cost_budget * position_limit * POSITION_HEADROOM
+            - instrument_used.get(order.instrument_id, ZERO),
         )
         remaining_sleeve = (
             max(ZERO, state.nav * sleeve_weights[playbook_id] - sleeve_used.get(playbook_id, ZERO))
@@ -403,7 +355,7 @@ def size_decision(
             else state.nav
         )
         notional = min(state.nav * weight, remaining_driver, remaining_sleeve, remaining_position)
-        quantity = _round_quantity(notional / quote.price, order.asset_class)
+        quantity = (notional / quote.price).quantize(ONE, rounding=ROUND_DOWN)
         if quantity <= ZERO:
             dropped.append(
                 {"instrument_id": order.instrument_id, "reason": "quantity_rounded_to_zero"}
@@ -412,16 +364,11 @@ def size_decision(
         sized_order = order.model_copy(
             update={
                 "quantity": quantity,
-                "p_win": p_win,
-                "target_price": target,
-                "invalidation_price": stop,
+                "p_win": item["p_win"],
+                "target_price": item["target"],
+                "invalidation_price": item["stop"],
                 "playbook_id": playbook_id,
                 "driver": driver,
-                "borrow_fee_bps_annual": (
-                    Decimal("300")
-                    if order.asset_class is AssetClass.STOCK and order.side is OrderSide.SHORT
-                    else order.borrow_fee_bps_annual
-                ),
             }
         )
         sized_order, capacity_reason = _fit_entry(
@@ -442,47 +389,27 @@ def size_decision(
             decision=decision.model_copy(update={"orders": (*orders, sized_order)}),
             quotes=quotes,
         )
-        execution_price = preview.fills[-1].execution_price
-        # Entry slippage/spread is already in that price. Estimate the exit
-        # slippage and both fees; displayed liquidity must not erase the edge.
-        remaining_cost = (2 * mandate.fee_bps + mandate.slippage_bps) / BPS
-        if order.asset_class is AssetClass.STOCK and order.side is OrderSide.SHORT:
-            horizon = order.horizon_hours or (
-                hypothesis.expected_horizon_hours if hypothesis else 72
-            )
-            remaining_cost += Decimal("300") / BPS * Decimal(horizon) / Decimal("8760")
-        if mandate.venue_fee_model == "prediction_taker_v1":
-            quantity = sized_order.quantity
-            remaining_cost = (
-                preview.fills[-1].fee / quantity
-                + execution_fee(mandate, quote, Decimal("0.5"), quantity) / quantity
-                + mandate.slippage_bps / BPS
-            )
-        if order.asset_class is AssetClass.PREDICTION:
-            executable_return = (
-                calibrated - execution_price
-                if order.side is OrderSide.BUY
-                else execution_price - calibrated
-            ) - remaining_cost
-        else:
-            if not min(target, stop) < execution_price < max(target, stop):
-                dropped.append(
-                    {"instrument_id": order.instrument_id, "reason": "execution_outside_thesis"}
-                )
-                continue
-            upside, downside = _payoffs(order.side, execution_price, target, stop)
-            executable_return = calibrated * upside - (ONE - calibrated) * downside - remaining_cost
-        if executable_return < minimum_edge:
+        fill = preview.fills[-1]
+        quantity = sized_order.quantity
+        # The fill walked the book. Add its fee, the expected early-exit fee
+        # (a loser exits at its stop, a winner at its target; settlement is
+        # free), and exit slippage. Displayed liquidity must not erase the edge.
+        believed = item["believed"]
+        exit_fee = (1 - believed) * execution_fee(mandate, quote, item["stop"], quantity) + (
+            believed * execution_fee(mandate, quote, min(item["target"], MAX_OPEN_PRICE), quantity)
+        )
+        remaining_cost = (fill.fee + exit_fee) / quantity + mandate.slippage_bps / BPS
+        executable = believed - fill.execution_price - remaining_cost
+        if executable < MINIMUM_EDGE:
             dropped.append(
                 {
                     "instrument_id": order.instrument_id,
                     "reason": "execution_erases_edge",
-                    "expected_return": str(executable_return),
-                    "execution_price": str(execution_price),
+                    "expected_return": str(executable),
+                    "execution_price": str(fill.execution_price),
                 }
             )
             continue
-        quantity = sized_order.quantity
         actual_notional = quantity * quote.price
         driver_used[driver] = driver_used.get(driver, ZERO) + actual_notional
         sleeve = playbook_id or "unassigned"
@@ -495,10 +422,12 @@ def size_decision(
             {
                 "instrument_id": order.instrument_id,
                 "quantity": str(quantity),
-                "p_win": str(p_win),
-                "calibrated_p_win": str(calibrated),
-                "expected_return": str(expected_return),
-                "executable_expected_return": str(executable_return),
+                "p_win": str(item["p_win"]),
+                "trust": str(item["trust"]) if item["trust"] is not None else None,
+                "believed_p_win": str(item["believed"]),
+                "expected_return": str(item["edge"]),
+                "annualized_return": str(round(item["annualized"], 4)),
+                "executable_expected_return": str(executable),
                 "kelly_weight": str(weight),
                 "notional": str(actual_notional),
                 "capacity_adjustment": capacity_reason,
