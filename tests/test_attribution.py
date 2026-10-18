@@ -47,7 +47,7 @@ def test_report_scores_only_observed_outcomes_and_retains_runtime(tmp_path: Path
 
 
 def test_partial_exits_count_as_one_learning_outcome() -> None:
-    from edgecraft.attribution import _round_trips, _sizing_calibration
+    from edgecraft.attribution import _round_trips
 
     def cycle(at, fills):
         return {
@@ -85,18 +85,11 @@ def test_partial_exits_count_as_one_learning_outcome() -> None:
     assert len(trades) == 1
     assert trades[0]["quantity"] == "10"
     assert trades[0]["realized_pnl_after_cost"] == "2.0"
-    assert _sizing_calibration(trades, 20) == [
-        {
-            "playbook_id": "version_2",
-            "bucket": "60-70%",
-            "count": 1,
-            "realized_win_rate": "1",
-        }
-    ]
+    assert trades[0]["playbook_id"] == "version_2"
 
 
 def test_prediction_short_calibrates_settlement_probability_not_trade_profit() -> None:
-    from edgecraft.attribution import _round_trips, _sizing_calibration
+    from edgecraft.attribution import _round_trips
 
     def cycle(at, fill):
         return {
@@ -132,7 +125,6 @@ def test_prediction_short_calibrates_settlement_probability_not_trade_profit() -
     assert trades[0]["won"]
     assert trades[0]["playbook_id"] == "experiment"
     assert not trades[0]["probability_outcome"]
-    assert _sizing_calibration(trades, 20)[0]["realized_win_rate"] == "0"
 
 
 def test_report_retains_flat_candidate_without_scoring_it(tmp_path: Path) -> None:

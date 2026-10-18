@@ -246,6 +246,10 @@ def _adaptive_prompts(
     prompts = [
         "Scan every eligible playbook within the configured mandate and express every "
         "positive after-cost edge with a complete belief.",
+        "Forecast every researched market in the session forecast file; scored forecasts "
+        "earn each playbook the trust that sizing applies.",
+        "Research soon-resolving catalysts first: an edge that settles this week compounds "
+        "faster than a larger one that settles next year.",
         "State p_win, target, invalidation, driver, and playbook. Uncertainty is not itself "
         "a reason to hold; quantify it and let deterministic sizing decide.",
         "Trade only the configured asset classes. For prediction-only funds, buy YES or NO "

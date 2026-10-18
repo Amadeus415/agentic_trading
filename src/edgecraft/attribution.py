@@ -375,32 +375,6 @@ def _calibration(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return output
 
 
-def _sizing_calibration(trades: list[dict[str, Any]], window: int) -> list[dict[str, Any]]:
-    """One closed-position outcome per version, never repeated hold observations."""
-    by_playbook: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for trade in trades:
-        by_playbook[trade["playbook_id"]].append(trade)
-    output = []
-    for playbook_id, history in sorted(by_playbook.items()):
-        grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        for trade in history[-window:]:
-            if trade.get("p_win") is not None and trade.get("probability_outcome") is not None:
-                grouped[_bucket(_dec(trade["p_win"]))].append(trade)
-        for bucket, items in sorted(grouped.items()):
-            output.append(
-                {
-                    "playbook_id": playbook_id,
-                    "bucket": bucket,
-                    "count": len(items),
-                    "realized_win_rate": str(
-                        Decimal(sum(item["probability_outcome"] for item in items))
-                        / Decimal(len(items))
-                    ),
-                }
-            )
-    return output
-
-
 def build_fund_report(
     ledger: PaperFundLedger,
     fund_id: str,
@@ -440,6 +414,7 @@ def build_fund_report(
     cost_share = model_cost / gross_profit if gross_profit else None
     from pathlib import Path
 
+    from edgecraft.forecasts import forecast_skill
     from edgecraft.lineage import commit_subjects, lineage_report, load_deployments
     from edgecraft.prediction_scoring import prediction_scores
 
@@ -455,6 +430,7 @@ def build_fund_report(
     return {
         "lineage": lineage,
         "prediction_scores": prediction_scores(cycles),
+        "forecast_skill": forecast_skill(ledger, fund_id, policy),
         "schema_version": "edgecraft.fund-report.v1",
         "fund_id": fund_id,
         "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
@@ -480,7 +456,6 @@ def build_fund_report(
             "exposure_weighted_return": str(nav_change / deployed) if deployed else None,
         },
         "calibration": calibration,
-        "sizing_calibration": _sizing_calibration(trades, policy.learning_window),
         "cuts": {
             key: _group(rows, key)
             for key in (
