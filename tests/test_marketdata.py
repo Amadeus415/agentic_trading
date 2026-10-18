@@ -36,3 +36,34 @@ def test_advisory_difference_is_measured_in_basis_points() -> None:
     now = datetime(2026, 9, 3, 16, tzinfo=UTC)
 
     assert advisory_difference_bps(_quote("101", now), _quote("100", now)) == Decimal("100")
+
+
+def test_a_stalled_read_is_retried_once_but_access_errors_are_not(monkeypatch) -> None:
+    import io
+    import urllib.error
+
+    import pytest
+
+    from edgecraft import marketdata
+
+    calls = []
+
+    def stalled_then_ok(request, timeout):
+        calls.append(request.full_url)
+        if len(calls) == 1:
+            raise TimeoutError("The read operation timed out")
+        return io.BytesIO(b'{"ok": true}')
+
+    monkeypatch.setattr(marketdata.urllib.request, "urlopen", stalled_then_ok)
+    assert marketdata._get_json("https://example.test/a") == {"ok": True}
+    assert len(calls) == 2
+
+    def denied(request, timeout):
+        calls.append(request.full_url)
+        raise urllib.error.URLError("certificate verify failed")
+
+    calls.clear()
+    monkeypatch.setattr(marketdata.urllib.request, "urlopen", denied)
+    with pytest.raises(urllib.error.URLError):
+        marketdata._get_json("https://example.test/b")
+    assert len(calls) == 1
