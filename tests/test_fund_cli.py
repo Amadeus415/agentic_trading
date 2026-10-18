@@ -134,13 +134,13 @@ def test_sized_run_turns_research_beliefs_into_trades_and_forecasts(tmp_path, ca
         "kalshi:KXEXAMPLE-26OCT20:NO",
     }
     # Unmeasured playbooks are sized at the prior trust, not the stated p_win.
-    assert all(row["trust"] == "0.35" for row in accepted)
+    assert all(row["trust"] == "0.60" for row in accepted)
     # Highest annualized after-cost return is funded first.
     assert accepted[0]["instrument_id"] == "polymarket:900001:YES"
     assert Decimal(accepted[0]["annualized_return"]) > Decimal(accepted[1]["annualized_return"])
     report = _run(["fund-report", *common], capsys)
     assert report["forecast_skill"]["summary"]["forecasts"] == 2
-    assert report["forecast_skill"]["variants"]["resolution_reading"]["trust"] == 0.35
+    assert report["forecast_skill"]["variants"]["resolution_reading"]["trust"] == 0.6
 
 
 def test_fund_cli_report_postmortem_and_alerts(tmp_path, capsys) -> None:
@@ -341,7 +341,7 @@ def test_forecast_skill_promotes_one_experiment_and_freezes_another(
     context = _run(["fund-context", *common], capsys)
     skill = context["forecast_skill"]["variants"]
     assert skill["resolution_reading"]["skill"] > 0
-    assert skill["resolution_reading"]["trust"] > 0.35
+    assert skill["resolution_reading"]["trust"] > 0.6
     assert skill["consistency"]["estimated_trust"] <= 0.05
     assert context["forecast_skill"]["head_to_head"][0]["left"] == "consistency"
     assert context["forecast_skill"]["head_to_head"][0]["left_advantage"] < 0

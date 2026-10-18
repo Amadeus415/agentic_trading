@@ -12,17 +12,18 @@ from pydantic import BaseModel, ConfigDict, Field
 class TradingPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    kelly_fraction: Decimal = Field(default=Decimal("0.50"), gt=0, le=1)
-    max_driver_weight: Decimal = Field(default=Decimal("0.35"), gt=0)
+    # Trust already shrinks every belief toward the market, so Kelly is not halved again.
+    kelly_fraction: Decimal = Field(default=Decimal("1.00"), gt=0, le=1)
+    max_driver_weight: Decimal = Field(default=Decimal("0.50"), gt=0)
     max_prediction_weight: Decimal = Field(default=Decimal("0.25"), gt=0, le=1)
-    incubation_weight: Decimal = Field(default=Decimal("0.35"), gt=0)
-    active_weight: Decimal = Field(default=Decimal("0.60"), gt=0)
+    incubation_weight: Decimal = Field(default=Decimal("0.50"), gt=0)
+    active_weight: Decimal = Field(default=Decimal("1.00"), gt=0)
     review_days: int = Field(default=1, ge=1)
     review_closed_trades: int = Field(default=10, ge=1)
     learning_window: int = Field(default=20, ge=10)
     # How far sizing trusts a forecast's distance from the market price before
     # measured skill exists, and how many scored forecasts outweigh that prior.
-    prior_trust: Decimal = Field(default=Decimal("0.35"), ge=0, le=1)
+    prior_trust: Decimal = Field(default=Decimal("0.60"), ge=0, le=1)
     trust_prior_weight: int = Field(default=20, ge=1)
     # Scored forecasts a playbook needs before skill promotes or freezes it.
     promotion_forecasts: int = Field(default=30, ge=1)

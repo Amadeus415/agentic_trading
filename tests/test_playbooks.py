@@ -15,8 +15,8 @@ def test_starting_playbooks_have_separate_incubation_sleeves() -> None:
     assert len(playbooks) == 3
     assert len({item.spec.id for item in playbooks}) == 3
     assert all(item.prompt_hash for item in playbooks)
-    assert all(item.weight == Decimal("0.35") for item in allocations)
-    assert sum(item.weight for item in allocations) == Decimal("1.05")
+    assert all(item.weight == Decimal("0.50") for item in allocations)
+    assert sum(item.weight for item in allocations) == Decimal("1.50")
 
 
 def test_forecast_skill_promotes_informative_and_freezes_uninformative_playbooks() -> None:

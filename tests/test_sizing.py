@@ -157,6 +157,14 @@ def test_belief_sizes_with_fractional_kelly_not_model_quantity() -> None:
     assert result.decision.action is DecisionAction.TRADE
 
 
+def test_unmeasured_playbook_bets_a_meaningful_share_of_nav() -> None:
+    policy = TradingPolicy()
+    result = _size([_belief("A")], [_quote("A")], trust={"*": policy.prior_trust}, policy=policy)
+    # 0.39 + 0.60 x (0.60 - 0.39) = 0.516 believed; full Kelly (0.516 - 0.40) / 0.60 = 19% of NAV.
+    # Half Kelly at 0.35 trust bet about 5%, which left most of the fund idle.
+    assert Decimal(result.accepted[0]["notional"]) > Decimal("180")
+
+
 def test_trust_shrinks_belief_toward_market_and_zero_trust_never_trades() -> None:
     assert shrink_to_market(Decimal("0.6"), Decimal("0.4"), Decimal("0.5")) == Decimal("0.50")
     none = _size([_belief("A")], [_quote("A")], trust={"*": Decimal("0")})
@@ -188,7 +196,7 @@ def test_velocity_drops_slow_edges_and_funds_fast_edges_first() -> None:
 def test_shared_driver_cap_limits_correlated_contracts() -> None:
     beliefs = [_belief(name, "0.95", driver="election") for name in ("A", "B", "C")]
     result = _size(beliefs, [_quote(name) for name in ("A", "B", "C")])
-    assert sum(Decimal(item["notional"]) for item in result.accepted) <= Decimal("350")
+    assert sum(Decimal(item["notional"]) for item in result.accepted) <= Decimal("500")
 
 
 def test_flat_research_does_not_suppress_directional_candidate() -> None:
