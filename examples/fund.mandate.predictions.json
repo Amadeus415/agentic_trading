@@ -39,6 +39,11 @@
     "active_weight": "0.60",
     "review_days": 1,
     "review_closed_trades": 10,
-    "learning_window": 20
+    "learning_window": 20,
+    "prior_trust": "0.35",
+    "trust_prior_weight": 20,
+    "promotion_forecasts": 30,
+    "min_annualized_return": "0.30",
+    "min_depth_usd": "20"
   }
 }
