@@ -157,6 +157,18 @@ def test_belief_sizes_with_fractional_kelly_not_model_quantity() -> None:
     assert result.decision.action is DecisionAction.TRADE
 
 
+def test_belief_without_contract_evidence_is_dropped_before_the_ledger() -> None:
+    decision = _decision((_belief("A"),))
+    untagged = decision.model_copy(
+        update={"evidence": (decision.evidence[0].model_copy(update={"instrument_ids": ()}),)}
+    )
+    result = size_decision(
+        decision=untagged, quotes=(_quote("A"),), state=_state(), mandate=MANDATE
+    )
+    assert result.decision.orders == ()
+    assert result.dropped[0]["reason"] == "no_instrument_evidence"
+
+
 def test_unmeasured_playbook_bets_a_meaningful_share_of_nav() -> None:
     policy = TradingPolicy()
     result = _size([_belief("A")], [_quote("A")], trust={"*": policy.prior_trust}, policy=policy)

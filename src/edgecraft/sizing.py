@@ -252,6 +252,7 @@ def size_decision(
     dropped: list[dict[str, Any]] = []
     orders: list[FundOrder] = []
     prospects: list[dict[str, Any]] = []
+    evidence_by_id = {item.evidence_id: item for item in decision.evidence}
 
     for order in decision.orders:
         if order.asset_class is not AssetClass.PREDICTION:
@@ -269,6 +270,16 @@ def size_decision(
             continue
         if order.side is not OrderSide.BUY:
             dropped.append({"instrument_id": order.instrument_id, "reason": "buy_opposite_outcome"})
+            continue
+        # An entry needs evidence about its own contract, not only its event.
+        if not any(
+            order.instrument_id in evidence_by_id[evidence_id].instrument_ids
+            for evidence_id in order.evidence_ids
+            if evidence_id in evidence_by_id
+        ):
+            dropped.append(
+                {"instrument_id": order.instrument_id, "reason": "no_instrument_evidence"}
+            )
             continue
         quote = quote_by_id.get(order.instrument_id)
         if quote is None:
@@ -437,5 +448,8 @@ def size_decision(
         )
 
     action = DecisionAction.TRADE if orders else DecisionAction.HOLD
-    sized = decision.model_copy(update={"orders": tuple(orders), "action": action})
+    # Copies skip validation; check the final decision before it can be applied.
+    sized = FundDecision.model_validate(
+        decision.model_copy(update={"orders": tuple(orders), "action": action}).model_dump()
+    )
     return SizingResult(decision=sized, accepted=tuple(accepted), dropped=tuple(dropped))
