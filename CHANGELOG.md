@@ -130,3 +130,9 @@ The full record is in [history/v1-multi-asset](history/v1-multi-asset/README.md)
 - **Expected effect:** one discount instead of two. Prior trust rises to 0.60 and Kelly to full on the trust-shrunk belief, so the same 20-point edge gets about $224. The shared-driver cap rises from 35% to 50%, the incubation sleeve from 35% to 50%, and an active sleeve may take the whole budget. The research prompt asks for honest, unhedged probabilities and a belief on every favored contract. The control fund moves to half Kelly with 15% position and 30% event caps. Measured trust still takes over as forecasts settle: a playbook without skill still shrinks toward zero, and the mandate's 25% position cap and 50% drawdown limit are unchanged.
 - **Measure:** gross exposure and turnover in `fund-report`; sizing audits show `kelly_weight` and `trust` per order. Losses are larger per wrong call: watch drawdown against the 50% limit.
 - **Fund:** `edgecraft-predictions` and `edgecraft-baseline`. Mandates are unchanged; only `trading` settings move.
+
+## 2026-10-18 · Start research sessions from launchd instead of the desktop app
+- **Why:** `edgecraft-predictions` recorded zero cycles in its first 30 hours. The desktop-app routines were never created, and they could only fire while the app was open. The fund sat in cash because nothing started a session, not because it found no edge.
+- **Expected effect:** two LaunchAgents (`com.edgecraft.claude-research` four times daily, `com.edgecraft.claude-review` Sundays) run headless `claude -p` sessions with the prompts in `docs/SCHEDULED_TASKS.md`, auto permissions, and no MCP connectors. Only the trigger changes: prompts, the broker-tool hook, sizing, the monitor, and cycle keys are unchanged.
+- **Measure:** one accepted cycle per session key in `make fund-show`; a missing key with a `state/logs/claude-research-*.log` transcript shows why the run stopped.
+- **Fund:** `edgecraft-predictions`.

@@ -1,22 +1,19 @@
 # Scheduled prediction-market research
 
-Research and reviews run as Claude Code local scheduled tasks in the Claude desktop app. Each run opens a fresh Claude session in the runtime checkout, follows this file, and stops. The model-free monitor is a separate LaunchAgent and needs no task.
+Research and reviews run as headless Claude Code sessions (`claude -p`) started by launchd, like the monitor. Each run opens a fresh session in the runtime checkout, follows this file, and stops. No app needs to be open. The model-free monitor is a separate LaunchAgent.
 
 ## The tasks
 
-Create each one in the desktop app under **Code → Routines → New routine → Local**, or ask Claude in a desktop session to create them from this table. Set the working folder to `/Users/colenba/02_pink_dolphin/01_Shipping/agentic_trading_runtime`, turn the worktree option off (the runtime's `state/` must be shared), and pick **Auto** permissions so an unattended run never waits on a prompt. Times are Pacific.
+From the runtime checkout, run `./scripts/install_claude_tasks.sh` once. It installs two LaunchAgents that call `scripts/run_claude_task.sh`, which reads the prompt below from this file. Times are Pacific.
 
-| Name | Schedule | Prompt |
+| LaunchAgent | Schedule | Prompt |
 | --- | --- | --- |
-| `nightshift-morning-research` | Daily 07:15 | [Research prompt](#research-prompt) |
-| `nightshift-midday-research` | Daily 10:15 | [Research prompt](#research-prompt) |
-| `nightshift-afternoon-research` | Daily 12:15 | [Research prompt](#research-prompt) |
-| `nightshift-evening-research` | Daily 18:15 | [Research prompt](#research-prompt) |
-| `nightshift-weekly-review` | Sundays 17:15 | [Review prompt](#review-prompt) |
+| `com.edgecraft.claude-research` | Daily 07:15, 10:15, 12:15, 18:15 | [Research prompt](#research-prompt) |
+| `com.edgecraft.claude-review` | Sundays 17:15 | [Review prompt](#review-prompt) |
 
-The four research times land in four different UTC session slots, so each gets its own cycle key. Local tasks run only while the Mac is awake and the app is open. After sleep, the app starts one catch-up run for the most recent missed time; the cycle key keeps a late run from duplicating a session that already succeeded. Turn on **Keep computer awake** in the app's settings if runs must not be skipped.
+The four research times land in four different UTC session slots, so each gets its own cycle key. Runs fire only while the Mac is awake. After sleep, launchd starts one catch-up run for the missed times, and the cycle key keeps a late run from repeating a session that already succeeded. A run that finds another Claude session still going skips. Each session's transcript is in `state/logs/claude-<task>-<UTC time>.log`.
 
-The runtime's `.claude/settings.json` installs a PreToolUse hook that denies broker order tools in every session, whatever the permission mode.
+Sessions use `--permission-mode auto` so an unattended run never waits on a prompt, and `--strict-mcp-config` so no account connectors (mail, calendar, drive) load. The runtime's `.claude/settings.json` installs a PreToolUse hook that denies broker order tools in every session, whatever the permission mode. The installer copies `CLAUDE_CONFIG_DIR` from your shell so sessions use your logged-in account. To run one session now: `launchctl kickstart gui/$UID/com.edgecraft.claude-research`.
 
 Operate only in `/Users/colenba/02_pink_dolphin/01_Shipping/agentic_trading_runtime`, using its installed `.venv/bin/edgecraft`. The active config is `examples/fund.mandate.predictions.json`; the fund is `edgecraft-predictions` in `state/edgecraft-aggressive.db`. The filename preserves the shared ledger. Never resume v1, inject capital, edit tracked files or policies, or use real-order tools.
 

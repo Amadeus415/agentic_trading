@@ -1,6 +1,6 @@
 # Edgecraft
 
-Build an understandable autonomous prediction-market paper fund researched by Claude Code scheduled tasks. Aim for aggressive compounded growth and measurable outperformance against the S&P 500.
+Build an understandable autonomous prediction-market paper fund researched by scheduled Claude Code sessions. Aim for aggressive compounded growth and measurable outperformance against the S&P 500.
 
 - Search eagerly, manage sourced event-contract positions, and learn from outcomes. Trade only when the expected edge clears costs; never force fills.
 - Claude researches and proposes. Python owns quotes, sizing, exits, accounting, and limits. Every fill is simulated; no broker, wallet, transfer, or real-order tools.

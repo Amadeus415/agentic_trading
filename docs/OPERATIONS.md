@@ -20,6 +20,7 @@ make fund-verify
 make fund-report-file
 make fund-scan
 ./scripts/install_local_monitor.sh
+./scripts/install_claude_tasks.sh
 ```
 
 Preparation initializes/reopens v2 using the new default config and shared database; it does not retire v1 implicitly. `fund-retire` refuses open inventory and appends a retirement event once. If v1 has positions, stop the cutover and manage them under its existing mandate before retirement. Never force-close at invented marks or remove trades. Old accepted requests remain replayable, but new accounting cycles on a retired fund are rejected.
@@ -28,11 +29,11 @@ The v2 initial deposit is independent experimental capital. It does not increase
 
 ## Schedules and monitoring
 
-Create the scheduled tasks and prompts listed in [SCHEDULED_TASKS.md](SCHEDULED_TASKS.md) before resuming. Keep the existing cadence unless deliberately changing it; equity-session names now identify research windows. Do not resume until both public venues, required sources, and position marks work with normal TLS verification. A certificate, access, or integrity failure is an operating blocker, not a cash-hold decision.
+Install the research and review LaunchAgents described in [SCHEDULED_TASKS.md](SCHEDULED_TASKS.md) before resuming. Keep the existing cadence unless deliberately changing it; equity-session names now identify research windows. Do not resume until both public venues, required sources, and position marks work with normal TLS verification. A certificate, access, or integrity failure is an operating blocker, not a cash-hold decision.
 
 The installed monitor runs `scripts/run_local_monitor.sh` every five minutes. For both the research fund and the code-only `edgecraft-baseline` fund it verifies, enforces exits and settlements, and scores open forecasts. It then runs `fund-baseline`, which scans at most once per `baseline_interval_minutes` and writes a cycle only when it buys; a failed public listing skips that pass. It refuses partial action if any open-position mark fails, verifies again, and refreshes `state/fund-report.json` and `state/fund-report-edgecraft-baseline.json`. The first run initializes the baseline fund's own one-time $1,000. A cash-only monitor need not add a cycle.
 
-Research runs as Claude Code local scheduled tasks; the monitor is local Python. The Mac must be awake and the Claude desktop app open for scheduled tasks to fire ([official documentation](https://code.claude.com/docs/en/desktop-scheduled-tasks)). Check the app's routine list and LaunchAgent state directly; documentation does not prove installation. The former Codex automations stay paused.
+Research runs as headless Claude Code sessions and the monitor as local Python, both from LaunchAgents. The Mac must be awake for either to fire; no app needs to be open. Check `launchctl print gui/$UID/com.edgecraft.claude-research` and the `state/logs/claude-*` transcripts directly; documentation does not prove installation. The former Codex automations stay paused.
 
 ## Dashboard and reports
 
