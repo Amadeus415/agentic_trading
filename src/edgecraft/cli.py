@@ -16,6 +16,7 @@ from edgecraft.fund_brain import build_fund_brain
 from edgecraft.growth import growth_snapshot
 from edgecraft.observability import log_event
 from edgecraft.paper_fund import (
+    REPLAY,
     CycleRuntimeMetadata,
     FundCyclePacket,
     FundDecision,
@@ -618,7 +619,7 @@ def _fund_run(args: argparse.Namespace) -> dict[str, Any]:
                     raise PaperFundIdempotencyError(
                         "cycle key already used with a different input packet"
                     )
-                decision = FundDecision.model_validate(prior["decision"])
+                decision = FundDecision.model_validate(prior["decision"], context=REPLAY)
                 quotes = [FundQuote.model_validate(item) for item in prior["quotes"]]
                 replay_audit = prior_audit
     quote_audit: list[dict[str, Any]] = []

@@ -1167,6 +1167,27 @@ def test_audit_chain_and_immutable_triggers(tmp_path: Path) -> None:
         assert soft.chain_ok is False
 
 
+def test_verify_replays_cycle_that_breaks_input_rules_with_a_warning(tmp_path: Path) -> None:
+    # An accepted cycle stays verifiable when today's input rules would reject
+    # it: verify proves integrity and reports the rule break instead.
+    mandate = _mandate(fee_bps=Decimal("0"), slippage_bps=Decimal("0"))
+    with _ledger(tmp_path) as ledger:
+        ledger.initialize(FUND_ID, mandate)
+        valid = _decision(
+            "untagged",
+            orders=(_buy("AAPL", "1", AssetClass.STOCK),),
+            evidence=(_ev("e1", instruments=("AAPL",)),),
+        )
+        untagged = valid.model_copy(update={"evidence": (_ev("e1"),)})
+        ledger.execute_cycle(untagged, [_quote("AAPL", "100", AssetClass.STOCK)])
+        report = ledger.verify(FUND_ID)
+        assert report.ok is True
+        assert report.warnings == [
+            "cycle untagged breaks input rules: "
+            "Value error, order on AAPL requires instrument-specific evidence"
+        ]
+
+
 def test_quote_model_prediction_price_rules() -> None:
     with pytest.raises(ValidationError):
         FundQuote(

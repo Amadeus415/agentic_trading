@@ -24,6 +24,8 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    ValidationError,
+    ValidationInfo,
     field_serializer,
     field_validator,
     model_validator,
@@ -512,6 +514,12 @@ class DecisionJournal(BaseModel):
         return self
 
 
+# Validation context for stored cycles. Evidence and journal rules gate a
+# decision when it is applied; replay proves the ledger is intact and must not
+# re-judge an accepted cycle by those rules (rules change, history does not).
+REPLAY = {"replay": True}
+
+
 class FundDecision(BaseModel):
     """Normalized cycle decision: trade with orders, or hold with none."""
 
@@ -535,11 +543,13 @@ class FundDecision(BaseModel):
         return _ensure_utc(value, "as_of")
 
     @model_validator(mode="after")
-    def _action_orders_and_evidence(self) -> Self:
+    def _action_orders_and_evidence(self, info: ValidationInfo) -> Self:
         if self.action is DecisionAction.TRADE and not self.orders:
             raise ValueError("trade decisions require at least one order")
         if self.action is DecisionAction.HOLD and self.orders:
             raise ValueError("hold decisions must not include orders")
+        if info.context == REPLAY:
+            return self
 
         evidence_by_id = {item.evidence_id: item for item in self.evidence}
         if len(evidence_by_id) != len(self.evidence):
@@ -896,6 +906,8 @@ class VerificationReport(BaseModel):
     chain_ok: bool
     accounting_ok: bool
     details: list[str] = Field(default_factory=list)
+    # Stored cycles that break today's input rules. Reported, not failed.
+    warnings: list[str] = Field(default_factory=list)
 
 
 class AuditEvent(BaseModel):
@@ -2552,6 +2564,7 @@ class PaperFundLedger:
         """Recompute event hash chain and check state/accounting consistency."""
         conn = self.connection
         details: list[str] = []
+        warnings: list[str] = []
         chain_ok = True
         accounting_ok = True
 
@@ -2625,7 +2638,13 @@ class PaperFundLedger:
                 (fund_id,),
             ).fetchall()
             for crow in cycles:
-                decision = FundDecision.model_validate_json(crow["decision_json"])
+                decision = FundDecision.model_validate_json(crow["decision_json"], context=REPLAY)
+                try:
+                    FundDecision.model_validate_json(crow["decision_json"])
+                except ValidationError as exc:
+                    warnings.append(
+                        f"cycle {decision.cycle_key} breaks input rules: {exc.errors()[0]['msg']}"
+                    )
                 quotes = [FundQuote.model_validate(q) for q in json.loads(crow["quotes_json"])]
                 digest = request_digest(decision, quotes)
                 if digest != crow["request_digest"]:
@@ -2660,6 +2679,7 @@ class PaperFundLedger:
             chain_ok=chain_ok,
             accounting_ok=accounting_ok,
             details=details,
+            warnings=warnings,
         )
         if not ok and raise_on_error:
             raise PaperFundIntegrityError(
