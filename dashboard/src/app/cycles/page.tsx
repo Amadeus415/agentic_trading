@@ -1,19 +1,9 @@
 import Link from "next/link";
 
-import { actionBadgeClass, cycleHref } from "@/components/display";
-import { formatTs, formatUsd } from "@/components/format";
-import { FundEmpty, Panel } from "@/components/panel";
-import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { actionLabel, cycleHref } from "@/components/display";
+import { formatDay, formatUsd } from "@/components/format";
+import { FundEmpty, Page, PageTitle, Quiet } from "@/components/panel";
 import { getSelectedFund, type FundSearchParams, listCycles, toCycleListItems } from "@/lib/fund";
-import { cn } from "@/lib/utils";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,102 +14,39 @@ export default async function CyclesPage({ searchParams }: { searchParams: FundS
 
   const cycles = toCycleListItems(listCycles(fund.fund_id)).reverse();
   const trades = cycles.filter((c) => c.action === "trade").length;
-  const holds = cycles.filter((c) => c.action === "hold").length;
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
-      <header className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <div className="flex flex-wrap items-baseline gap-2">
-            <span className="font-mono text-[10px] tracking-widest text-muted-foreground uppercase">
-              Decision log
-            </span>
-            <h2 className="text-sm font-medium text-foreground">Cycles</h2>
-          </div>
-          <p className="mt-0.5 font-mono text-xs text-muted-foreground tabular-nums">
-            {fund.fund_id}
-          </p>
-        </div>
-        <p className="font-mono text-xs text-muted-foreground tabular-nums">
-          {cycles.length} cycles · {trades} trade · {holds} hold
-        </p>
-      </header>
+    <Page className="gap-10">
+      <PageTitle aside={cycles.length ? `${trades} traded, ${cycles.length - trades} held or rejected` : null}>
+        Decisions
+      </PageTitle>
 
-      <Panel micro="Ledger" title="Completed cycles" trailing="newest first">
-        {cycles.length === 0 ? (
-          <p className="px-4 py-12 text-center text-sm text-muted-foreground">
-            No cycles recorded yet.
-          </p>
-        ) : (
-          <Table className="text-xs">
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead className="pl-3.5 font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                  as_of
-                </TableHead>
-                <TableHead className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                  cycle_key
-                </TableHead>
-                <TableHead className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                  action
-                </TableHead>
-                <TableHead className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                  thesis
-                </TableHead>
-                <TableHead className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                  what_changed
-                </TableHead>
-                <TableHead className="text-right font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                  nav
-                </TableHead>
-                <TableHead className="pr-3.5 text-right font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                  fills
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {cycles.map((c) => (
-                <TableRow key={c.cycle_key}>
-                  <TableCell className="pl-3.5 font-mono tabular-nums text-muted-foreground">
-                    {formatTs(c.as_of)}
-                  </TableCell>
-                  <TableCell className="font-mono font-medium">
-                    <Link
-                      href={cycleHref(c.cycle_key, fund.fund_id)}
-                      className="hover:underline"
-                    >
-                      {c.cycle_key}
-                    </Link>
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant="outline"
-                      className={cn(
-                        "font-mono text-[10px] capitalize",
-                        actionBadgeClass(c.action),
-                      )}
-                    >
-                      {c.action}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="max-w-[22rem] truncate text-muted-foreground">
-                    {c.decision_summary.thesis_snippet || "—"}
-                  </TableCell>
-                  <TableCell className="max-w-[18rem] truncate text-muted-foreground">
-                    {c.what_changed || "—"}
-                  </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
-                    {c.nav != null ? formatUsd(c.nav) : "—"}
-                  </TableCell>
-                  <TableCell className="pr-3.5 text-right font-mono tabular-nums">
-                    {c.fill_count}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </Panel>
-    </div>
+      {cycles.length === 0 ? (
+        <Quiet>No decisions yet. The first research session will add one.</Quiet>
+      ) : (
+        <ul className="flex flex-col">
+          {cycles.map((c) => (
+            <li key={c.cycle_key} className="border-t">
+              <Link
+                href={cycleHref(c.cycle_key, fund.fund_id)}
+                className="-mx-3 grid grid-cols-[4.5rem_1fr_auto] gap-x-5 gap-y-1 rounded-md px-3 py-4 hover:bg-wash sm:grid-cols-[4.5rem_4.5rem_1fr_auto]"
+              >
+                <span className="text-sm text-graphite">{formatDay(c.as_of)}</span>
+                <span className="hidden text-sm text-graphite sm:block">{actionLabel(c.action)}</span>
+                <span className="line-clamp-2 max-w-[68ch]">{c.thesis || "No reasoning recorded."}</span>
+                <span className="text-right text-sm">
+                  {c.nav != null ? formatUsd(c.nav) : "—"}
+                  {c.fill_count > 0 ? (
+                    <span className="block text-graphite">
+                      {c.fill_count} {c.fill_count === 1 ? "fill" : "fills"}
+                    </span>
+                  ) : null}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Page>
   );
 }

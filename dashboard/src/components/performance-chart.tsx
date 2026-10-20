@@ -2,10 +2,9 @@
 
 import * as React from "react";
 import {
-  Area,
-  CartesianGrid,
-  ComposedChart,
   Line,
+  LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -13,23 +12,22 @@ import {
 } from "recharts";
 
 import type { PerformancePoint } from "@/lib/types";
-import { formatTs } from "@/components/format";
-import { cn } from "@/lib/utils";
+import { formatDay, formatPct, formatTs } from "@/components/format";
+
+// Mirrors the tokens in globals.css; SVG attributes need literal colors.
+const FUND = "#2344e0";
+const SPY = "#a3a8b1";
+const LINE = "#e6e8ec";
+const MIST = "#a3a8b1";
 
 export type PerformanceChartProps = {
   fundSeries: PerformancePoint[];
   /** Null/empty when benchmark fetch failed — fund-only mode. */
   benchmarkSeries?: PerformancePoint[] | null;
-  className?: string;
   height?: number;
 };
 
-type ChartRow = {
-  t: number;
-  as_of: string;
-  fund: number | null;
-  benchmark: number | null;
-};
+type ChartRow = { t: number; fund: number | null; benchmark: number | null };
 
 function toMs(asOf: string): number {
   const ms = Date.parse(asOf);
@@ -37,266 +35,139 @@ function toMs(asOf: string): number {
 }
 
 /**
- * Merge fund + benchmark series onto a shared time axis.
- * Forward-fills each series so dual lines stay continuous across sparse points.
+ * Merge fund + benchmark onto one time axis as percent returns.
+ * Forward-fills each series so both lines stay continuous across sparse points.
  */
 function buildChartData(
   fundSeries: PerformancePoint[],
   benchmarkSeries: PerformancePoint[] | null | undefined,
 ): ChartRow[] {
-  const times = new Set<number>();
-  for (const p of fundSeries) times.add(toMs(p.as_of));
-  if (benchmarkSeries) {
-    for (const p of benchmarkSeries) times.add(toMs(p.as_of));
-  }
-
-  const sorted = [...times].filter((t) => t > 0).sort((a, b) => a - b);
-  if (sorted.length === 0) return [];
-
-  const fundByT = new Map(
-    fundSeries.map((p) => [toMs(p.as_of), p.value] as const),
-  );
-  const benchByT = new Map(
-    (benchmarkSeries ?? []).map((p) => [toMs(p.as_of), p.value] as const),
-  );
+  const fundByT = new Map(fundSeries.map((p) => [toMs(p.as_of), p.value] as const));
+  const benchByT = new Map((benchmarkSeries ?? []).map((p) => [toMs(p.as_of), p.value] as const));
+  const times = [...new Set([...fundByT.keys(), ...benchByT.keys()])].filter((t) => t > 0).sort((a, b) => a - b);
 
   let lastFund: number | null = null;
   let lastBench: number | null = null;
-  const rows: ChartRow[] = [];
-
-  for (const t of sorted) {
-    if (fundByT.has(t)) lastFund = fundByT.get(t) ?? null;
-    if (benchByT.has(t)) lastBench = benchByT.get(t) ?? null;
-    rows.push({
-      t,
-      as_of: new Date(t).toISOString(),
-      fund: lastFund,
-      benchmark: benchmarkSeries ? lastBench : null,
-    });
-  }
-
-  return rows;
+  return times.map((t) => {
+    if (fundByT.has(t)) lastFund = fundByT.get(t)! - 100;
+    if (benchByT.has(t)) lastBench = benchByT.get(t)! - 100;
+    return { t, fund: lastFund, benchmark: benchmarkSeries ? lastBench : null };
+  });
 }
 
-function formatAxisDate(iso: string): string {
-  return formatTs(iso, { dateOnly: true });
+function axisPct(value: number): string {
+  if (!Number.isFinite(value)) return "";
+  if (value === 0) return "0%";
+  const size = Math.abs(value);
+  return `${value > 0 ? "+" : "−"}${Number.isInteger(size) ? size : size.toFixed(1)}%`;
 }
 
-function formatAxisValue(v: number): string {
-  if (!Number.isFinite(v)) return "";
-  return v.toFixed(v >= 100 && v < 1000 ? 1 : 2);
+/** Round bounds and 3–5 evenly spaced ticks that always include 0%. */
+function niceTicks(rows: ChartRow[]): number[] {
+  const values = rows.flatMap((r) => [r.fund, r.benchmark]).filter((v): v is number => v != null);
+  const lo = Math.min(0, ...values);
+  const hi = Math.max(0, ...values);
+  const span = Math.max(hi - lo, 1);
+  const step = [0.5, 1, 2, 5, 10, 20, 50, 100].find((s) => span / s <= 4) ?? 200;
+  const ticks: number[] = [];
+  for (let t = Math.floor(lo / step) * step; t <= Math.ceil(hi / step) * step + 1e-9; t += step) ticks.push(Number(t.toFixed(4)));
+  return ticks;
 }
 
-type TooltipPayloadItem = {
-  dataKey?: string | number;
-  value?: number | string | null;
-  color?: string;
-  name?: string;
-};
+type TooltipItem = { dataKey?: string | number; value?: number | string | null };
 
-function ChartTooltip({
-  active,
-  payload,
-  label,
-}: {
-  active?: boolean;
-  payload?: TooltipPayloadItem[];
-  label?: string | number;
-}) {
-  if (!active || !payload?.length) return null;
-
-  const asOf =
-    (typeof label === "string" || typeof label === "number") && label !== ""
-      ? String(label)
-      : "";
-
-  // Area + Line share dataKey "fund"; keep one fund row and skip the area fill.
-  const seen = new Set<string>();
-  const items: TooltipPayloadItem[] = [];
-  for (const item of payload) {
-    const key = String(item.dataKey ?? item.name ?? "");
-    if (item.value == null) continue;
-    if (item.name === "fundArea") continue;
-    if (key === "fund" || key === "Edgecraft") {
-      if (seen.has("fund")) continue;
-      seen.add("fund");
-      items.push(item);
-      continue;
-    }
-    if (key === "benchmark" || key === "S&P 500") {
-      if (seen.has("benchmark")) continue;
-      seen.add("benchmark");
-      items.push(item);
-      continue;
-    }
-  }
-
+function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: TooltipItem[]; label?: number }) {
+  if (!active || !payload?.length || label == null) return null;
+  const value = (key: string) => payload.find((item) => item.dataKey === key)?.value;
+  const fund = value("fund");
+  const benchmark = value("benchmark");
   return (
-    <div className="rounded-md border border-border bg-zinc-950/95 px-3 py-2 shadow-lg backdrop-blur-sm">
-      <div className="mb-1.5 font-mono text-[10px] tracking-wide text-zinc-400 tabular-nums">
-        {asOf ? formatTs(asOf) : "—"}
-      </div>
-      <div className="flex flex-col gap-1">
-        {items.map((item) => {
-          const key = String(item.dataKey ?? item.name ?? "");
-          const name =
-            key === "fund" || key === "Edgecraft"
-              ? "Edgecraft"
-              : key === "benchmark" || key === "S&P 500"
-                ? "S&P 500"
-                : key;
-          const n =
-            typeof item.value === "number"
-              ? item.value
-              : Number(item.value);
-          return (
-            <div
-              key={name}
-              className="flex items-center justify-between gap-6 font-mono text-xs tabular-nums"
-            >
-              <span className="flex items-center gap-1.5 text-zinc-300">
-                <span
-                  aria-hidden
-                  className="inline-block size-1.5 rounded-full"
-                  style={{
-                    background:
-                      name === "Edgecraft"
-                        ? "#818cf8"
-                        : (item.color ?? "#a1a1aa"),
-                  }}
-                />
-                {name}
-              </span>
-              <span className="text-zinc-100">
-                {Number.isFinite(n) ? n.toFixed(2) : "—"}
-              </span>
-            </div>
-          );
-        })}
-      </div>
+    <div className="rounded-lg border bg-paper px-3.5 py-2.5 text-[13px] shadow-[0_8px_24px_-12px_rgb(21_23_28/0.18)]">
+      <p className="mb-1.5 text-graphite">{formatTs(label)}</p>
+      {fund != null ? (
+        <p className="flex justify-between gap-8">
+          <span>Fund</span>
+          <span>{formatPct(Number(fund), { alreadyPercent: true, signed: true })}</span>
+        </p>
+      ) : null}
+      {benchmark != null ? (
+        <p className="flex justify-between gap-8 text-graphite">
+          <span>S&amp;P 500</span>
+          <span>{formatPct(Number(benchmark), { alreadyPercent: true, signed: true })}</span>
+        </p>
+      ) : null}
     </div>
   );
 }
 
-/**
- * Dual-line performance chart: Edgecraft (indigo) vs S&P 500 / SPY (zinc).
- * Both series are expected pre-normalized to 100 at fund inception.
- */
-export function PerformanceChart({
-  fundSeries,
-  benchmarkSeries,
-  className,
-  height = 360,
-}: PerformanceChartProps) {
-  const data = React.useMemo(
-    () => buildChartData(fundSeries, benchmarkSeries),
-    [fundSeries, benchmarkSeries],
-  );
-
-  const hasBenchmark =
-    Boolean(benchmarkSeries?.length) &&
-    data.some((d) => d.benchmark != null);
+/** Fund (ink blue) against the S&P 500 (mist, dashed), both as return since inception. */
+export function PerformanceChart({ fundSeries, benchmarkSeries, height = 280 }: PerformanceChartProps) {
+  const data = React.useMemo(() => buildChartData(fundSeries, benchmarkSeries), [fundSeries, benchmarkSeries]);
+  const hasBenchmark = data.some((d) => d.benchmark != null);
 
   if (data.length === 0) {
     return (
-      <div
-        className={cn(
-          "flex items-center justify-center text-sm text-muted-foreground",
-          className,
-        )}
-        style={{ height }}
-      >
-        No performance data yet.
+      <div className="flex items-center text-graphite" style={{ height }}>
+        The chart starts after the first decision.
       </div>
     );
   }
 
+  const ticks = niceTicks(data);
+  const tick = { fill: MIST, fontSize: 12, fontFamily: "var(--font-sans)" };
+
   return (
-    <div className={cn("w-full", className)} style={{ height }}>
+    <div className="w-full" style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
-        <ComposedChart
-          data={data}
-          margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
-        >
-          <defs>
-            <linearGradient id="fundAreaFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#6366f1" stopOpacity={0.18} />
-              <stop offset="100%" stopColor="#6366f1" stopOpacity={0.02} />
-            </linearGradient>
-          </defs>
-          <CartesianGrid
-            stroke="rgb(63 63 70 / 35%)"
-            strokeDasharray="3 4"
-            vertical={false}
-          />
+        <LineChart data={data} margin={{ top: 8, right: 0, left: 0, bottom: 0 }}>
           <XAxis
-            dataKey="as_of"
-            tickFormatter={formatAxisDate}
-            tick={{
-              fill: "#71717a",
-              fontSize: 11,
-              fontFamily: "var(--font-geist-mono), ui-monospace, monospace",
-            }}
+            dataKey="t"
+            type="number"
+            scale="time"
+            domain={["dataMin", "dataMax"]}
+            tickFormatter={(t: number) => formatDay(t)}
+            tick={tick}
             tickLine={false}
-            axisLine={{ stroke: "rgb(63 63 70 / 50%)" }}
-            minTickGap={48}
-            dy={6}
+            axisLine={{ stroke: LINE }}
+            minTickGap={64}
+            dy={8}
           />
           <YAxis
-            domain={["auto", "auto"]}
-            tickFormatter={formatAxisValue}
-            tick={{
-              fill: "#71717a",
-              fontSize: 11,
-              fontFamily: "var(--font-geist-mono), ui-monospace, monospace",
-            }}
+            orientation="right"
+            domain={[ticks[0], ticks.at(-1)!]}
+            ticks={ticks}
+            tickFormatter={axisPct}
+            tick={tick}
             tickLine={false}
             axisLine={false}
             width={48}
-            dx={-4}
           />
-          <Tooltip
-            content={<ChartTooltip />}
-            cursor={{ stroke: "rgb(113 113 122 / 40%)", strokeWidth: 1 }}
-            // label is as_of string from dataKey
-            labelFormatter={(label) => String(label)}
-          />
-          <Area
-            type="stepAfter"
-            dataKey="fund"
-            name="fundArea"
-            stroke="none"
-            fill="url(#fundAreaFill)"
-            isAnimationActive={false}
-            connectNulls
-            legendType="none"
-            tooltipType="none"
-          />
+          <ReferenceLine y={0} stroke={LINE} />
+          <Tooltip content={<ChartTooltip />} cursor={{ stroke: LINE, strokeWidth: 1 }} />
           {hasBenchmark ? (
             <Line
               type="stepAfter"
               dataKey="benchmark"
-              name="S&P 500"
-              stroke="#71717a"
-              strokeWidth={1.5}
+              stroke={SPY}
+              strokeWidth={1}
+              strokeDasharray="3 3"
               dot={false}
+              activeDot={{ r: 2.5, fill: SPY, strokeWidth: 0 }}
               isAnimationActive={false}
               connectNulls
-              activeDot={{ r: 3, fill: "#a1a1aa", strokeWidth: 0 }}
             />
           ) : null}
           <Line
             type="stepAfter"
             dataKey="fund"
-            name="Edgecraft"
-            stroke="#818cf8"
-            strokeWidth={2}
-            dot={data.length <= 3}
+            stroke={FUND}
+            strokeWidth={1.5}
+            dot={data.length <= 3 ? { r: 2, fill: FUND, strokeWidth: 0 } : false}
+            activeDot={{ r: 3, fill: FUND, strokeWidth: 0 }}
             isAnimationActive={false}
             connectNulls
-            activeDot={{ r: 4, fill: "#a5b4fc", strokeWidth: 0 }}
           />
-        </ComposedChart>
+        </LineChart>
       </ResponsiveContainer>
     </div>
   );

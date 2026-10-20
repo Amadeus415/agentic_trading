@@ -1,52 +1,50 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { ReactNode } from "react";
 
 import {
-  actionBadgeClass,
+  actionLabel,
+  capitalize,
+  contractName,
+  contractOutcome,
+  contractTitles,
   cycleHref,
-  num,
-  pnlClass,
-  sideBadgeClass,
-  truncateId,
 } from "@/components/display";
-import {
-  formatQty,
-  formatTs,
-  formatUsd,
-} from "@/components/format";
-import { HypothesisTable } from "@/components/hypothesis-table";
-import { FundEmpty, Panel } from "@/components/panel";
-import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { formatPct, formatPrice, formatQty, formatTs, formatUsd } from "@/components/format";
+import { Fact, Facts, FundEmpty, Money, Page, Section, TableWrap } from "@/components/panel";
 import { getCycle, getSelectedFund, type FundSearchParams, listCycles } from "@/lib/fund";
-import { cn } from "@/lib/utils";
+import type { FundHypothesis } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function JournalBlock({
-  label,
-  children,
-}: {
-  label: string;
-  children: string;
-}) {
-  if (!children) return null;
+function Note({ label, children }: { label: string; children: ReactNode }) {
+  if (!children || (Array.isArray(children) && children.length === 0)) return null;
   return (
-    <div>
-      <p className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-        {label}
-      </p>
-      <p className="mt-1 text-sm leading-relaxed text-foreground">{children}</p>
+    <div className="grid gap-1 border-t py-5 sm:grid-cols-[11rem_1fr] sm:gap-8">
+      <dt className="text-sm text-graphite">{label}</dt>
+      <dd className="max-w-[68ch] leading-[1.7]">{children}</dd>
     </div>
   );
+}
+
+function List({ items }: { items: string[] }) {
+  return (
+    <ul className="flex flex-col gap-1.5">
+      {items.map((item) => (
+        <li key={item}>{item}</li>
+      ))}
+    </ul>
+  );
+}
+
+function beliefLine(h: FundHypothesis): string {
+  const asset = contractOutcome(h.instrument_id) ? "prediction" : undefined;
+  const parts = asset ? [] : [capitalize(h.stance)];
+  if (h.target_price != null) parts.push(`target ${formatPrice(h.target_price, asset)}`);
+  if (h.invalidation_price != null) parts.push(`exit at ${formatPrice(h.invalidation_price, asset)}`);
+  parts.push(`within ${h.expected_horizon_hours}h`);
+  return capitalize(parts.join(", "));
 }
 
 export default async function CycleDetailPage({
@@ -68,441 +66,229 @@ export default async function CycleDetailPage({
   const index = all.findIndex((c) => c.cycle_key === cycle.cycle_key);
   const prev = index > 0 ? all[index - 1] : null;
   const next = index >= 0 && index < all.length - 1 ? all[index + 1] : null;
+  const titles = contractTitles(all.slice(0, index + 1));
+  const name = (id: string, asset?: string) => contractName(titles, id, asset ?? (contractOutcome(id) ? "prediction" : undefined));
   const fills = [...cycle.fills, ...cycle.settlements];
+  const journal = cycle.journal;
+  const hypotheses = journal?.hypotheses ?? [];
   const risk = cycle.audit?.risk ?? null;
-  const runtime = cycle.audit?.runtime ?? null;
+  const failed = risk?.checks.filter((check) => !check.passed) ?? [];
+  const runtimeInfo = cycle.audit?.runtime ?? null;
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
-      <header className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <Link
-            href={`/cycles?fund=${encodeURIComponent(fund.fund_id)}`}
-            className="font-mono text-[10px] tracking-widest text-muted-foreground uppercase hover:text-foreground"
-          >
-            ← Cycles
+    <Page>
+      <header className="flex flex-col gap-6">
+        <div className="flex flex-wrap items-center justify-between gap-4 text-sm text-graphite">
+          <Link href={`/cycles?fund=${encodeURIComponent(fund.fund_id)}`} className="hover:text-ink">
+            All decisions
           </Link>
-        </div>
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="truncate font-mono text-base font-medium tracking-tight">
-                {cycle.cycle_key}
-              </h2>
-              <Badge
-                variant="outline"
-                className={cn(
-                  "font-mono text-[10px] capitalize",
-                  actionBadgeClass(cycle.action),
-                )}
-              >
-                {cycle.action}
-              </Badge>
-              {risk ? (
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    "font-mono text-[10px]",
-                    risk.approved
-                      ? "border-success/30 bg-success/15 text-success"
-                      : "border-danger/30 bg-danger/15 text-danger",
-                  )}
-                >
-                  {risk.approved ? "risk approved" : "risk rejected"}
-                </Badge>
-              ) : null}
-            </div>
-            <p className="mt-0.5 font-mono text-xs text-muted-foreground tabular-nums">
-              {formatTs(cycle.as_of)} · digest {truncateId(cycle.request_digest, 12)}
-            </p>
-          </div>
-          <div className="flex gap-3 font-mono text-xs tabular-nums">
+          <div className="flex gap-5">
             {prev ? (
-              <Link
-                href={cycleHref(prev.cycle_key, fund.fund_id)}
-                className="text-muted-foreground hover:text-foreground hover:underline"
-              >
-                ← {prev.cycle_key}
+              <Link href={cycleHref(prev.cycle_key, fund.fund_id)} className="hover:text-ink">
+                Previous
               </Link>
             ) : null}
             {next ? (
-              <Link
-                href={cycleHref(next.cycle_key, fund.fund_id)}
-                className="text-muted-foreground hover:text-foreground hover:underline"
-              >
-                {next.cycle_key} →
+              <Link href={cycleHref(next.cycle_key, fund.fund_id)} className="hover:text-ink">
+                Next
               </Link>
             ) : null}
           </div>
         </div>
+        <div>
+          <h1 className="text-[32px] leading-tight font-light tracking-[-0.02em]">
+            {actionLabel(cycle.action)} on {formatTs(cycle.as_of)}
+          </h1>
+          <p className="mt-6 max-w-[64ch] text-[19px] leading-[1.65] font-light">{cycle.thesis || "No reasoning recorded."}</p>
+        </div>
+        <Facts>
+          <Fact label="Fund value after">{formatUsd(cycle.state.nav)}</Fact>
+          <Fact label="Cash">{formatUsd(cycle.state.cash)}</Fact>
+          <Fact label="Fills">{fills.length}</Fact>
+          <Fact label="Fees">{formatUsd(cycle.audit?.fee_total ?? "0")}</Fact>
+        </Facts>
       </header>
 
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-lg border border-border bg-card px-3.5 py-3">
-          <p className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-            NAV after
-          </p>
-          <p className="mt-1 font-mono text-lg tabular-nums">
-            {formatUsd(cycle.state.nav)}
-          </p>
-        </div>
-        <div className="rounded-lg border border-border bg-card px-3.5 py-3">
-          <p className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-            Cash
-          </p>
-          <p className="mt-1 font-mono text-lg tabular-nums">
-            {formatUsd(cycle.state.cash)}
-          </p>
-        </div>
-        <div className="rounded-lg border border-border bg-card px-3.5 py-3">
-          <p className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-            Fills
-          </p>
-          <p className="mt-1 font-mono text-lg tabular-nums">{fills.length}</p>
-        </div>
-        <div className="rounded-lg border border-border bg-card px-3.5 py-3">
-          <p className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-            Fees
-          </p>
-          <p className="mt-1 font-mono text-lg tabular-nums">
-            {formatUsd(cycle.audit?.fee_total ?? "0")}
-          </p>
-        </div>
-      </section>
+      <Section title="Reasoning">
+        <dl className="flex flex-col">
+          <Note label="What changed">{journal?.what_changed}</Note>
+          <Note label="The market">{journal?.market_regime}</Note>
+          <Note label="Opportunities">{journal?.opportunity_set}</Note>
+          <Note label="Intent">{journal?.portfolio_intent}</Note>
+          <Note label="Risks">{cycle.risks}</Note>
+          <Note label="Alternatives">{cycle.alternatives}</Note>
+          <Note label="Lessons applied">{journal?.lessons_applied.length ? <List items={journal.lessons_applied} /> : null}</Note>
+        </dl>
+        {!journal ? <p className="text-graphite">This early decision has no written journal.</p> : null}
+      </Section>
 
-      <Panel micro="Decision" title="Thesis" bodyClassName="flex flex-col gap-4 px-3.5 py-3">
-        <p className="text-sm leading-relaxed">{cycle.thesis || "No thesis."}</p>
-        {cycle.alternatives ? (
-          <JournalBlock label="Alternatives">{cycle.alternatives}</JournalBlock>
-        ) : null}
-        {cycle.risks ? (
-          <JournalBlock label="Risks">{cycle.risks}</JournalBlock>
-        ) : null}
-      </Panel>
-
-      <Panel
-        micro="Journal"
-        title="Auditable reasoning"
-        trailing={cycle.journal ? "v1" : "absent"}
-        bodyClassName="flex flex-col gap-4 px-3.5 py-3"
-      >
-        {cycle.journal ? (
-          <>
-            <JournalBlock label="Market regime">
-              {cycle.journal.market_regime}
-            </JournalBlock>
-            <JournalBlock label="Opportunity set">
-              {cycle.journal.opportunity_set}
-            </JournalBlock>
-            <JournalBlock label="Portfolio intent">
-              {cycle.journal.portfolio_intent}
-            </JournalBlock>
-            <JournalBlock label="What changed">
-              {cycle.journal.what_changed}
-            </JournalBlock>
-            {cycle.journal.lessons_applied.length > 0 ? (
-              <div>
-                <p className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                  Lessons applied
-                </p>
-                <ul className="mt-1 list-disc space-y-1 pl-4 text-sm text-foreground">
-                  {cycle.journal.lessons_applied.map((lesson) => (
-                    <li key={lesson}>{lesson}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            This historical cycle has no journal sidecar. Accounting replay still
-            holds.
-          </p>
-        )}
-      </Panel>
-
-      <Panel
-        micro="Hypotheses"
-        title="Instrument theses"
-        trailing={`${cycle.journal?.hypotheses.length ?? 0}`}
-      >
-        <HypothesisTable
-          hypotheses={cycle.journal?.hypotheses ?? []}
-          empty="No instrument hypotheses on this cycle."
-        />
-      </Panel>
-
-      {cycle.journal?.hypotheses.map((h) => (
-        <Panel
-          key={h.instrument_id}
-          micro="Hypothesis"
-          title={h.instrument_id}
-          trailing={h.stance}
-          bodyClassName="grid gap-3 px-3.5 py-3 sm:grid-cols-2"
-        >
-          <JournalBlock label="Mechanism">{h.mechanism}</JournalBlock>
-          <div>
-            <p className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-              Catalysts
-            </p>
-            <ul className="mt-1 list-disc space-y-1 pl-4 text-sm">
-              {h.catalysts.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </div>
-          <div>
-            <p className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-              Falsifiers
-            </p>
-            <ul className="mt-1 list-disc space-y-1 pl-4 text-sm">
-              {h.falsifiers.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </div>
-          <p className="font-mono text-xs text-muted-foreground tabular-nums sm:col-span-2">
-            horizon {h.expected_horizon_hours}h · evidence{" "}
-            {h.evidence_ids.join(", ") || "—"}
-          </p>
-        </Panel>
-      ))}
-
-      <Panel micro="Orders" title="Explicit sides" trailing={`${cycle.orders.length}`}>
-        {cycle.orders.length === 0 ? (
-          <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-            Hold — no orders.
-          </p>
-        ) : (
-          <Table className="text-xs">
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead className="pl-3.5 font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                  Instrument
-                </TableHead>
-                <TableHead className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                  Side
-                </TableHead>
-                <TableHead className="text-right font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                  Qty
-                </TableHead>
-                <TableHead className="pr-3.5 font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                  Rationale
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {cycle.orders.map((order, i) => (
-                <TableRow key={`${order.instrument_id}:${order.side}:${i}`}>
-                  <TableCell className="pl-3.5 font-mono font-medium">
-                    {order.instrument_id}
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant="outline"
-                      className={cn(
-                        "font-mono text-[10px] capitalize",
-                        sideBadgeClass(order.side),
-                      )}
-                    >
-                      {order.side}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
-                    {formatQty(order.quantity)}
-                  </TableCell>
-                  <TableCell className="max-w-[32rem] truncate pr-3.5 text-muted-foreground whitespace-normal">
-                    {order.rationale}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </Panel>
-
-      <Panel micro="Evidence" title="Cited sources" trailing={`${cycle.evidence.length}`}>
-        {cycle.evidence.length === 0 ? (
-          <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-            No embedded evidence on this cycle.
-          </p>
-        ) : (
-          <ul className="divide-y divide-border">
-            {cycle.evidence.map((item) => (
-              <li key={item.evidence_id} className="px-3.5 py-3">
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <p className="font-mono text-xs text-foreground">
-                    {item.evidence_id}
-                  </p>
-                  <p className="font-mono text-[10px] text-muted-foreground tabular-nums">
-                    {formatTs(item.observed_at)} · {item.source_name}
-                  </p>
-                </div>
-                <p className="mt-1 text-sm">{item.claim}</p>
-                {item.source_url ? (
-                  <a
-                    href={item.source_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-1 inline-block max-w-full truncate font-mono text-[11px] text-indigo-300 hover:underline"
-                  >
-                    {item.source_url}
-                  </a>
-                ) : null}
+      {hypotheses.length > 0 ? (
+        <Section title="Forecasts" aside={`${hypotheses.length} contracts`}>
+          <ul className="flex flex-col">
+            {hypotheses.map((h) => (
+              <li key={h.instrument_id} className="border-t">
+                <details className="group">
+                  <summary className="-mx-3 grid grid-cols-[1fr_auto] gap-x-6 gap-y-0.5 rounded-md px-3 py-4 hover:bg-wash">
+                    <span className="min-w-0">{name(h.instrument_id)}</span>
+                    <span>{formatPct(h.p_win ?? h.confidence)} chance</span>
+                    <span className="col-span-2 text-sm text-graphite">{beliefLine(h)}</span>
+                  </summary>
+                  <dl className="flex flex-col pb-4 sm:pl-0">
+                    <Note label="Claim">{h.statement}</Note>
+                    <Note label="Why">{h.mechanism}</Note>
+                    <Note label="Catalysts">{h.catalysts.length ? <List items={h.catalysts} /> : null}</Note>
+                    <Note label="Proves it wrong">{h.falsifiers.length ? <List items={h.falsifiers} /> : null}</Note>
+                    <Note label="Sources">{h.evidence_ids.join(", ")}</Note>
+                  </dl>
+                </details>
               </li>
             ))}
           </ul>
-        )}
-      </Panel>
+        </Section>
+      ) : null}
 
-      <Panel micro="Execution" title="Simulated fills" trailing={`${fills.length}`}>
-        {fills.length === 0 ? (
-          <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-            No simulated fills this cycle.
-          </p>
-        ) : (
-          <Table className="text-xs">
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead className="pl-3.5 font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                  Instrument
-                </TableHead>
-                <TableHead className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                  Side
-                </TableHead>
-                <TableHead className="text-right font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                  Qty
-                </TableHead>
-                <TableHead className="text-right font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                  Exec
-                </TableHead>
-                <TableHead className="text-right font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                  Gross
-                </TableHead>
-                <TableHead className="text-right font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                  Fee
-                </TableHead>
-                <TableHead className="pr-3.5 text-right font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                  Realized
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {fills.map((fill) => (
-                <TableRow key={fill.fill_id}>
-                  <TableCell className="pl-3.5 font-mono font-medium">
-                    {fill.instrument_id}
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant="outline"
-                      className={cn(
-                        "font-mono text-[10px] capitalize",
-                        sideBadgeClass(fill.side),
-                      )}
-                    >
-                      {fill.side}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
-                    {formatQty(fill.quantity)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
-                    {formatUsd(fill.execution_price)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
-                    {formatUsd(fill.gross_notional)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums text-muted-foreground">
-                    {formatUsd(fill.fee)}
-                  </TableCell>
-                  <TableCell
-                    className={cn(
-                      "pr-3.5 text-right font-mono tabular-nums",
-                      pnlClass(num(fill.realized_pnl)),
-                    )}
-                  >
-                    {formatUsd(fill.realized_pnl, { signed: true })}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </Panel>
+      {cycle.orders.length > 0 ? (
+        <Section title="Orders">
+          <TableWrap>
+            <table className="ledger">
+              <thead>
+                <tr>
+                  <th>Contract</th>
+                  <th>Side</th>
+                  <th className="num">Quantity</th>
+                  <th>Why</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cycle.orders.map((order, i) => (
+                  <tr key={`${order.instrument_id}:${order.side}:${i}`}>
+                    <td className="min-w-48">{name(order.instrument_id, order.asset_class)}</td>
+                    <td>{capitalize(order.side)}</td>
+                    <td className="num">{formatQty(order.quantity)}</td>
+                    <td className="min-w-72 text-graphite">{order.rationale}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableWrap>
+        </Section>
+      ) : null}
 
-      <Panel
-        micro="Audit"
-        title="Risk + provenance"
-        trailing={runtime?.model ?? runtime?.edgecraft_version ?? "—"}
-        bodyClassName="flex flex-col gap-4 px-3.5 py-3"
-      >
-        {runtime ? (
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 font-mono text-xs sm:grid-cols-3">
-            <dt className="text-muted-foreground">version</dt>
-            <dd className="col-span-1 sm:col-span-2 tabular-nums">
-              {runtime.edgecraft_version}
-            </dd>
-            <dt className="text-muted-foreground">model</dt>
-            <dd className="col-span-1 sm:col-span-2">{runtime.model ?? "—"}</dd>
-            <dt className="text-muted-foreground">prompt</dt>
-            <dd className="col-span-1 truncate sm:col-span-2">
-              {runtime.prompt_version ?? "—"}
-            </dd>
-            <dt className="text-muted-foreground">input sha</dt>
-            <dd className="col-span-1 truncate sm:col-span-2 tabular-nums">
-              {runtime.input_sha256 ?? "—"}
-            </dd>
-          </dl>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            No runtime provenance sidecar.
-          </p>
-        )}
+      {fills.length > 0 ? (
+        <Section title="Fills">
+          <TableWrap>
+            <table className="ledger">
+              <thead>
+                <tr>
+                  <th>Contract</th>
+                  <th>Side</th>
+                  <th className="num">Quantity</th>
+                  <th className="num">Price</th>
+                  <th className="num">Cost</th>
+                  <th className="num">Fee</th>
+                  <th className="num">Realized</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fills.map((fill) => (
+                  <tr key={fill.fill_id}>
+                    <td className="min-w-48">{name(fill.instrument_id, fill.asset_class)}</td>
+                    <td>{capitalize(fill.side)}</td>
+                    <td className="num">{formatQty(fill.quantity)}</td>
+                    <td className="num">{formatPrice(fill.execution_price, fill.asset_class)}</td>
+                    <td className="num">{formatUsd(fill.gross_notional)}</td>
+                    <td className="num text-graphite">{formatUsd(fill.fee)}</td>
+                    <td className="num"><Money value={fill.realized_pnl} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableWrap>
+        </Section>
+      ) : null}
 
-        {risk && risk.checks.length > 0 ? (
-          <Table className="text-xs">
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead className="pl-0 font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                  Check
-                </TableHead>
-                <TableHead className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                  Result
-                </TableHead>
-                <TableHead className="text-right font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                  Observed
-                </TableHead>
-                <TableHead className="pr-0 text-right font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                  Limit
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {risk.checks.map((check) => (
-                <TableRow key={check.name}>
-                  <TableCell className="pl-0 font-mono">{check.name}</TableCell>
-                  <TableCell>
-                    <span
-                      className={
-                        check.passed ? "text-success" : "text-danger"
-                      }
-                    >
-                      {check.passed ? "pass" : "fail"}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
-                    {check.observed}
-                  </TableCell>
-                  <TableCell className="pr-0 text-right font-mono tabular-nums text-muted-foreground">
-                    {check.limit ?? "—"}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        ) : null}
-      </Panel>
-    </div>
+      {cycle.evidence.length > 0 ? (
+        <Section title="Sources" aside={`${cycle.evidence.length} cited`}>
+          <ul className="flex flex-col">
+            {cycle.evidence.map((item) => (
+              <li key={item.evidence_id} className="grid gap-1 border-t py-4 sm:grid-cols-[1fr_12rem] sm:gap-8">
+                <p className="max-w-[68ch]">{item.claim}</p>
+                <p className="text-sm text-graphite sm:text-right">
+                  {item.source_url ? (
+                    <a href={item.source_url} target="_blank" rel="noreferrer" className="text-fund hover:underline">
+                      {item.source_name || "Source"}
+                    </a>
+                  ) : (
+                    item.source_name
+                  )}
+                  <span className="block">{formatTs(item.observed_at)}</span>
+                </p>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      ) : null}
+
+      {risk || runtimeInfo ? (
+        <Section title="Checks">
+          <div className="flex flex-col border-t">
+            {risk ? (
+              <details className="border-b">
+                <summary className="-mx-3 flex justify-between gap-6 rounded-md px-3 py-4 hover:bg-wash">
+                  <span>
+                    {failed.length === 0
+                      ? `All ${risk.checks.length} risk checks passed`
+                      : `${failed.length} of ${risk.checks.length} risk checks failed`}
+                  </span>
+                  <span className="text-sm text-graphite">Show</span>
+                </summary>
+                <TableWrap>
+                  <table className="ledger mb-4">
+                    <thead>
+                      <tr>
+                        <th>Check</th>
+                        <th className="num">Observed</th>
+                        <th className="num">Limit</th>
+                        <th className="num">Result</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {risk.checks.map((check) => (
+                        <tr key={check.name}>
+                          <td>{capitalize(check.name.replaceAll("_", " "))}</td>
+                          <td className="num">{check.observed}</td>
+                          <td className="num text-graphite">{check.limit ?? "—"}</td>
+                          <td className={check.passed ? "num text-graphite" : "num text-loss"}>{check.passed ? "Passed" : "Failed"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </TableWrap>
+              </details>
+            ) : null}
+            {runtimeInfo ? (
+              <details className="border-b">
+                <summary className="-mx-3 flex justify-between gap-6 rounded-md px-3 py-4 hover:bg-wash">
+                  <span>Researched by {runtimeInfo.model ?? "an unrecorded model"}</span>
+                  <span className="text-sm text-graphite">Show</span>
+                </summary>
+                <dl className="grid grid-cols-[8rem_1fr] gap-x-6 gap-y-2 pb-5 text-sm">
+                  <dt className="text-graphite">Version</dt>
+                  <dd className="break-all">{runtimeInfo.edgecraft_version}</dd>
+                  <dt className="text-graphite">Prompt</dt>
+                  <dd className="break-all">{runtimeInfo.prompt_version ?? "—"}</dd>
+                  <dt className="text-graphite">Input</dt>
+                  <dd className="break-all">{runtimeInfo.input_sha256 ?? "—"}</dd>
+                  <dt className="text-graphite">Request</dt>
+                  <dd className="break-all">{cycle.request_digest}</dd>
+                  <dt className="text-graphite">Key</dt>
+                  <dd className="break-all">{cycle.cycle_key}</dd>
+                </dl>
+              </details>
+            ) : null}
+          </div>
+        </Section>
+      ) : null}
+    </Page>
   );
 }

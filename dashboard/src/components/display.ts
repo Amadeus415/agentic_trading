@@ -1,71 +1,22 @@
-import type { StatDeltaTone } from "@/components/stat-card";
 import { asNumber } from "@/lib/numbers";
+import type { Cycle } from "@/lib/types";
 
 export { asNumber as num } from "@/lib/numbers";
 
 export function pnlClass(value: number): string {
-  if (value > 0) return "text-success";
-  if (value < 0) return "text-danger";
-  return "text-muted-foreground";
+  if (value > 0) return "text-gain";
+  if (value < 0) return "text-loss";
+  return "text-graphite";
 }
 
-export function toneForSigned(value: number): StatDeltaTone {
-  if (value > 0) return "positive";
-  if (value < 0) return "negative";
-  return "neutral";
+export function capitalize(value: string): string {
+  return value ? value[0].toUpperCase() + value.slice(1) : value;
 }
 
-export function sideBadgeClass(side: string): string {
-  switch (side) {
-    case "buy":
-      return "border-success/30 bg-success/15 text-success";
-    case "sell":
-      return "border-danger/30 bg-danger/15 text-danger";
-    case "short":
-      return "border-amber-500/30 bg-amber-500/15 text-amber-300";
-    case "cover":
-      return "border-indigo-400/30 bg-indigo-400/15 text-indigo-300";
-    case "settle":
-      return "border-border bg-muted text-muted-foreground";
-    default:
-      return "border-border bg-secondary text-secondary-foreground";
-  }
-}
+const ACTIONS: Record<string, string> = { trade: "Traded", hold: "Held", rejected: "Rejected" };
 
-export function actionBadgeClass(action: string): string {
-  if (action === "trade")
-    return "border-indigo-400/30 bg-indigo-400/10 text-indigo-300";
-  if (action === "hold") return "border-border bg-muted text-muted-foreground";
-  if (action === "rejected")
-    return "border-danger/30 bg-danger/15 text-danger";
-  return "border-border bg-secondary text-secondary-foreground";
-}
-
-export function stanceBadgeClass(stance: string): string {
-  switch (stance) {
-    case "long":
-      return "border-success/30 bg-success/15 text-success";
-    case "short":
-      return "border-amber-500/30 bg-amber-500/15 text-amber-300";
-    case "exit":
-      return "border-danger/30 bg-danger/15 text-danger";
-    default:
-      return "border-border bg-secondary text-secondary-foreground";
-  }
-}
-
-export function outcomeBadgeClass(outcome: string): string {
-  if (outcome === "positive")
-    return "border-success/30 bg-success/15 text-success";
-  if (outcome === "negative")
-    return "border-danger/30 bg-danger/15 text-danger";
-  return "border-border bg-muted text-muted-foreground";
-}
-
-export function truncateId(id: string, head = 8): string {
-  if (!id) return "—";
-  if (id.length <= head + 4) return id;
-  return `${id.slice(0, head)}…`;
+export function actionLabel(action: string): string {
+  return ACTIONS[action] ?? capitalize(action);
 }
 
 export function cycleHref(cycleKey: string, fundId?: string): string {
@@ -76,4 +27,45 @@ export function openPositions<T extends { quantity: string | number | null }>(
   positions: T[],
 ): T[] {
   return positions.filter((p) => asNumber(p.quantity) !== 0);
+}
+
+/** "polymarket:5795746:NO" holds the No side; stock tickers have no outcome. */
+export function contractOutcome(instrumentId: string): "Yes" | "No" | null {
+  if (instrumentId.endsWith(":YES")) return "Yes";
+  if (instrumentId.endsWith(":NO")) return "No";
+  return null;
+}
+
+/** The claim before the colon, e.g. "Milan Malpensa (LIMC) high is not 21C". */
+function headline(text: string | null | undefined): string | null {
+  const head = (text ?? "").split(": ")[0].trim().replace(/\.$/, "");
+  return head && head.length <= 96 ? head : null;
+}
+
+/**
+ * Human names for contracts, taken from what the researcher wrote about them.
+ * Order rationales describe the side actually bought, so they win.
+ */
+export function contractTitles(cycles: Cycle[]): Map<string, string> {
+  const titles = new Map<string, string>();
+  for (const cycle of cycles) {
+    for (const h of cycle.journal?.hypotheses ?? []) {
+      const title = headline(h.statement);
+      if (title) titles.set(h.instrument_id, title);
+    }
+    for (const order of cycle.orders) {
+      const title = headline(order.rationale);
+      if (title) titles.set(order.instrument_id, title);
+    }
+  }
+  return titles;
+}
+
+export function contractName(
+  titles: Map<string, string>,
+  instrumentId: string,
+  assetClass?: string,
+): string {
+  if (assetClass && assetClass !== "prediction") return instrumentId;
+  return titles.get(instrumentId) ?? instrumentId;
 }

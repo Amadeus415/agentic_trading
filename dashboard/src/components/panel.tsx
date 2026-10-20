@@ -1,89 +1,86 @@
 import type { ReactNode } from "react";
 
+import { pnlClass } from "@/components/display";
+import { formatUsd } from "@/components/format";
 import { cn } from "@/lib/utils";
 
-export function Panel({
-  micro,
+export function Page({ children, className }: { children: ReactNode; className?: string }) {
+  return <div className={cn("flex flex-col gap-16 pb-8", className)}>{children}</div>;
+}
+
+export function PageTitle({ children, aside }: { children: ReactNode; aside?: ReactNode }) {
+  return (
+    <header className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
+      <h1 className="text-[32px] leading-tight font-light tracking-[-0.02em]">{children}</h1>
+      {aside ? <p className="text-sm text-graphite">{aside}</p> : null}
+    </header>
+  );
+}
+
+export function Section({
   title,
-  trailing,
+  aside,
   children,
   className,
-  bodyClassName,
 }: {
-  micro: string;
   title: string;
-  trailing?: ReactNode;
+  aside?: ReactNode;
   children: ReactNode;
   className?: string;
-  bodyClassName?: string;
 }) {
   return (
-    <section
-      className={cn(
-        "flex flex-col rounded-lg border border-border bg-card",
-        className,
-      )}
-    >
-      <div className="flex items-center justify-between gap-3 border-b border-border px-3.5 py-2.5">
-        <div className="flex min-w-0 items-baseline gap-2">
-          <span className="font-mono text-[10px] tracking-widest text-muted-foreground uppercase">
-            {micro}
-          </span>
-          <h2 className="truncate text-sm font-medium text-foreground">
-            {title}
-          </h2>
-        </div>
-        {trailing ? (
-          <div className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
-            {trailing}
-          </div>
-        ) : null}
+    <section className={cn("flex flex-col gap-5", className)}>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
+        <h2 className="text-[17px] font-medium tracking-[-0.01em]">{title}</h2>
+        {aside ? <div className="text-sm text-graphite">{aside}</div> : null}
       </div>
-      <div className={bodyClassName}>{children}</div>
+      {children}
     </section>
   );
 }
 
-export function ProgressBar({
-  value,
-  className,
-}: {
-  value: number;
-  className?: string;
-}) {
-  const pct = Math.max(0, Math.min(100, value * 100));
+/** A quiet label over a value, laid out in a row of facts. */
+export function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div
-      className={cn(
-        "h-1.5 w-full overflow-hidden rounded-full bg-muted",
-        className,
-      )}
-      role="progressbar"
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={Math.round(pct)}
-    >
-      <div
-        className="h-full rounded-full bg-primary"
-        style={{ width: `${pct}%` }}
-      />
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <dt className="text-[13px] text-graphite">{label}</dt>
+      <dd className="text-xl font-light tracking-[-0.01em]">{children}</dd>
     </div>
   );
 }
 
+export function Facts({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <dl className={cn("grid grid-cols-2 gap-x-8 gap-y-6 border-t pt-6 sm:grid-cols-4", className)}>
+      {children}
+    </dl>
+  );
+}
+
+export function Money({ value, signed = true }: { value: number | string | null | undefined; signed?: boolean }) {
+  return <span className={pnlClass(Number(value ?? 0))}>{formatUsd(value, { signed })}</span>;
+}
+
+/** Wide tables scroll sideways on phones instead of squeezing. */
+export function TableWrap({ children }: { children: ReactNode }) {
+  return <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">{children}</div>;
+}
+
+export function Quiet({ children }: { children: ReactNode }) {
+  return <p className="border-t py-8 text-graphite">{children}</p>;
+}
+
 export function FundEmpty({
-  title = "No funds found",
-  detail = "Initialize the paper fund ledger, then refresh this page.",
+  title = "No fund yet",
+  detail = "Run make fund-init, then refresh.",
 }: {
   title?: string;
   detail?: string;
 }) {
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
-      <section className="rounded-lg border border-border bg-card px-4 py-10 text-center">
-        <p className="text-sm font-medium text-foreground">{title}</p>
-        <p className="mt-1 text-sm text-muted-foreground">{detail}</p>
-      </section>
+    <div className="py-24">
+      <p className="text-[32px] font-light tracking-[-0.02em]">{title}</p>
+      <p className="mt-2 text-graphite">{detail}</p>
     </div>
   );
 }
