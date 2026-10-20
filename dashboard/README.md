@@ -52,14 +52,19 @@ path) and prints `fund_id`, cycle count, and fill count.
 
 ## Pages
 
-| Route | Purpose |
-|:--|:--|
-| `/` | Overview: NAV vs SPY, P&L, growth stage, latest thesis, positions + hypotheses |
-| `/trades` | Simulated fills and settlements, with cycle filters |
-| `/cycles` | Completed decision log (action, thesis, what changed, NAV) |
-| `/cycles/[cycleKey]` | Full packet: journal, hypotheses, orders, evidence, fills, risk audit |
-| `/attribution` | After-cost trade results, forecast trust per playbook, calibration, and strategy review history |
-| `/brain` | Ledger-derived memory: activity, adaptive notes, cycle outcomes, instrument W/L |
+| Route | Label | Purpose |
+|:--|:--|:--|
+| `/` | Overview | Fund value, return against the S&P 500, open positions, latest decision |
+| `/trades` | Trades | Simulated fills and settlements; click a row for its details and decision |
+| `/cycles` | Decisions | Every completed decision, newest first |
+| `/cycles/[cycleKey]` | | Reasoning, forecasts, orders, fills, sources, risk checks, provenance |
+| `/attribution` | Scorecard | After-cost results, forecast skill and trust per playbook, calibration, code versions |
+| `/brain` | Memory | What the next session is told: activity, notes, outcomes, traded contracts |
+
+The design is light and thin-lined with one typeface (Manrope via `next/font`).
+Color carries meaning only: blue for the fund, dashed grey for the S&P 500,
+green and red for money gained or lost. Prediction-market prices show in cents,
+and contracts are named from the researcher's own claim about them.
 
 Pages read the SQLite ledger directly (`src/lib/fund.ts`). There is no JSON API
 and no write path. Journals, the growth objective, and the fund brain are
