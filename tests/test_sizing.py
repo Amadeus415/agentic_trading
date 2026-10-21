@@ -170,12 +170,13 @@ def test_belief_without_contract_evidence_is_dropped_before_the_ledger() -> None
     assert result.dropped[0]["reason"] == "no_instrument_evidence"
 
 
-def test_unmeasured_playbook_bets_a_meaningful_share_of_nav() -> None:
+def test_unmeasured_playbook_bets_a_modest_share_of_nav() -> None:
     policy = TradingPolicy()
     result = _size([_belief("A")], [_quote("A")], trust={"*": policy.prior_trust}, policy=policy)
-    # 0.39 + 0.60 x (0.60 - 0.39) = 0.516 believed; full Kelly (0.516 - 0.40) / 0.60 = 19% of NAV.
-    # Half Kelly at 0.35 trust bet about 5%, which left most of the fund idle.
-    assert Decimal(result.accepted[0]["notional"]) > Decimal("180")
+    # 0.39 + 0.30 x (0.60 - 0.39) = 0.453 believed; full Kelly (0.453 - 0.40) / 0.60 = 9% of NAV.
+    # Enough to trade without skill evidence; measured trust, not the prior, earns larger bets.
+    notional = Decimal(result.accepted[0]["notional"])
+    assert Decimal("70") < notional < Decimal("110")
 
 
 def test_trust_shrinks_belief_toward_market_and_zero_trust_never_trades() -> None:

@@ -23,7 +23,7 @@ class TradingPolicy(BaseModel):
     learning_window: int = Field(default=20, ge=10)
     # How far sizing trusts a forecast's distance from the market price before
     # measured skill exists, and how many scored forecasts outweigh that prior.
-    prior_trust: Decimal = Field(default=Decimal("0.60"), ge=0, le=1)
+    prior_trust: Decimal = Field(default=Decimal("0.30"), ge=0, le=1)
     trust_prior_weight: int = Field(default=20, ge=1)
     # Scored forecasts a playbook needs before skill promotes or freezes it.
     promotion_forecasts: int = Field(default=30, ge=1)

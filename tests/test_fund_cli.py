@@ -134,13 +134,13 @@ def test_sized_run_turns_research_beliefs_into_trades_and_forecasts(tmp_path, ca
         "kalshi:KXEXAMPLE-26OCT20:NO",
     }
     # Unmeasured playbooks are sized at the prior trust, not the stated p_win.
-    assert all(row["trust"] == "0.60" for row in accepted)
+    assert all(row["trust"] == "0.30" for row in accepted)
     # Highest annualized after-cost return is funded first.
     assert accepted[0]["instrument_id"] == "polymarket:900001:YES"
     assert Decimal(accepted[0]["annualized_return"]) > Decimal(accepted[1]["annualized_return"])
     report = _run(["fund-report", *common], capsys)
     assert report["forecast_skill"]["summary"]["forecasts"] == 2
-    assert report["forecast_skill"]["variants"]["resolution_reading"]["trust"] == 0.6
+    assert report["forecast_skill"]["variants"]["resolution_reading"]["trust"] == 0.3
 
 
 def test_fund_cli_report_postmortem_and_alerts(tmp_path, capsys) -> None:
