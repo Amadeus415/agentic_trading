@@ -8,6 +8,7 @@ import { buildGrowthSnapshot, growthObjectiveFromMandate } from "./growth";
 import { asNumber } from "./numbers";
 import type {
   AuditEvent,
+  ClosedPosition,
   Cycle,
   CycleListItem,
   Fill,
@@ -294,6 +295,30 @@ export function extractFillsFromCycles(cycles: Cycle[]): TradeRow[] {
     return a.fill_id.localeCompare(b.fill_id);
   });
   return rows;
+}
+
+/**
+ * Contracts the fund traded and no longer holds, latest exit first.
+ * The result is every cash flow in and out of the contract, so fees are included.
+ */
+export function closedPositions(trades: TradeRow[], open: Position[]): ClosedPosition[] {
+  const held = new Set(open.map((p) => p.instrument_id));
+  const closed = new Map<string, ClosedPosition>();
+  for (const trade of trades) {
+    if (held.has(trade.instrument_id)) continue;
+    const row = closed.get(trade.instrument_id) ?? {
+      instrument_id: trade.instrument_id,
+      asset_class: trade.asset_class,
+      trade_count: 0,
+      closed_at: trade.as_of,
+      result: 0,
+    };
+    row.trade_count += 1;
+    row.closed_at = trade.as_of;
+    row.result += asNumber(trade.cash_delta);
+    closed.set(trade.instrument_id, row);
+  }
+  return [...closed.values()].sort((a, b) => b.closed_at.localeCompare(a.closed_at));
 }
 
 /**

@@ -40,6 +40,15 @@ export interface Position {
   unrealized_pnl: string | null;
 }
 
+/** A contract the fund has fully exited, summed across all its trades. */
+export interface ClosedPosition {
+  instrument_id: string;
+  asset_class: AssetClass;
+  trade_count: number;
+  closed_at: string;
+  result: number;
+}
+
 export interface FundState {
   fund_id: string;
   as_of: string;
