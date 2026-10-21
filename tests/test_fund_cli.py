@@ -311,6 +311,7 @@ def test_forecast_skill_promotes_one_experiment_and_freezes_another(
                 "market_id": market,
                 "p_yes": "0.70" if wins else "0.30",
                 "variant": "resolution_reading",
+                "category": "signal",
             }
         )
         forecasts.append(
@@ -318,6 +319,7 @@ def test_forecast_skill_promotes_one_experiment_and_freezes_another(
                 "market_id": market,
                 "p_yes": "0.70" if index % 4 < 2 else "0.30",
                 "variant": "consistency",
+                "category": "noise",
             }
         )
     path = tmp_path / "forecasts.json"
@@ -345,6 +347,11 @@ def test_forecast_skill_promotes_one_experiment_and_freezes_another(
     assert skill["consistency"]["estimated_trust"] <= 0.05
     assert context["forecast_skill"]["head_to_head"][0]["left"] == "consistency"
     assert context["forecast_skill"]["head_to_head"][0]["left_advantage"] < 0
+    # Research is steered to the playbook with no settled forecasts and away from the
+    # category that lost to the market; measured and frozen playbooks need no more.
+    focus = context["research_focus"]
+    assert focus["undertested_playbooks"] == {"long_tail_news": 0}
+    assert focus["weak_categories"] == ["noise"]
     assert evolved["verification"]["ok"]
 
 

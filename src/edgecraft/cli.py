@@ -348,6 +348,35 @@ def _allocations(
     return report, skill, allocations
 
 
+def _research_focus(
+    skill: dict[str, Any], allocations: tuple[Any, ...], policy: TradingPolicy
+) -> dict[str, Any]:
+    """Point forecasts at playbooks trust cannot yet measure, away from measured losers."""
+    needed = policy.promotion_forecasts
+    resolved = {name: metrics["resolved"] for name, metrics in skill["variants"].items()}
+    undertested = {
+        item.playbook_id: resolved.get(item.playbook_id, 0)
+        for item in allocations
+        if item.status in {"incubating", "active"} and resolved.get(item.playbook_id, 0) < needed
+    }
+    # Enough settled forecasts to freeze a playbook is enough to call a category weak.
+    weak = sorted(
+        name
+        for name, metrics in skill["categories"].items()
+        if metrics["resolved"] >= needed and metrics["skill"] is not None and metrics["skill"] <= 0
+    )
+    return {
+        "undertested_playbooks": undertested,
+        "weak_categories": weak,
+        "rule": (
+            "Spend most forecasts on soon-resolving markets for undertested playbooks, "
+            f"spread across categories, until each has {needed} resolved. Research a weak "
+            "category only with a new information source: the market already prices it "
+            "better than our forecasts did."
+        ),
+    }
+
+
 def _sleeve_json(item: Any) -> dict[str, Any]:
     return {
         **item.__dict__,
@@ -445,6 +474,7 @@ def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
             key: skill[key]
             for key in ("summary", "variants", "categories", "head_to_head", "interpretation")
         },
+        "research_focus": _research_focus(skill, allocations, policy),
         "forecast_contract": {
             "input_path": scheduled_input_path().replace(".json", ".forecasts.json"),
             "schema": ForecastFile.model_json_schema(mode="validation"),
