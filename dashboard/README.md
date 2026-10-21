@@ -54,7 +54,8 @@ path) and prints `fund_id`, cycle count, and fill count.
 
 | Route | Label | Purpose |
 |:--|:--|:--|
-| `/` | Overview | Fund value, return against the S&P 500, open positions, latest decision |
+| `/` | Overview | Chart against the S&P 500, fund value, open then closed positions, recent decisions |
+| `/positions/[instrumentId]` | | One contract: holding or after-fee result, latest forecast, every trade with its decision |
 | `/trades` | Trades | Simulated fills and settlements; click a row for its details and decision |
 | `/cycles` | Decisions | Every completed decision, newest first |
 | `/cycles/[cycleKey]` | | Reasoning, forecasts, orders, fills, sources, risk checks, provenance |
