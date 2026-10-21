@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -9,7 +9,7 @@ import pytest
 
 from edgecraft.cli import main
 from edgecraft.marketdata import MarketDataError, MarketDataRouter
-from edgecraft.paper_fund import FundQuote
+from edgecraft.paper_fund import FundQuote, QuoteStatus
 from edgecraft.schedule import scheduled_cycle_key
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -346,3 +346,37 @@ def test_forecast_skill_promotes_one_experiment_and_freezes_another(
     assert context["forecast_skill"]["head_to_head"][0]["left"] == "consistency"
     assert context["forecast_skill"]["head_to_head"][0]["left_advantage"] < 0
     assert evolved["verification"]["ok"]
+
+
+def test_monitor_bridges_a_blip_with_a_fresh_cached_mark_but_not_an_outage(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    common = ["--config", str(PREDICTIONS), "--ledger", str(tmp_path / "fund.db")]
+    _run(["fund-init", *common], capsys)
+    fund_run = ["fund-run", *common, "--input", str(PREDICTION_EXAMPLE)]
+    _run([*fund_run, "--require-brain-journal", "--size-beliefs"], capsys)
+    monkeypatch.chdir(tmp_path)  # The monitor's quote cache lives under ./state/marks.
+    clock = iter(datetime.now(UTC) + timedelta(seconds=step - 60) for step in range(60))
+    down: set[str] = set()
+
+    def quote(router, instrument_id, asset_class):
+        if any(instrument_id.startswith(venue) for venue in down):
+            raise MarketDataError("test connection reset")
+        now = next(clock)
+        # Pending marks never trigger exits, so the test does not depend on today's date.
+        fresh = _contract_quote(instrument_id, "0.40").model_copy(
+            update={"observed_at": now, "source_timestamp": now, "status": QuoteStatus.PENDING}
+        )
+        router._cache(fresh)
+        return fresh
+
+    monkeypatch.setattr(MarketDataRouter, "quote", quote)
+    assert _run(["monitor", *common], capsys)["applied"] is True
+    down.add("kalshi:")
+    blip = _run(["monitor", *common], capsys)
+    assert blip["applied"] is True
+    assert blip["failures"] == []
+    down.add("polymarket:")
+    outage = _run(["monitor", *common], capsys)
+    assert (outage["applied"], outage["reason"]) == (False, "mark_fetch_failed")
+    assert len(outage["failures"]) == 2

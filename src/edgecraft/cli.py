@@ -898,7 +898,7 @@ def _fund_baseline(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _fund_monitor(args: argparse.Namespace) -> dict[str, Any]:
-    from edgecraft.marketdata import MarketDataRouter
+    from edgecraft.marketdata import MarketDataError, MarketDataRouter, fetch_quotes
     from edgecraft.monitor import build_monitor_decision, latest_hypotheses
 
     fund_id, mandate, policy = _load_fund_config(args.config)
@@ -917,15 +917,28 @@ def _fund_monitor(args: argparse.Namespace) -> dict[str, Any]:
     if missing:
         raise ValueError(f"monitor cannot enforce positions without hypotheses: {missing}")
     router = MarketDataRouter()
-    quotes: list[FundQuote] = []
+    fetched, fetch_failures = fetch_quotes(router, [item.instrument_id for item in state.positions])
+    # A transient fetch failure may reuse the last code-owned quote while it is still
+    # inside the mandate's freshness limits; accounting re-checks both limits. A full
+    # outage gets no fallback, so the cycle time always comes from a fresh fetch.
+    now = datetime.now(UTC)
     failures: list[dict[str, str]] = []
-    marked_positions = []
-    for item in state.positions:
+    for failure in fetch_failures:
+        if not fetched:
+            failures.append(failure)
+            continue
         try:
-            quotes.append(router.quote(item.instrument_id, item.asset_class))
-            marked_positions.append(item)
-        except Exception as exc:
-            failures.append({"instrument_id": item.instrument_id, "detail": str(exc)})
+            cached = router.latest_cached_quote(failure["instrument_id"], at_or_before=now)
+        except MarketDataError:
+            failures.append(failure)
+            continue
+        if now - cached.observed_at <= mandate.freshness_for(
+            cached.asset_class
+        ) and now - cached.source_timestamp <= mandate.source_age_for(cached.asset_class):
+            fetched[cached.instrument_id] = cached
+        else:
+            failures.append(failure)
+    # Every open position needs a fresh mark to be valued; without one, nothing applies.
     if failures:
         with PaperFundLedger(args.ledger) as ledger:
             for failure in failures:
@@ -937,19 +950,19 @@ def _fund_monitor(args: argparse.Namespace) -> dict[str, Any]:
             "reason": "mark_fetch_failed",
             "failures": failures,
         }
-    marked_state = state.model_copy(update={"positions": tuple(marked_positions)})
-    as_of = max((quote.observed_at for quote in quotes), default=datetime.now(UTC))
+    quotes = [fetched[item.instrument_id] for item in state.positions]
+    as_of = max(quote.observed_at for quote in quotes)
     decision = build_monitor_decision(
         fund_id=fund_id,
-        state=marked_state,
-        hypotheses=[latest[item.instrument_id][0] for item in marked_positions],
+        state=state,
+        hypotheses=[latest[item.instrument_id][0] for item in state.positions],
         hypothesis_started_at={
             position.instrument_id: (
                 position.opened_at
                 or opened_at.get(position.instrument_id)
                 or latest[position.instrument_id][1]
             )
-            for position in marked_positions
+            for position in state.positions
         },
         quotes=quotes,
         as_of=as_of,
