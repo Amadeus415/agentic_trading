@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import type { ReactNode } from "react";
 
 import {
   actionLabel,
+  beliefLine,
   capitalize,
   contractName,
   contractOutcome,
@@ -11,41 +11,11 @@ import {
   cycleHref,
 } from "@/components/display";
 import { formatPct, formatPrice, formatQty, formatTs, formatUsd } from "@/components/format";
-import { Fact, Facts, FundEmpty, Money, Page, Section, TableWrap } from "@/components/panel";
+import { Fact, Facts, FundEmpty, List, Money, Note, Page, Section, TableWrap } from "@/components/panel";
 import { getCycle, getSelectedFund, type FundSearchParams, listCycles } from "@/lib/fund";
-import type { FundHypothesis } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function Note({ label, children }: { label: string; children: ReactNode }) {
-  if (!children || (Array.isArray(children) && children.length === 0)) return null;
-  return (
-    <div className="grid gap-1 border-t py-5 sm:grid-cols-[11rem_1fr] sm:gap-8">
-      <dt className="text-sm text-graphite">{label}</dt>
-      <dd className="max-w-[68ch] leading-[1.7]">{children}</dd>
-    </div>
-  );
-}
-
-function List({ items }: { items: string[] }) {
-  return (
-    <ul className="flex flex-col gap-1.5">
-      {items.map((item) => (
-        <li key={item}>{item}</li>
-      ))}
-    </ul>
-  );
-}
-
-function beliefLine(h: FundHypothesis): string {
-  const asset = contractOutcome(h.instrument_id) ? "prediction" : undefined;
-  const parts = asset ? [] : [capitalize(h.stance)];
-  if (h.target_price != null) parts.push(`target ${formatPrice(h.target_price, asset)}`);
-  if (h.invalidation_price != null) parts.push(`exit at ${formatPrice(h.invalidation_price, asset)}`);
-  parts.push(`within ${h.expected_horizon_hours}h`);
-  return capitalize(parts.join(", "));
-}
 
 export default async function CycleDetailPage({
   params,

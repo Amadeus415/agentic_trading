@@ -34,8 +34,8 @@ export function AppShell({ children, funds }: { children: React.ReactNode; funds
   const query = params.get("fund") ? `?fund=${encodeURIComponent(params.get("fund")!)}` : "";
 
   function switchFund(fund: string) {
-    // Decision keys belong to one fund, so a detail page falls back to the list.
-    const base = pathname.startsWith("/cycles/") ? "/cycles" : pathname;
+    // Decision keys and positions belong to one fund, so a detail page falls back to its list.
+    const base = pathname.startsWith("/cycles/") ? "/cycles" : pathname.startsWith("/positions/") ? "/" : pathname;
     router.push(`${base}?fund=${encodeURIComponent(fund)}`);
   }
 

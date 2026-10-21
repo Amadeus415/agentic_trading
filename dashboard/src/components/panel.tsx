@@ -66,6 +66,27 @@ export function TableWrap({ children }: { children: ReactNode }) {
   return <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">{children}</div>;
 }
 
+/** A labeled paragraph in a definition list; renders nothing when empty. */
+export function Note({ label, children }: { label: string; children: ReactNode }) {
+  if (!children || (Array.isArray(children) && children.length === 0)) return null;
+  return (
+    <div className="grid gap-1 border-t py-5 sm:grid-cols-[11rem_1fr] sm:gap-8">
+      <dt className="text-sm text-graphite">{label}</dt>
+      <dd className="max-w-[68ch] leading-[1.7]">{children}</dd>
+    </div>
+  );
+}
+
+export function List({ items }: { items: string[] }) {
+  return (
+    <ul className="flex flex-col gap-1.5">
+      {items.map((item) => (
+        <li key={item}>{item}</li>
+      ))}
+    </ul>
+  );
+}
+
 export function Quiet({ children }: { children: ReactNode }) {
   return <p className="border-t py-8 text-graphite">{children}</p>;
 }
