@@ -1592,18 +1592,26 @@ def evaluate_risk(
     ]
 
     if nav > ZERO:
+        # The cap limits what a cycle adds. A position the cycle did not grow may
+        # drift above it on price alone without freezing every later cycle.
+        pre_quantities = {pos.instrument_id: abs(pos.quantity) for pos in pre_state.positions}
+        limit = mandate.max_single_position_weight
         for pos in post_positions:
             weight = abs(pos.market_value or ZERO) / nav
+            added = abs(pos.quantity) > pre_quantities.get(pos.instrument_id, ZERO)
+            over = weight > limit
             checks.append(
                 _risk_check(
                     f"position_weight:{pos.instrument_id}",
-                    passed=weight <= mandate.max_single_position_weight,
+                    passed=not (over and added),
                     observed=weight,
-                    limit=mandate.max_single_position_weight,
+                    limit=limit,
                     detail=(
                         f"position weight {weight} for {pos.instrument_id} exceeds "
-                        f"max_single_position_weight {mandate.max_single_position_weight}"
-                        if weight > mandate.max_single_position_weight
+                        f"max_single_position_weight {limit}"
+                        if over and added
+                        else f"above {limit} on price moves; this cycle did not add to it"
+                        if over
                         else ""
                     ),
                 )

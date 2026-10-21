@@ -1012,6 +1012,46 @@ def test_risk_gates_atomic_rejection(tmp_path: Path) -> None:
                 quotes=[_quote("AAPL", "100", AssetClass.STOCK)],
             )
 
+    # A price rise alone may carry a position past the cap; adding to it may not.
+    with PaperFundLedger(tmp_path / "risk4b.db") as ledger:
+        ledger.initialize(FUND_ID, m4)
+        ledger.execute_cycle(
+            _decision(
+                "r-weight-open",
+                orders=(_buy("AAPL", "2", AssetClass.STOCK),),  # 200/1000=0.2
+                evidence=(_ev("e1", instruments=("AAPL",)),),
+            ),
+            quotes=[_quote("AAPL", "100", AssetClass.STOCK)],
+        )
+        later = AS_OF + timedelta(hours=1)
+        risen = _quote(
+            "AAPL",
+            "400",
+            AssetClass.STOCK,
+            quote_id="q-risen",
+            observed_at=later - timedelta(minutes=1),
+        )
+        with pytest.raises(PaperFundValidationError, match="position weight"):
+            ledger.execute_cycle(
+                _decision(
+                    "r-weight-add",
+                    orders=(_buy("AAPL", "1", AssetClass.STOCK),),
+                    evidence=(_ev("e1", instruments=("AAPL",)),),
+                    as_of=later,
+                ),
+                quotes=[risen],
+            )
+        held = ledger.execute_cycle(
+            _decision(
+                "r-weight-hold",
+                action=DecisionAction.HOLD,
+                evidence=(_ev("e2"),),
+                as_of=later,
+            ),
+            quotes=[risen],
+        )
+        assert held.state.positions[0].market_value / held.state.nav == Decimal("0.5")
+
     # net exposure
     m5 = _mandate(
         fee_bps=Decimal("0"),
