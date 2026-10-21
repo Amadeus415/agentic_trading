@@ -6,16 +6,20 @@ import {
   contractOutcome,
   contractTitles,
   cycleHref,
+  holdingDetail,
   num,
   openPositions,
   pnlClass,
+  positionHref,
 } from "@/components/display";
-import { formatDay, formatPct, formatPrice, formatQty, formatTs, formatUsd } from "@/components/format";
+import { formatDay, formatPct, formatUsd } from "@/components/format";
 import { Fact, Facts, FundEmpty, Money, Page, Quiet, Section } from "@/components/panel";
 import { PerformanceChart } from "@/components/performance-chart";
 import { fetchSpyBenchmarkSeries } from "@/lib/benchmark";
 import {
   buildNavSeries,
+  closedPositions,
+  extractFillsFromCycles,
   getLatestState,
   getSelectedFund,
   listCycles,
@@ -23,7 +27,7 @@ import {
   normalizeSeriesTo100,
   type FundSearchParams,
 } from "@/lib/fund";
-import type { Position } from "@/lib/types";
+import type { ClosedPosition } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,15 +38,13 @@ function movement(ratio: number): string {
   return ratio > 0 ? `up ${size}` : `down ${size}`;
 }
 
-function holdingDetail(p: Position): string {
-  const outcome = contractOutcome(p.instrument_id);
-  const qty = num(p.quantity);
-  const entry = formatPrice(p.average_entry, p.asset_class);
-  const mark = formatPrice(p.mark_price, p.asset_class);
-  if (outcome) return `${formatQty(qty)} ${outcome} at ${entry}, now ${mark}`;
-  const shares = `${formatQty(Math.abs(qty))} ${Math.abs(qty) === 1 ? "share" : "shares"}`;
-  return `${qty < 0 ? "Short" : "Long"} ${shares} at ${entry}, now ${mark}`;
+function closedDetail(c: ClosedPosition): string {
+  const outcome = contractOutcome(c.instrument_id);
+  const trades = `${c.trade_count} ${c.trade_count === 1 ? "trade" : "trades"}`;
+  return `${outcome ? `${outcome}, ` : ""}${trades}, closed ${formatDay(c.closed_at)}`;
 }
+
+const ROW = "-mx-3 grid grid-cols-[1fr_auto] gap-x-6 gap-y-0.5 rounded-md px-3 py-4 hover:bg-wash";
 
 export default async function OverviewPage({ searchParams }: { searchParams: FundSearchParams }) {
   const fund = await getSelectedFund(searchParams);
@@ -53,6 +55,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Fun
   const navSeries = buildNavSeries(fund, cycles);
   const fundSeries = normalizeSeriesTo100(navSeries);
   const positions = openPositions(state?.positions ?? []);
+  const closed = closedPositions(extractFillsFromCycles(cycles), positions);
   const titles = contractTitles(cycles);
   const retired = listEvents(fund.fund_id).some((event) => event.event_type === "fund_retired");
 
@@ -71,26 +74,12 @@ export default async function OverviewPage({ searchParams }: { searchParams: Fun
   const fundReturn = initial > 0 ? nav / initial - 1 : 0;
   const spyReturn = benchmarkSeries ? benchmarkSeries.at(-1)!.value / 100 - 1 : null;
   const [dollars, cents] = formatUsd(nav).split(".");
-  const latest = cycles.at(-1) ?? null;
-  const recent = [...cycles].reverse().slice(1, 6);
+  const recent = [...cycles].reverse().slice(0, 5);
   const invested = positions.reduce((sum, p) => sum + Math.abs(num(p.market_value)), 0);
 
   return (
     <Page>
       <section className="flex flex-col gap-10">
-        <div>
-          <p className="text-[64px] leading-none font-extralight tracking-[-0.045em] [font-variant-numeric:proportional-nums] sm:text-[104px]">
-            {dollars}
-            <span className="text-mist">.{cents}</span>
-          </p>
-          <p className="mt-6 max-w-[46ch] text-[19px] leading-snug font-light text-graphite">
-            <span className={pnlClass(fundReturn)}>{movement(fundReturn).replace(/^./, (c) => c.toUpperCase())}</span>{" "}
-            since {formatDay(fund.created_at)}.
-            {spyReturn != null ? ` The S&P 500 is ${movement(spyReturn)} over the same stretch.` : null}
-            {retired ? " This fund is retired." : null}
-          </p>
-        </div>
-
         <div className="flex flex-col gap-3">
           <PerformanceChart fundSeries={fundSeries} benchmarkSeries={benchmarkSeries} />
           <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 text-[13px] text-mist">
@@ -108,6 +97,19 @@ export default async function OverviewPage({ searchParams }: { searchParams: Fun
           </div>
         </div>
 
+        <div>
+          <p className="text-[64px] leading-none font-extralight tracking-[-0.045em] [font-variant-numeric:proportional-nums] sm:text-[104px]">
+            {dollars}
+            <span className="text-mist">.{cents}</span>
+          </p>
+          <p className="mt-6 max-w-[46ch] text-[19px] leading-snug font-light text-graphite">
+            <span className={pnlClass(fundReturn)}>{movement(fundReturn).replace(/^./, (c) => c.toUpperCase())}</span>{" "}
+            since {formatDay(fund.created_at)}.
+            {spyReturn != null ? ` The S&P 500 is ${movement(spyReturn)} over the same stretch.` : null}
+            {retired ? " This fund is retired." : null}
+          </p>
+        </div>
+
         <Facts>
           <Fact label="Cash">{formatUsd(state?.cash ?? fund.initial_cash)}</Fact>
           <Fact label="Invested">{formatUsd(invested)}</Fact>
@@ -118,44 +120,48 @@ export default async function OverviewPage({ searchParams }: { searchParams: Fun
         </Facts>
       </section>
 
-      <Section title="Open positions" aside={positions.length ? `${positions.length} open` : null}>
+      <Section
+        title="Positions"
+        aside={positions.length || closed.length ? `${positions.length} open, ${closed.length} closed` : null}
+      >
         {positions.length === 0 ? (
           <Quiet>All in cash.</Quiet>
         ) : (
           <ul className="flex flex-col">
             {positions.map((p) => (
-              <li key={p.instrument_id} className="grid grid-cols-[1fr_auto] gap-x-6 gap-y-0.5 border-t py-4">
-                <span className="min-w-0">{contractName(titles, p.instrument_id, p.asset_class)}</span>
-                <Money value={p.unrealized_pnl} />
-                <span className="text-sm text-graphite">{holdingDetail(p)}</span>
-                <span className="text-right text-sm text-graphite">{formatUsd(p.market_value)}</span>
+              <li key={p.instrument_id} className="border-t">
+                <Link href={positionHref(p.instrument_id, fund.fund_id)} className={ROW}>
+                  <span className="min-w-0">{contractName(titles, p.instrument_id, p.asset_class)}</span>
+                  <Money value={p.unrealized_pnl} />
+                  <span className="text-sm text-graphite">{holdingDetail(p)}</span>
+                  <span className="text-right text-sm text-graphite">{formatUsd(p.market_value)}</span>
+                </Link>
               </li>
             ))}
           </ul>
         )}
-      </Section>
 
-      {latest ? (
-        <Section
-          title="Latest decision"
-          aside={`${actionLabel(latest.action)}, ${formatTs(latest.as_of)}`}
-        >
-          <div className="flex flex-col gap-5 border-t pt-6">
-            <p className="max-w-[68ch] text-[17px] leading-[1.7] font-light">{latest.thesis || "No reasoning recorded."}</p>
-            <Link href={cycleHref(latest.cycle_key, fund.fund_id)} className="self-start text-sm text-fund hover:underline">
-              Read the full reasoning
-            </Link>
+        {closed.length > 0 ? (
+          <div className="mt-6 flex flex-col gap-3">
+            <h3 className="text-[13px] text-graphite">Closed</h3>
+            <ul className="flex flex-col">
+              {closed.map((c) => (
+                <li key={c.instrument_id} className="border-t">
+                  <Link href={positionHref(c.instrument_id, fund.fund_id)} className={ROW}>
+                    <span className="min-w-0">{contractName(titles, c.instrument_id, c.asset_class)}</span>
+                    <Money value={c.result} />
+                    <span className="col-span-2 text-sm text-graphite">{closedDetail(c)}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
           </div>
-        </Section>
-      ) : (
-        <Section title="Latest decision">
-          <Quiet>No decisions yet. The first research session will add one.</Quiet>
-        </Section>
-      )}
+        ) : null}
+      </Section>
 
       {recent.length > 0 ? (
         <Section
-          title="Earlier decisions"
+          title="Recent decisions"
           aside={
             <Link href={`/cycles?fund=${encodeURIComponent(fund.fund_id)}`} className="hover:text-ink">
               See all {cycles.length}
