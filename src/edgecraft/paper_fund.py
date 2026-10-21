@@ -97,6 +97,8 @@ class HypothesisStance(StrEnum):
 
 class QuoteStatus(StrEnum):
     OPEN = "open"
+    # No two-sided market while the outcome is awaited or disputed: mark only, never trade.
+    PENDING = "pending"
     SETTLED = "settled"
 
 
@@ -356,6 +358,8 @@ class FundQuote(BaseModel):
                 raise ValueError("settled prediction quotes must be exactly 0 or 1")
         if self.status is QuoteStatus.SETTLED and self.asset_class is not AssetClass.PREDICTION:
             raise ValueError("only prediction quotes may be settled")
+        if self.status is QuoteStatus.PENDING and self.asset_class is not AssetClass.PREDICTION:
+            raise ValueError("only prediction quotes may be pending")
         return self
 
 
@@ -1701,12 +1705,16 @@ def run_cycle_accounting(
     if cash < ZERO:
         raise PaperFundValidationError(f"prediction settlement would leave negative cash: {cash}")
 
-    # 2) Reject orders on settled instruments
+    # 2) Reject orders on settled instruments and pending marks
     for order in decision.orders:
         q = quote_map[order.instrument_id]
         if q.status is QuoteStatus.SETTLED or order.instrument_id in settled_instruments:
             raise PaperFundValidationError(
                 f"settled instrument {order.instrument_id} cannot receive new orders"
+            )
+        if q.status is QuoteStatus.PENDING:
+            raise PaperFundValidationError(
+                f"pending instrument {order.instrument_id} has no two-sided market to trade"
             )
 
     # 3) Execute orders

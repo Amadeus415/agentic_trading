@@ -41,6 +41,7 @@ from edgecraft.paper_fund import (
     OrderSide,
     PaperFundLedger,
     PaperFundValidationError,
+    QuoteStatus,
     execution_fee,
     mandate_digest,
     run_cycle_accounting,
@@ -255,7 +256,11 @@ def run_baseline(
         metrics = quote and book_metrics(row, quote, mandate, policy, gamma)
         if metrics and Decimal(metrics["favorite_bias_edge"]) > 0:
             candidates.append((metrics, quote))
-    flags = [flag for flag in flags if all(leg in quotes for leg in flag["legs"])]
+    flags = [
+        flag
+        for flag in flags
+        if all(leg in quotes and quotes[leg].status is QuoteStatus.OPEN for leg in flag["legs"])
+    ]
 
     latest, _ = latest_hypotheses(ledger.list_full_cycles(fund_id))
     evidence: dict[str, FundEvidence] = {}

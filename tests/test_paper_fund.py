@@ -523,6 +523,51 @@ def test_prediction_settlement_once_at_zero_and_one(tmp_path: Path) -> None:
             )
 
 
+def test_pending_quote_marks_a_position_but_takes_no_orders(tmp_path: Path) -> None:
+    mandate = _mandate(fee_bps=Decimal("0"), slippage_bps=Decimal("0"))
+    with _ledger(tmp_path) as ledger:
+        ledger.initialize(FUND_ID, mandate)
+        ledger.execute_cycle(
+            _decision(
+                "c-open",
+                orders=(_buy("NO-EVENT", "100", AssetClass.PREDICTION),),
+                evidence=(_ev("e1", instruments=("NO-EVENT",)),),
+            ),
+            quotes=[_quote("NO-EVENT", "0.40", AssetClass.PREDICTION)],
+        )
+        later = AS_OF + timedelta(hours=1)
+        pending = _quote(
+            "NO-EVENT",
+            "0.999",
+            AssetClass.PREDICTION,
+            quote_id="q-pending",
+            observed_at=later - timedelta(minutes=1),
+            status=QuoteStatus.PENDING,
+        )
+        with pytest.raises(PaperFundValidationError, match="pending instrument"):
+            ledger.execute_cycle(
+                _decision(
+                    "c-sell-pending",
+                    orders=(_sell("NO-EVENT", "100", AssetClass.PREDICTION),),
+                    evidence=(_ev("e1", instruments=("NO-EVENT",)),),
+                    as_of=later,
+                ),
+                quotes=[pending],
+            )
+        held = ledger.execute_cycle(
+            _decision(
+                "c-hold-pending",
+                action=DecisionAction.HOLD,
+                evidence=(_ev("e2"),),
+                as_of=later,
+            ),
+            quotes=[pending],
+        )
+        assert held.settlements == ()
+        assert held.state.positions[0].mark_price == Decimal("0.999")
+        assert held.state.nav == Decimal("1059.9")
+
+
 # ---------------------------------------------------------------------------
 # 6. Hold does not change cash/positions; still audited
 # ---------------------------------------------------------------------------

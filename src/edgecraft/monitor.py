@@ -92,6 +92,10 @@ def build_monitor_decision(
         if quote.status is QuoteStatus.SETTLED:
             reasons.append({"instrument_id": position.instrument_id, "reason": "settled"})
             continue
+        if quote.status is QuoteStatus.PENDING:
+            # No two-sided market to exit into; hold for the venue's settlement.
+            reasons.append({"instrument_id": position.instrument_id, "reason": "pending"})
+            continue
         is_long = position.quantity > 0
         reason: str | None = None
         gapped = False

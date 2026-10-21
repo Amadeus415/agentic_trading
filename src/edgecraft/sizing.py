@@ -30,6 +30,7 @@ from edgecraft.paper_fund import (
     OrderSide,
     PaperFundCapacityError,
     PaperFundValidationError,
+    QuoteStatus,
     execution_fee,
     run_cycle_accounting,
 )
@@ -260,6 +261,11 @@ def size_decision(
         position = position_by_id.get(order.instrument_id)
         hypothesis = hypotheses.get(order.instrument_id)
         if order.side is OrderSide.SELL:
+            mark = quote_by_id.get(order.instrument_id)
+            if mark is not None and mark.status is QuoteStatus.PENDING:
+                # No two-sided market to sell into; the position waits for settlement.
+                dropped.append({"instrument_id": order.instrument_id, "reason": "quote_pending"})
+                continue
             quantity = order.quantity or (abs(position.quantity) if position else None)
             if quantity is None:
                 raise PaperFundValidationError(
@@ -284,6 +290,9 @@ def size_decision(
         quote = quote_by_id.get(order.instrument_id)
         if quote is None:
             raise PaperFundValidationError(f"missing quote for sized order {order.instrument_id}")
+        if quote.status is not QuoteStatus.OPEN:
+            dropped.append({"instrument_id": order.instrument_id, "reason": "quote_not_open"})
+            continue
         if not quote.asks:
             dropped.append({"instrument_id": order.instrument_id, "reason": "no_displayed_asks"})
             continue

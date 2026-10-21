@@ -284,7 +284,7 @@ def score_forecasts(
         row = {"market_id": market, "observed_at": _iso(quote.observed_at)}
         if quote.status is QuoteStatus.SETTLED:
             resolutions.append({**row, "outcome": int(quote.price)})
-        elif market in research:
+        elif market in research and quote.status is QuoteStatus.OPEN:
             marks.append({**row, "price": str(quote.price)})
     if resolutions or marks:
         ledger.record_operational_event(

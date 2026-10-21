@@ -23,6 +23,7 @@ from edgecraft.paper_fund import (
     HypothesisStance,
     OrderSide,
     PaperFundValidationError,
+    QuoteStatus,
     run_cycle_accounting,
 )
 from edgecraft.policy import TradingPolicy
@@ -245,6 +246,16 @@ def test_opposite_belief_exits_the_held_outcome() -> None:
     result = _size([_belief("A", stance=HypothesisStance.SHORT)], [_quote("A")], state=_held("A"))
     assert [order.side for order in result.decision.orders] == [OrderSide.SELL]
     assert result.dropped[0]["reason"] == "buy_opposite_outcome"
+
+
+def test_pending_marks_neither_exit_nor_enter() -> None:
+    pending = _quote("A").model_copy(update={"status": QuoteStatus.PENDING})
+    exit_held = _size([_belief("A", stance=HypothesisStance.EXIT)], [pending], state=_held("A"))
+    assert exit_held.decision.orders == ()
+    assert exit_held.dropped[0]["reason"] == "quote_pending"
+    entry = _size([_belief("A", "0.90")], [pending])
+    assert entry.decision.orders == ()
+    assert entry.dropped[0]["reason"] == "quote_not_open"
 
 
 def test_sleeve_budget_is_shared_across_orders_and_existing_inventory() -> None:

@@ -129,12 +129,21 @@ class PolymarketProvider:
         fee_rate, exponent = None, None
         source_timestamp = now
         if closed and prices:
-            if market.get("umaResolutionStatus") != "resolved":
-                raise MarketDataError("closed Polymarket market is not confirmed resolved")
             price = Decimal(str(prices[outcomes.index(outcome)]))
-            status = (
-                QuoteStatus.SETTLED if price in {Decimal("0"), Decimal("1")} else QuoteStatus.OPEN
-            )
+            if market.get("umaResolutionStatus") != "resolved":
+                # Closed but unresolved or disputed: the displayed price is not a payout.
+                status = QuoteStatus.PENDING
+            elif price in {Decimal("0"), Decimal("1")}:
+                status = QuoteStatus.SETTLED
+            else:
+                status = QuoteStatus.OPEN
+            source_url = gamma_url
+        elif not market.get("acceptingOrders"):
+            if not prices:
+                raise MarketDataError("Polymarket market is not accepting orders")
+            # Trading has stopped ahead of resolution; mark at the venue's displayed price.
+            price = Decimal(str(prices[outcomes.index(outcome)]))
+            status = QuoteStatus.PENDING
             source_url = gamma_url
         else:
             version = market.get("version", "v1")
@@ -144,15 +153,12 @@ class PolymarketProvider:
             token_id = tokens[outcomes.index(outcome)]
             fee_rate, exponent = _polymarket_fees(market)
             source_url = f"https://clob.polymarket.com/book?token_id={token_id}"
-            if not market.get("acceptingOrders"):
-                raise MarketDataError("Polymarket market is not accepting orders")
             book = _get_json(source_url)
             bids = _book_levels(book.get("bids"))
             asks = _book_levels(book.get("asks"))
-            price = book_mid(bids, asks)
+            price, status = book_mark(bids, asks)
             if book.get("timestamp"):
                 source_timestamp = datetime.fromtimestamp(float(book["timestamp"]) / 1000, UTC)
-            status = QuoteStatus.OPEN
         return _quote(
             instrument_id=instrument_id,
             asset_class=AssetClass.PREDICTION,
@@ -172,6 +178,18 @@ class PolymarketProvider:
 
 def _array(value: Any) -> list:
     return json.loads(value) if isinstance(value, str) else value
+
+
+def book_mark(
+    bids: tuple[BookLevel, ...], asks: tuple[BookLevel, ...]
+) -> tuple[Decimal, QuoteStatus]:
+    """Mid of a two-sided book; a one-sided book is pending at what a holder could sell for."""
+    if bids and asks:
+        return book_mid(bids, asks), QuoteStatus.OPEN
+    bid = max((level.price for level in bids), default=Decimal("0"))
+    if not Decimal("0") <= bid <= Decimal("1"):
+        raise MarketDataError("invalid prediction bid")
+    return bid, QuoteStatus.PENDING
 
 
 def book_mid(bids: tuple[BookLevel, ...], asks: tuple[BookLevel, ...]) -> Decimal:
@@ -216,7 +234,8 @@ class KalshiProvider:
         url = f"{KALSHI_API}/markets/{urllib.parse.quote(ticker, safe='')}"
         market = _get_json(url)["market"]
         now = _now(observed_at)
-        if market.get("status") == "settled" and market.get("result") in ("yes", "no"):
+        status = market.get("status")
+        if status in ("settled", "finalized") and market.get("result") in ("yes", "no"):
             return _quote(
                 instrument_id=instrument_id,
                 asset_class=AssetClass.PREDICTION,
@@ -227,7 +246,20 @@ class KalshiProvider:
                 source_url=url,
                 status=QuoteStatus.SETTLED,
             )
-        if market.get("status") != "active":
+        if status in ("closed", "determined") and market.get("last_price_dollars") is not None:
+            # Trading has stopped ahead of final settlement; mark at the last traded price.
+            last_yes = Decimal(str(market["last_price_dollars"]))
+            return _quote(
+                instrument_id=instrument_id,
+                asset_class=AssetClass.PREDICTION,
+                price=last_yes if outcome == "YES" else 1 - last_yes,
+                source_timestamp=now,
+                observed_at=now,
+                source_name="Kalshi public API",
+                source_url=url,
+                status=QuoteStatus.PENDING,
+            )
+        if status != "active":
             raise MarketDataError("Kalshi market is not active or finally settled")
         series_ticker = market.get("series_ticker") or str(market["event_ticker"]).split("-")[0]
         series = _kalshi_series(series_ticker)
@@ -243,10 +275,12 @@ class KalshiProvider:
         asks = tuple(
             BookLevel(price=1 - Decimal(p), size=q) for p, q in book.get(other + "_dollars", [])
         )
+        price, book_status = book_mark(bids, asks)
         return _quote(
             instrument_id=instrument_id,
             asset_class=AssetClass.PREDICTION,
-            price=book_mid(bids, asks),
+            price=price,
+            status=book_status,
             source_timestamp=now,
             observed_at=now,
             source_name="Kalshi public API",

@@ -78,10 +78,50 @@ def test_polymarket_mid_does_not_mark_at_buy_price(monkeypatch):
     assert quote.price == Decimal("0.4")
     market["closed"] = True
     market["outcomePrices"] = '["1","0"]'
-    with pytest.raises(MarketDataError, match="not confirmed resolved"):
-        PolymarketProvider().quote("polymarket:1:YES", observed_at=NOW)
+    # A closed market without a confirmed resolution is pending, not paid out.
+    assert PolymarketProvider().quote("polymarket:1:YES", observed_at=NOW).status == "pending"
     market["umaResolutionStatus"] = "resolved"
     assert PolymarketProvider().quote("polymarket:1:YES", observed_at=NOW).status == "settled"
+
+
+def test_polymarket_one_sided_or_halted_books_mark_pending(monkeypatch):
+    market = {
+        "outcomes": '["Yes","No"]',
+        "clobTokenIds": '["1","2"]',
+        "feesEnabled": False,
+        "acceptingOrders": True,
+        "outcomePrices": '["0.0005","0.9995"]',
+        "umaResolutionStatus": "disputed",
+    }
+    book = {"bids": [{"price": "0.994", "size": "87"}, {"price": "0.999", "size": "545"}]}
+
+    def get(url):
+        return market if "/markets/" in url else book
+
+    monkeypatch.setattr("edgecraft.marketdata._get_json", get)
+    # Bids but no asks: worth what a holder could sell for, and not tradable.
+    quote = PolymarketProvider().quote("polymarket:1:NO", observed_at=NOW)
+    assert (quote.status, quote.price) == ("pending", Decimal("0.999"))
+    book["bids"], book["asks"] = [], [{"price": "0.001", "size": "100"}]
+    quote = PolymarketProvider().quote("polymarket:1:YES", observed_at=NOW)
+    assert (quote.status, quote.price) == ("pending", Decimal("0"))
+    # Trading halted before resolution: the venue's displayed price.
+    market["acceptingOrders"] = False
+    quote = PolymarketProvider().quote("polymarket:1:NO", observed_at=NOW)
+    assert (quote.status, quote.price) == ("pending", Decimal("0.9995"))
+
+
+def test_kalshi_finalized_settles_and_determined_waits(monkeypatch):
+    market = {"status": "finalized", "result": "no", "last_price_dollars": "0.0100"}
+    monkeypatch.setattr("edgecraft.marketdata._get_json", lambda _url: {"market": market})
+    quote = KalshiProvider().quote("kalshi:KXSCORE-26OCT18:NO", observed_at=NOW)
+    assert (quote.status, quote.price) == ("settled", Decimal("1"))
+    market["status"] = "determined"
+    quote = KalshiProvider().quote("kalshi:KXSCORE-26OCT18:NO", observed_at=NOW)
+    assert (quote.status, quote.price) == ("pending", Decimal("0.99"))
+    market["status"] = "initialized"
+    with pytest.raises(MarketDataError, match="not active"):
+        KalshiProvider().quote("kalshi:KXSCORE-26OCT18:NO", observed_at=NOW)
 
 
 def test_scoring_uses_settlement_not_profit_and_deduplicates_refreshes():
