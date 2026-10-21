@@ -5,7 +5,7 @@ The fund learns from **forecasts**, not just trades. Closed trades arrive slowly
 ## The forecast loop
 
 1. Each research session writes a forecast file (`state/fund-inputs/<key>.forecasts.json`) with a YES probability for every market it researched. `variant` names the playbook or experiment that produced it. Journal beliefs in the trade packet are logged as forecasts too.
-2. `fund-forecast` stamps each forecast with the **code-owned market price at that moment** and appends it to the hash-chained ledger. Forecasts on already-settled markets are refused. Only the first forecast per market and variant counts, so refreshes never inflate the sample.
+2. The session runs `fund-forecast` as soon as the file is written, before any step that can stop it. It stamps each forecast with the **code-owned market price at that moment** and appends it to the hash-chained ledger; the apply step records the file again, which adds only forecasts not yet recorded. Forecasts on already-settled markets are refused. Only the first forecast per market and variant counts, so refreshes never inflate the sample.
 3. The five-minute monitor runs `fund-forecast-score`: it records each market's settlement and, for research forecasts, later marks.
 4. `forecast_skill` (in `fund-report` and `fund-context`) turns that into one number per variant, **trust** (λ):
    - With 10+ resolved forecasts, λ is the maximum-likelihood fit of `outcome ~ market + λ × (forecast − market)`. Skill is the market's Brier score minus the forecast's: positive means the forecasts beat the price.

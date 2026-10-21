@@ -121,16 +121,26 @@ def record_research_forecasts(
     *,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Stamp each forecast with a code-owned open market price and append one batch."""
+    """Stamp each forecast with a code-owned open market price and append one batch.
+
+    Recording is idempotent: a session records its file as soon as it is written, and
+    the apply step records it again without duplicating what already counts.
+    """
     if forecasts.fund_id != fund_id:
         raise ValueError("forecast file fund_id does not match config")
     now = now or datetime.now(UTC)
-    records, failures = [], []
+    known = {
+        (row["market_id"], row["variant"]) for row in forecast_log(ledger, fund_id)["forecasts"]
+    }
+    records, failures, already = [], [], 0
     for item in forecasts.forecasts:
+        if (item.market_id, item.variant) in known:
+            already += 1
+            continue
         try:
             quote = _yes_quote(router, item.market_id, now)
             if quote.status is not QuoteStatus.OPEN:
-                raise ValueError("market is already settled; forecasts must precede outcomes")
+                raise ValueError("market is settled or pending; forecasts must precede outcomes")
         except Exception as exc:
             failures.append({"market_id": item.market_id, "detail": str(exc)})
             continue
@@ -147,12 +157,18 @@ def record_research_forecasts(
                 quote_id=quote.quote_id,
             )
         )
-    if not records:
+    if not records and not already:
         raise ValueError(f"no forecast could be stamped with a market price: {failures}")
-    ledger.record_operational_event(
-        fund_id, "forecast_batch", {"source": "research", "forecasts": records}
-    )
-    return {"ok": True, "recorded": len(records), "failures": failures}
+    if records:
+        ledger.record_operational_event(
+            fund_id, "forecast_batch", {"source": "research", "forecasts": records}
+        )
+    return {
+        "ok": True,
+        "recorded": len(records),
+        "already_recorded": already,
+        "failures": failures,
+    }
 
 
 def journal_forecasts(decision: FundDecision, quotes: Sequence[FundQuote]) -> list[dict[str, Any]]:

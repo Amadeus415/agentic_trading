@@ -106,6 +106,11 @@ def test_forecasts_are_stamped_with_code_owned_prices_and_settled_markets_are_re
         assert result["recorded"] == 1
         assert "settled" in result["failures"][0]["detail"]
         batch = ledger.list_events("fund")[-1].payload["forecasts"][0]
+        # Recording the same file again at apply time adds nothing and does not fail.
+        events = len(ledger.list_events("fund"))
+        again = record_research_forecasts(ledger, "fund", forecasts, router, now=NOW)
+        assert (again["recorded"], again["already_recorded"]) == (0, 1)
+        assert len(ledger.list_events("fund")) == events
     assert batch["market_id"] == "polymarket:1"
     assert batch["market_yes"] == "0.40"
 

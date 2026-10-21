@@ -1,4 +1,4 @@
-.PHONY: install test lint security results results-data fund-init fund-context fund-cycle-key fund-show fund-report fund-lineage fund-scan fund-report-file fund-verify fund-visualize fund-monitor fund-alerts fund-forecast-score fund-baseline baseline-report scheduled-cycle validate dashboard
+.PHONY: install test lint security results results-data fund-init fund-context fund-cycle-key fund-show fund-report fund-lineage fund-scan fund-report-file fund-verify fund-visualize fund-monitor fund-alerts fund-forecast fund-forecast-score fund-baseline baseline-report scheduled-cycle validate dashboard
 
 FUND_CONFIG ?= examples/fund.mandate.predictions.json
 FUND_LEDGER ?= state/edgecraft-aggressive.db
@@ -34,6 +34,10 @@ fund-show:
 
 fund-scan:
 	$(EDGECRAFT) fund-scan --config $(FUND_CONFIG) --ledger $(FUND_LEDGER) --output state/market-scan.json
+
+# Record a session's research forecasts the moment they are written: FORECASTS=<path>.
+fund-forecast:
+	$(EDGECRAFT) fund-forecast --config $(FUND_CONFIG) --ledger $(FUND_LEDGER) --input $(FORECASTS)
 
 fund-forecast-score:
 	$(EDGECRAFT) fund-forecast-score --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
