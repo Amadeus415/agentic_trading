@@ -30,7 +30,9 @@ As of October 17, 2026. All money is simulated. Every number comes from [`result
 | Brier, agent vs market price | 0.048 vs 0.053 on 11 resolved contracts | pending |
 | Stated vs realized win rate | 56% vs 20% on 46 theses | pending |
 
-The short version: v1 made 2% and fell 27% on the way. Three trades decided the result. The agent's stated confidence meant little, and code rejected most of what it proposed, which is the design working. Prediction contracts were v1's best asset class, so v2 trades nothing else.
+The short version: v1 made 2% and fell 27% on the way. Three trades decided the result. The agent's stated confidence meant little, and code rejected most of what it proposed, which is the design working. Prediction contracts were v1's best asset class, so v2 traded nothing else.
+
+v2 lost. From October 17 to 26 it went from $1,000 to $425.50 (peak $1,175.76, 64% drawdown) over 19 closed trades, while the code-only control fund fell 8% to $917.40. These numbers come from the runtime ledger, not yet from `results.json`. Across 368 settled forecasts, the agent scored worse than the market price exactly where it disagreed with it, and the fund bet full Kelly on trust that had not been measured. One thing held up: when the agent said a published source had already decided a contract the market still doubted, it was right 18 times out of 18 (`resolution_reading` and its experiment). v3, `edgecraft-facts`, started October 26 with its own $1,000 and trades only those facts until other playbooks prove skill. The details are in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## How it works
 
@@ -38,8 +40,8 @@ The short version: v1 made 2% and fell 27% on the way. Three trades decided the 
 flowchart LR
     S[Scanner<br/>soon-resolving,<br/>lightly watched] --> R[LLM agent<br/>reads rules + sources]
     R -->|forecasts on every<br/>researched market| FL[(Forecast log)]
-    R -->|beliefs| G{Python sizing<br/>trust · velocity · Kelly}
-    FL -->|scored vs market:<br/>trust per playbook| G
+    R -->|facts + opinions| G{Python sizing<br/>fact record · proven trust<br/>velocity · half Kelly}
+    FL -->|settled vs market:<br/>trust + fact accuracy| G
     G -->|pass| F[Simulated fill<br/>against real order book]
     F --> L[(Append-only ledger)]
     B[Code-only baseline<br/>favorite bias · NO baskets] --> F
@@ -51,11 +53,11 @@ flowchart LR
 
 1. Scan. The scanner lists both venues across four horizon windows and ranks contracts that resolve soon (capital turns over) and that few traders watch (prices adjust slowly). Liquidity only has to be enough to fill.
 2. Research and forecast. The agent reads exact settlement rules and primary sources, then writes a YES probability for every market it researched, traded or not.
-3. Score. Code stamps each forecast with the market price at that moment and scores it when the market settles (or, earlier, by whether the price drifted toward it). Each playbook earns a trust number: how much of its disagreement with the market has proven right.
-4. Size. Python bets on `market + trust × (belief − market)`, drops edges that cannot clear a 30% annualized hurdle, funds the fastest edges first, and applies full Kelly to that shrunk belief, a 25% position cap, a 50% shared-risk cap, and real venue fees.
+3. Score. Code stamps each forecast with the market price at that moment and scores it when the market settles. Each playbook earns two numbers from settled forecasts only: trust (how much of its disagreement with the market has proven right, at the lower 95% bound) and fact accuracy (how often its "already decided" calls settled that way).
+4. Size. A belief at 95% or more is a fact: it needs a primary source beyond the venue and is capped at the playbook's fact accuracy. Any other belief is an opinion: it trades only on proven trust, as `market + trust × (belief − market)`, and trust is zero until 30 forecasts settle. Python drops edges that cannot clear a 30% annualized hurdle, funds the fastest edges first, and applies half Kelly, a 20% position cap, a 20% shared-risk cap, and real venue fees.
 5. Control. A second fund with no model trades two structural edges: favorites that settle more often than their price implies, and mutually exclusive outcomes whose YES bids sum above $1. If the LLM fund can't beat it, the LLM is costing money.
 6. Record. Every cycle and forecast lands in one append-only, hash-chained ledger, tagged with the exact Git commit that ran it.
-7. Improve. A weekly review agent proposes the smallest change the evidence supports: a prompt edit, a rule tweak, or a new playbook. Each one runs as its own paper experiment that forecasts the same markets as its parent. After 30 scored forecasts, measured trust promotes it or freezes it; 10 losing closed trades also freeze it. Details in [`docs/EVOLUTION.md`](docs/EVOLUTION.md).
+7. Improve. A weekly review agent proposes the smallest change the evidence supports: a prompt edit, a rule tweak, or a new playbook. Each one runs as its own paper experiment that forecasts the same markets as its parent. It incubates until 30 forecasts settle, its opinions trade only on proven trust, and 10 losing closed trades freeze it. Details in [`docs/EVOLUTION.md`](docs/EVOLUTION.md).
 
 Research runs on a schedule (four headless Claude Code sessions a day, started by launchd). A code-only monitor marks open positions every five minutes, enforces stops, targets, and settlement, scores forecasts, and runs the control fund without calling a model.
 
@@ -116,13 +118,13 @@ v1 cycles did not record their commit, so this view is inferred from deploy time
 | Choice | Why |
 | --- | --- |
 | Learn from forecasts, not trades | Ten closed trades are mostly luck. Hundreds of forecasts scored against the market price at that moment measure skill in days and decide which playbooks get capital. Only the first forecast per contract counts, so restating a belief can't inflate the sample. |
-| Trust shrinks every belief | An LLM's confidence is not an edge. Sizing only keeps the share of its disagreement with the market that has proven right; zero trust means zero trades. |
+| Facts, not opinions | An LLM's confidence is not an edge, and v2 lost 57% learning that. Opinions trade only on trust proven by settled forecasts. A fact, an outcome a cited source has already decided, trades at its own measured hit rate. |
 | Velocity over size | A 1¢ edge that settles tomorrow compounds faster than a 10¢ edge that settles next year. Rank and sizing both run on return per unit of time. |
 | A code-only control fund | The bar the LLM must clear. It also fits the favorite-longshot curve from every scanned market's settlement. |
 | The agent proposes; code decides | The LLM never touches cash, sizing, or accounting. It cannot invent a fill, pick its own size, or add capital. A model that is wrong 80% of the time is survivable if it can't spend. |
 | Fail closed | Unknown fees, stale quotes, missing evidence, or missing marks stop the run instead of guessing. |
 | Every cycle is pinned to a commit | `make fund-lineage` shows NAV, fills, and fees per code revision, so strategy changes are measured, not remembered. |
-| History is never rewritten | Each era is its own fund in the same ledger. v2 started at $1,000 and inherits nothing from v1. |
+| History is never rewritten | Each era is its own fund in the same ledger. v2 and v3 each started at $1,000 and inherit nothing from the eras before them. |
 | Published numbers come from a script | The README tables and charts are generated from committed data, so they can be checked and rebuilt. |
 
 ## What I learned
@@ -140,8 +142,8 @@ v1 cycles did not record their commit, so this view is inferred from deploy time
 - NAV is only known at recorded cycles. The drawdown low ($863) includes marking a fresh position at the midpoint right after buying it at the ask; before that entry the drawdown was 25.0%.
 - No cycles ran between September 4 and September 17.
 - Polymarket outcomes were fetched after the fact from the public API and taken as final.
-- v2 has no completed cycles yet. Nothing on this page measures v2.
-- A v2 edge is unproven: the favorite-bias curve starts from a prior, and trust starts at 0.60 until forecasts are scored.
+- The results table predates v2. v2's numbers above come from the runtime ledger and have not been rebuilt into `results.json`.
+- A v3 edge is unproven. The 18-for-18 fact record comes from v2 forecasts, v3 does not borrow it, and 18 calls is a small sample. Across about 7,000 settled markets, favorites beat their price by only 0.1–1.6¢ before spread and fees, so the control fund's favorite bias has not paid either.
 
 ## Run the fund
 
@@ -150,7 +152,7 @@ Requires Python 3.11–3.14, [uv](https://docs.astral.sh/uv/), and Node.js 22+ f
 ```bash
 make install           # dependencies
 make validate          # tests + lint
-make fund-init         # create the $1,000 paper fund
+make fund-init         # create the $1,000 paper facts fund
 make fund-scan         # rank markets worth researching
 make fund-baseline     # one pass of the code-only control fund
 make fund-report-file  # P&L, forecast trust, lineage
@@ -167,13 +169,13 @@ The read-only dashboard shows both eras from the same ledger:
 | --- | --- |
 | [`src/edgecraft/`](src/edgecraft) | Scanner, forecast log, sizing, baseline fund, paper fund, scoring, lineage, results |
 | [`results/`](results) | Measured results, charts, and the data that rebuilds them |
-| [`playbooks/`](playbooks) | The three v2 research playbooks and their prompts |
+| [`playbooks/`](playbooks) | The three research playbooks and their prompts |
 | [`dashboard/`](dashboard) | Read-only Next.js + SQLite dashboard |
 | [`docs/`](docs) | [Design](docs/DESIGN.md), [accounting contract](docs/FUND_ACCOUNTING.md), [operations](docs/OPERATIONS.md), [how the fund learns](docs/EVOLUTION.md), [scheduled runs](docs/SCHEDULED_TASKS.md) |
 | [`history/`](history) | Archived eras, results, and deployment lineage |
 | [`CHANGELOG.md`](CHANGELOG.md) | Why each trading change was made and what it should move |
 
-v2 runs three research playbooks, each aimed at something language models may be good at: resolution reading (compare exact settlement rules with authoritative facts), consistency (find equivalent contracts whose prices disagree, then check what they really mean), and long-tail news (connect primary-source releases to less-watched markets). The full v1 record is in [history/v1-multi-asset](history/v1-multi-asset/README.md), and its code is tagged `v1-multi-asset`.
+The fund runs three research playbooks, each aimed at something language models may be good at: resolution reading (compare exact settlement rules with authoritative facts), consistency (find equivalent contracts whose prices disagree, then check what they really mean), and long-tail news (connect primary-source releases to less-watched markets). The full v1 record is in [history/v1-multi-asset](history/v1-multi-asset/README.md), and its code is tagged `v1-multi-asset`.
 
 ## License
 

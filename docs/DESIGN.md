@@ -1,10 +1,10 @@
 # Prediction-market fund design
 
-One operating path: Claude researches and forecasts, deterministic Python sizes and applies, a code-only control fund sets the bar, and a read-only dashboard explains the ledger.
+One operating path: Claude researches and forecasts, deterministic Python sizes and applies, a code-only control fund sets the bar, and a read-only dashboard explains the ledger. The research fund trades facts, outcomes a cited primary source has already decided, and trades opinions only after settled forecasts prove skill.
 
 ## Separate eras, one ledger
 
-The v1 fund `edgecraft-aggressive` retains its immutable mandate and full multi-asset record. `edgecraft-predictions` receives a separate, one-time $1,000 deposit. This is a new experiment, not a reset of the old record or a claim that the combined bankroll grew. `fund-retire` appends an idempotent retirement event to a flat fund; subsequent new cycles are rejected while exact historical replays and verification remain available.
+The v1 fund `edgecraft-aggressive` retains its immutable mandate and full multi-asset record. `edgecraft-predictions` (v2) received a separate, one-time $1,000 deposit and lost 57% trading opinions at full Kelly; its 50% drawdown limit now refuses new risk, and it is retired once its last positions settle. `edgecraft-facts` (v3) receives its own one-time $1,000 under the fact rules below. Each is a new experiment, not a reset of an old record or a claim that the combined bankroll grew. `fund-retire` appends an idempotent retirement event to a flat fund; subsequent new cycles are rejected while exact historical replays and verification remain available.
 
 Historical asset enums, accounting, and flat-bps fees remain for replay. The prediction mandate explicitly selects `prediction_taker_v1`; adding a prediction-only fund never changes an old fund's fee model. The old stock research lab is removed from the active package and preserved by the `v1-multi-asset` Git tag. Original playbooks live under `history/v1-multi-asset/playbooks`. Read-only stock price helpers remain for historical analysis and benchmark data, not the new tradable universe.
 
@@ -30,9 +30,11 @@ Reference contracts: [Polymarket books](https://docs.polymarket.com/market-data/
 
 Python turns each researched belief into a quantity in three steps:
 
-1. **Trust.** The belief is shrunk toward the market midpoint: `market + λ × (p_win − market)`, with λ measured per playbook from its forecast log ([how the fund learns](EVOLUTION.md)). Unmeasured playbooks use the 0.60 prior.
+1. **Fact or opinion.** A belief at `p_win` ≥ 0.95 claims a published fact already decides the outcome. It must cite evidence for that contract from a source other than the venue, and its probability is capped at the playbook's **fact accuracy**: settled fact calls (forecasts at ≥ 95% while the market priced that side below 95%) blended with a 0.95 prior at a weight of 20. A wrong fact call lowers every later fact bet. Any other belief is an **opinion**: it is shrunk toward the market midpoint, `market + λ × (p_win − market)`, where λ is the lower 95% bound of the playbook's fitted trust and is zero until 30 forecasts settle ([how the fund learns](EVOLUTION.md)). Unproven opinions are forecast and scored, never traded.
 2. **Velocity.** The after-cost edge must clear `min_annualized_return` (30%) over the stated horizon, and entries are funded in order of annualized return, so scarce cash goes to the fastest-compounding edges.
-3. **Kelly.** Full Kelly in the research fund (trust has already shrunk the belief, so halving again would discount it twice) on the cost including fees, inside the 25% position cap (with 5% headroom so later entries' spread cannot push an earlier position over it), the 50% shared-driver cap, sleeve budgets, displayed depth, and the mandate. After the book walk, the edge must still clear the entry fee, an expected early-exit fee (losers at the stop, winners at the target; settlement is free), and exit slippage.
+3. **Kelly.** Half Kelly on the cost including fees, inside the 20% position cap (with 5% headroom so later entries' spread cannot push an earlier position over it), the 20% shared-driver cap, playbook caps, displayed depth, and the mandate. After the book walk, the edge must still clear the entry fee, an expected early-exit fee (losers at the stop, winners at the target; settlement is free), and exit slippage.
+
+Why: in v2, 368 settled forecasts scored worse than the market where they disagreed with it by 3–20¢, which is where trades happen. Trust from a prior or early price drift (0.6–1.0) and full Kelly turned that into 15–22% bets that lost. Fact calls the market doubted went 18 for 18. Facts set invalidation at 0.01 so a price dip cannot sell a decided contract; research exits one explicitly if its source is retracted.
 
 ## The code-only control fund
 
