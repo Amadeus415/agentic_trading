@@ -145,7 +145,7 @@ def build_postmortem(report: dict[str, Any]) -> Postmortem:
             f"{name}: trust {metrics['trust']} on {metrics['scored']} scored forecasts "
             f"(skill {metrics['skill']})"
             for name, metrics in variants.items()
-            if (metrics.get("estimated_trust") or 0) > 0.1
+            if metrics.get("trust", 0) > 0
         ]
         + [
             f"{name}: expectancy {metrics['expectancy_after_cost']}"

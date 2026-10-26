@@ -2,8 +2,11 @@
 
 Three steps turn a researched belief into a quantity:
 
-1. Trust: shrink the belief toward the market price by the playbook's measured
-   trust (`edgecraft.forecasts`). A belief the market already prices is no edge.
+1. Facts and opinions: a belief at p_win >= 0.95 claims a public fact already
+   decides the outcome. It needs a primary source beyond the venue, and its
+   probability is capped by the playbook's settled fact accuracy. Any other
+   belief is an opinion, shrunk toward the market by the playbook's proven trust
+   (`edgecraft.forecasts`); unproven opinions are forecast, never traded.
 2. Velocity: rank entries by after-cost return per day so scarce cash goes to
    the fastest-compounding edges first, and drop edges too slow to clear the
    annualized hurdle.
@@ -17,7 +20,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import ROUND_DOWN, Decimal
 from typing import Any
+from urllib.parse import urlparse
 
+from edgecraft.forecasts import FACT_MIN_P, FACT_PRIOR
 from edgecraft.paper_fund import (
     AssetClass,
     DecisionAction,
@@ -43,6 +48,8 @@ MINIMUM_EDGE = Decimal("0.0002")
 HOURS_PER_YEAR = Decimal("8760")
 POSITION_HEADROOM = Decimal("0.95")
 MAX_OPEN_PRICE = Decimal("0.999")
+# A venue's own page restates the market; it cannot prove the fact that settles it.
+VENUE_HOSTS = ("polymarket.com", "kalshi.com")
 
 
 @dataclass(frozen=True)
@@ -130,6 +137,18 @@ def shrink_to_market(p_win: Decimal, market: Decimal, trust: Decimal) -> Decimal
     return market + trust * (p_win - market)
 
 
+def _primary_source(order: FundOrder, evidence_by_id: Mapping[str, Any]) -> bool:
+    """A fact needs evidence on this contract from a source other than the venue."""
+    for evidence_id in order.evidence_ids:
+        item = evidence_by_id.get(evidence_id)
+        if item is None or order.instrument_id not in item.instrument_ids:
+            continue
+        host = (urlparse(item.source_url).hostname or "").lower()
+        if host and not any(host == venue or host.endswith("." + venue) for venue in VENUE_HOSTS):
+            return True
+    return False
+
+
 def _belief(order: FundOrder, hypothesis: Any | None) -> tuple[Decimal, Decimal, Decimal]:
     p_win = order.p_win
     target = order.target_price
@@ -199,10 +218,12 @@ def size_decision(
     state: FundState,
     mandate: FundMandate,
     trust: Mapping[str, Decimal] | None = None,
+    facts: Mapping[str, Decimal] | None = None,
     sleeve_weights: dict[str, Decimal] | None = None,
     policy: TradingPolicy | None = None,
 ) -> SizingResult:
-    """Replace missing entry quantities with trust-shrunk, velocity-ranked Kelly sizes.
+    """Replace missing entry quantities with fact- or trust-adjusted, velocity-ranked
+    Kelly sizes.
 
     `trust=None` uses beliefs as stated (the code-only baseline already
     calibrates its own probabilities). Explicit exit quantities are preserved.
@@ -298,10 +319,27 @@ def size_decision(
             continue
         p_win, target, stop = _belief(order, hypothesis)
         playbook_id = order.playbook_id or (hypothesis.playbook_id if hypothesis else None)
-        trust_value = None if trust is None else trust.get(playbook_id or "", trust.get("*", ZERO))
-        believed = (
-            p_win if trust_value is None else shrink_to_market(p_win, quote.price, trust_value)
-        )
+        kind, trust_value, believed = None, None, p_win
+        if trust is not None and p_win >= FACT_MIN_P:
+            kind = "fact"
+            if not _primary_source(order, evidence_by_id):
+                dropped.append(
+                    {"instrument_id": order.instrument_id, "reason": "fact_without_primary_source"}
+                )
+                continue
+            accuracy = (facts or {}).get(
+                playbook_id or "", (facts or {}).get("*", Decimal(str(FACT_PRIOR)))
+            )
+            believed = min(p_win, accuracy)
+        elif trust is not None:
+            kind = "opinion"
+            trust_value = trust.get(playbook_id or "", trust.get("*", ZERO))
+            if trust_value <= ZERO:
+                dropped.append(
+                    {"instrument_id": order.instrument_id, "reason": "opinion_without_proven_skill"}
+                )
+                continue
+            believed = shrink_to_market(p_win, quote.price, trust_value)
         ask = min(level.price for level in quote.asks)
         cost = ask + execution_fee(mandate, quote, ask, Decimal("100")) / 100
         edge = believed - cost
@@ -328,6 +366,7 @@ def size_decision(
                 trust=trust_value,
                 target=target,
                 stop=stop,
+                kind=kind,
                 playbook_id=playbook_id,
                 cost=cost,
                 edge=edge,
@@ -443,6 +482,7 @@ def size_decision(
                 "instrument_id": order.instrument_id,
                 "quantity": str(quantity),
                 "p_win": str(item["p_win"]),
+                "kind": item["kind"],
                 "trust": str(item["trust"]) if item["trust"] is not None else None,
                 "believed_p_win": str(item["believed"]),
                 "expected_return": str(item["edge"]),

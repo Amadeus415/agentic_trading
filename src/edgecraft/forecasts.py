@@ -2,14 +2,18 @@
 
 Closed trades are too few and too noisy to learn from. Forecasts on many
 markets, each stamped with the code-owned market price at the moment it was
-made, measure whether a playbook knows more than the market. Two signals:
+made, measure whether a playbook knows more than the market. Two numbers per
+playbook come from settled forecasts only:
 
-- resolution: Brier score versus the market's own price once the contract settles;
-- drift (fast): whether later marks moved toward the forecast, available in hours.
+- trust (lambda) for opinions: sizing bets on market + trust * (forecast - market),
+  using the lower 95% bound of lambda. Until settled forecasts prove skill, trust
+  is zero and opinions are forecast, never traded.
+- fact accuracy for facts: how often a call that the outcome is already decided
+  (p >= 0.95 while the market doubted it) settled that way, starting from a 0.95 prior.
 
-Both feed one number per playbook, `trust` (lambda): sizing bets on
-market + trust * (forecast - market). Zero trust means no edge and no trades.
-The same log fits the favorite-longshot curve the code-only baseline trades.
+Later price drift is reported but never sizes a bet: early drift estimates
+trusted forecasts that settled worse than the market. The same log fits the
+favorite-longshot curve the code-only baseline trades.
 """
 
 from __future__ import annotations
@@ -37,6 +41,13 @@ CACHE_FRESHNESS = timedelta(minutes=15)
 DRIFT_MIN_AGE = timedelta(hours=12)
 # Resolved observations a fitted bias curve needs before it outweighs the prior.
 GAMMA_PRIOR_WEIGHT = 100
+# A belief at or above this p_win claims the outcome is already decided by a public fact.
+FACT_MIN_P = Decimal("0.95")
+# Fact accuracy starts at the claim itself and moves with settled fact calls.
+FACT_PRIOR = 0.95
+FACT_PRIOR_WEIGHT = 20
+# Log-likelihood drop that bounds a 95% profile-likelihood interval for lambda.
+LAMBDA_BOUND_DROP = 1.92
 LAMBDA_GRID = [round(-0.5 + step * 0.05, 2) for step in range(41)]  # -0.5 .. 1.5
 GAMMA_GRID = [round(0.7 + step * 0.05, 2) for step in range(37)]  # 0.7 .. 2.5
 
@@ -334,23 +345,23 @@ def _loglik(pairs: Sequence[tuple[float, int]]) -> float:
     return sum(math.log(p if y else 1 - p) for p, y in pairs)
 
 
-def _fit_trust(rows: Sequence[tuple[float, float, int]]) -> float | None:
-    """Maximum-likelihood lambda for p = market + lambda * (forecast - market)."""
+def _fit_trust(rows: Sequence[tuple[float, float, int]]) -> tuple[float, float] | None:
+    """Maximum-likelihood lambda for p = market + lambda * (forecast - market),
+    with the lower end of its 95% profile-likelihood interval."""
     if not rows:
         return None
-    best = max(
-        LAMBDA_GRID,
-        key=lambda lam: _loglik([(_clip(m + lam * (f - m)), y) for f, m, y in rows]),
-    )
-    return best
+    fits = {
+        lam: _loglik([(_clip(m + lam * (f - m)), y) for f, m, y in rows]) for lam in LAMBDA_GRID
+    }
+    best = max(fits, key=fits.__getitem__)
+    lower = min(lam for lam, value in fits.items() if value >= fits[best] - LAMBDA_BOUND_DROP)
+    return best, lower
 
 
-def _drift_trust(rows: Sequence[tuple[float, float, float]]) -> float | None:
-    """Slope of later market movement on forecast disagreement, through the origin."""
-    denom = sum((f - m) ** 2 for f, m, _ in rows)
-    if denom == 0:
-        return None
-    return sum((later - m) * (f - m) for f, m, later in rows) / denom
+def _is_fact_call(p_yes: float, market_yes: float) -> bool:
+    """The forecast says the outcome is decided while the market still doubts it."""
+    p, market = (p_yes, market_yes) if p_yes >= 0.5 else (1 - p_yes, 1 - market_yes)
+    return p >= float(FACT_MIN_P) and market < float(FACT_MIN_P)
 
 
 def fit_gamma(rows: Sequence[tuple[float, int]]) -> float | None:
@@ -373,23 +384,17 @@ def _metrics(rows: list[dict[str, Any]], policy: TradingPolicy) -> dict[str, Any
         for r in drifted
         if float(r["p_yes"]) != float(r["market_yes"])
     ]
-    fitted = (
+    fit = (
         _fit_trust([(float(r["p_yes"]), float(r["market_yes"]), r["outcome"]) for r in resolved])
         if len(resolved) >= 10
         else None
     )
-    drift = _drift_trust(
-        [(float(r["p_yes"]), float(r["market_yes"]), r["later_market"]) for r in drifted]
-    )
-    evidence, basis = 0, "prior"
-    estimate = float(policy.prior_trust)
-    if fitted is not None:
-        evidence, basis, estimate = len(resolved), "resolution", fitted
-    elif drift is not None and len(drifted) >= 10:
-        # Drift is partial information (the market has not resolved), so it counts half.
-        evidence, basis, estimate = len(drifted) // 2, "drift", drift
-    weight = policy.trust_prior_weight
-    trust = (evidence * estimate + weight * float(policy.prior_trust)) / (evidence + weight)
+    # Opinions earn capital only once settled forecasts prove skill; the lower
+    # bound keeps a lucky streak from sizing like a measured edge.
+    proven = fit is not None and len(resolved) >= policy.promotion_forecasts
+    trust = min(1.0, max(0.0, fit[1])) if proven else 0.0
+    facts = [r for r in resolved if _is_fact_call(float(r["p_yes"]), float(r["market_yes"]))]
+    fact_wins = sum(r["outcome"] == (1 if float(r["p_yes"]) >= 0.5 else 0) for r in facts)
     return {
         "forecasts": len(rows),
         "resolved": len(resolved),
@@ -399,13 +404,17 @@ def _metrics(rows: list[dict[str, Any]], policy: TradingPolicy) -> dict[str, Any
         "skill": round((sum(market) - sum(model)) / len(model), 6) if model else None,
         "drift_observed": len(drifted),
         "mean_drift_toward_forecast": round(sum(signed) / len(signed), 6) if signed else None,
-        "fitted_trust": fitted,
-        "drift_trust": round(drift, 4) if drift is not None else None,
-        "trust_basis": basis,
-        "scored": evidence,
-        "estimated_trust": round(estimate, 4) if evidence else None,
-        "trust": round(min(1.0, max(0.0, trust)), 4),
-        "raw_trust": round(trust, 4),
+        "fitted_trust": fit[0] if fit else None,
+        "trust_lower": fit[1] if fit else None,
+        "trust_basis": "resolution" if proven else "unproven",
+        "scored": len(resolved),
+        "estimated_trust": fit[0] if fit else None,
+        "trust": round(trust, 4),
+        "fact_calls": len(facts),
+        "fact_wins": fact_wins,
+        "fact_accuracy": round(
+            (fact_wins + FACT_PRIOR * FACT_PRIOR_WEIGHT) / (len(facts) + FACT_PRIOR_WEIGHT), 4
+        ),
     }
 
 
@@ -481,6 +490,7 @@ def forecast_skill(
         },
         "head_to_head": head_to_head,
         "trust": {name: item["trust"] for name, item in variants.items()},
+        "fact_accuracy": {name: item["fact_accuracy"] for name, item in variants.items()},
         "favorite_bias": {
             "observed": sum(row["variant"] == MARKET_VARIANT for row in rows),
             "resolved": len(bias_rows),
@@ -489,16 +499,25 @@ def forecast_skill(
             "prior_gamma": float(policy.baseline_gamma),
         },
         "last_batch_at": _iso(log["last_batch_at"]) if log["last_batch_at"] else None,
-        "interpretation": "Trust shrinks each forecast toward the market price before sizing. "
-        "It starts at the prior and moves with resolved Brier evidence (or, earlier, with "
-        "later market drift). Skill > 0 means forecasts beat the market's price at the time. "
+        "interpretation": "Trust shrinks each opinion toward the market price before sizing. "
+        "It is zero until settled forecasts prove skill, then the lower 95% bound of the "
+        "fitted lambda. Fact accuracy caps the probability of a call that the outcome is "
+        "already decided. Skill > 0 means forecasts beat the market's price at the time. "
         "Gamma > 1 means favorites settle more often than their price implies.",
     }
 
 
-def trust_map(skill: Mapping[str, Any], policy: TradingPolicy) -> dict[str, Decimal]:
-    """Sizing trust per playbook, with the policy prior for unmeasured playbooks."""
+def trust_map(skill: Mapping[str, Any]) -> dict[str, Decimal]:
+    """Opinion sizing trust per playbook; unmeasured playbooks get none."""
     return {
-        "*": policy.prior_trust,
+        "*": Decimal("0"),
         **{name: Decimal(str(value)) for name, value in skill["trust"].items()},
+    }
+
+
+def fact_map(skill: Mapping[str, Any]) -> dict[str, Decimal]:
+    """Highest p_win a fact call may carry per playbook, from its settled fact record."""
+    return {
+        "*": Decimal(str(FACT_PRIOR)),
+        **{name: Decimal(str(value)) for name, value in skill["fact_accuracy"].items()},
     }

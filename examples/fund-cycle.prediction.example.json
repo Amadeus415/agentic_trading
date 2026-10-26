@@ -10,46 +10,82 @@
     "as_of": "2026-10-18T15:00:00Z",
     "action": "hold",
     "thesis": "Research beliefs only; deterministic sizing decides what trades.",
-    "alternatives": "Cash if trust-shrunk beliefs do not clear fees and the annualized hurdle.",
+    "alternatives": "Cash if no sourced fact clears fees and the annualized hurdle; unproven opinions are forecast only.",
     "risks": "Rule surprises, delayed publication, and thin books.",
     "journal": {
       "market_regime": "Example packet for tests and documentation.",
-      "opportunity_set": "Two contracts from the scan: one resolution read, one news update.",
+      "opportunity_set": "Three contracts from the scan: two decided by published sources, one opinion.",
       "portfolio_intent": "Express each belief; Python owns size.",
       "what_changed": "A primary source was published before the market repriced.",
-      "lessons_applied": ["Quote the exact settlement rule."],
+      "lessons_applied": [
+        "Quote the exact settlement rule."
+      ],
       "hypotheses": [
         {
           "instrument_id": "polymarket:900001:YES",
           "stance": "long",
           "statement": "The published ruling satisfies the settlement rule as written.",
           "mechanism": "The resolution source has already reported the qualifying event.",
-          "catalysts": ["Official settlement"],
-          "falsifiers": ["The source retracts or the rule excludes this filing"],
+          "catalysts": [
+            "Official settlement"
+          ],
+          "falsifiers": [
+            "The source retracts or the rule excludes this filing"
+          ],
           "expected_horizon_hours": 72,
-          "confidence": "0.62",
-          "p_win": "0.62",
+          "confidence": "0.97",
+          "p_win": "0.97",
           "playbook_id": "resolution_reading",
           "driver": "example-ruling",
-          "target_price": "0.95",
-          "invalidation_price": "0.20",
-          "evidence_ids": ["example-ruling"]
+          "target_price": "0.99",
+          "invalidation_price": "0.01",
+          "evidence_ids": [
+            "example-ruling"
+          ]
         },
         {
           "instrument_id": "kalshi:KXEXAMPLE-26OCT20:NO",
           "stance": "long",
           "statement": "The release schedule makes the YES outcome nearly impossible.",
           "mechanism": "The agency confirmed the publication date after the market's deadline.",
-          "catalysts": ["Agency calendar"],
-          "falsifiers": ["An early release is announced"],
+          "catalysts": [
+            "Agency calendar"
+          ],
+          "falsifiers": [
+            "An early release is announced"
+          ],
           "expected_horizon_hours": 48,
           "confidence": "0.97",
           "p_win": "0.97",
           "playbook_id": "long_tail_news",
           "driver": "example-calendar",
           "target_price": "0.99",
-          "invalidation_price": "0.70",
-          "evidence_ids": ["example-calendar"]
+          "invalidation_price": "0.01",
+          "evidence_ids": [
+            "example-calendar"
+          ]
+        },
+        {
+          "instrument_id": "polymarket:900002:YES",
+          "stance": "long",
+          "statement": "Early polling suggests the incumbent is undervalued.",
+          "mechanism": "Two recent polls moved toward the incumbent; the market has not followed.",
+          "catalysts": [
+            "Election night count"
+          ],
+          "falsifiers": [
+            "A later poll reverses the move"
+          ],
+          "expected_horizon_hours": 72,
+          "confidence": "0.62",
+          "p_win": "0.62",
+          "playbook_id": "long_tail_news",
+          "driver": "example-election",
+          "target_price": "0.80",
+          "invalidation_price": "0.20",
+          "evidence_ids": [
+            "example-polls"
+          ]
         }
       ]
     },
@@ -61,7 +97,9 @@
         "source_name": "Example court docket",
         "source_url": "https://example.test/docket",
         "claim": "The qualifying ruling was entered on the docket.",
-        "instrument_ids": ["polymarket:900001:YES"]
+        "instrument_ids": [
+          "polymarket:900001:YES"
+        ]
       },
       {
         "evidence_id": "example-calendar",
@@ -70,7 +108,20 @@
         "source_name": "Example agency calendar",
         "source_url": "https://example.test/calendar",
         "claim": "The release is scheduled after the contract deadline.",
-        "instrument_ids": ["kalshi:KXEXAMPLE-26OCT20:NO"]
+        "instrument_ids": [
+          "kalshi:KXEXAMPLE-26OCT20:NO"
+        ]
+      },
+      {
+        "evidence_id": "example-polls",
+        "observed_at": "2026-10-18T14:58:00Z",
+        "source_timestamp": "2026-10-18T14:40:00Z",
+        "source_name": "Example poll tracker",
+        "source_url": "https://example.test/polls",
+        "claim": "Two polls this week moved four points toward the incumbent.",
+        "instrument_ids": [
+          "polymarket:900002:YES"
+        ]
       }
     ],
     "orders": []
@@ -80,13 +131,23 @@
       "quote_id": "example-poly",
       "instrument_id": "polymarket:900001:YES",
       "asset_class": "prediction",
-      "price": "0.395",
+      "price": "0.885",
       "observed_at": "2026-10-18T14:59:00Z",
       "source_timestamp": "2026-10-18T14:59:00Z",
       "source_name": "Polymarket CLOB public API",
       "source_url": "https://clob.polymarket.com/book?token_id=example",
-      "bids": [{"price": "0.39", "size": "5000"}],
-      "asks": [{"price": "0.40", "size": "5000"}],
+      "bids": [
+        {
+          "price": "0.88",
+          "size": "5000"
+        }
+      ],
+      "asks": [
+        {
+          "price": "0.89",
+          "size": "5000"
+        }
+      ],
       "fee_rate": "0.04",
       "fee_exponent": 1,
       "fee_quantum": "0.00001"
@@ -100,11 +161,46 @@
       "source_timestamp": "2026-10-18T14:59:00Z",
       "source_name": "Kalshi public API",
       "source_url": "https://external-api.kalshi.com/trade-api/v2/markets/KXEXAMPLE-26OCT20/orderbook",
-      "bids": [{"price": "0.90", "size": "3000"}],
-      "asks": [{"price": "0.91", "size": "3000"}],
+      "bids": [
+        {
+          "price": "0.90",
+          "size": "3000"
+        }
+      ],
+      "asks": [
+        {
+          "price": "0.91",
+          "size": "3000"
+        }
+      ],
       "fee_rate": "0.07",
       "fee_exponent": 1,
       "fee_quantum": "0.01"
+    },
+    {
+      "quote_id": "example-poly-2",
+      "instrument_id": "polymarket:900002:YES",
+      "asset_class": "prediction",
+      "price": "0.395",
+      "observed_at": "2026-10-18T14:59:00Z",
+      "source_timestamp": "2026-10-18T14:59:00Z",
+      "source_name": "Polymarket CLOB public API",
+      "source_url": "https://clob.polymarket.com/book?token_id=example-2",
+      "bids": [
+        {
+          "price": "0.39",
+          "size": "5000"
+        }
+      ],
+      "asks": [
+        {
+          "price": "0.40",
+          "size": "5000"
+        }
+      ],
+      "fee_rate": "0.04",
+      "fee_exponent": 1,
+      "fee_quantum": "0.00001"
     }
   ]
 }

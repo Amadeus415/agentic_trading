@@ -681,20 +681,22 @@ def _fund_run(args: argparse.Namespace) -> dict[str, Any]:
     sizing_audit: dict[str, Any] | None = (replay_audit or {}).get("sizing")
     sleeve_allocation: dict[str, Decimal] = (replay_audit or {}).get("sleeve_allocation", {})
     if args.size_beliefs and replay_audit is None:
-        from edgecraft.forecasts import trust_map
+        from edgecraft.forecasts import fact_map, trust_map
         from edgecraft.sizing import size_decision
 
         with PaperFundLedger(args.ledger) as sizing_ledger:
             state = sizing_ledger.get_state(fund_id)
             _, skill, allocations = _allocations(sizing_ledger, fund_id, mandate, policy)
         sleeve_allocation = {item.playbook_id: item.weight for item in allocations}
-        trust = trust_map(skill, policy)
+        trust = trust_map(skill)
+        facts = fact_map(skill)
         sizing = size_decision(
             decision=decision,
             quotes=quotes,
             state=state,
             mandate=mandate,
             trust=trust,
+            facts=facts,
             sleeve_weights=sleeve_allocation,
             policy=policy,
         )
@@ -702,6 +704,7 @@ def _fund_run(args: argparse.Namespace) -> dict[str, Any]:
         sizing_audit = {
             "policy": policy.model_dump(mode="json"),
             "trust": {name: str(value) for name, value in trust.items()},
+            "fact_accuracy": {name: str(value) for name, value in facts.items()},
             "accepted": sizing.accepted,
             "dropped": sizing.dropped,
         }

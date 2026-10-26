@@ -128,19 +128,21 @@ def test_sized_run_turns_research_beliefs_into_trades_and_forecasts(tmp_path, ca
         capsys,
     )
     assert result["result"]["action"] == "trade"
-    accepted = result["audit"]["sizing"]["accepted"]
-    assert {row["instrument_id"] for row in accepted} == {
+    sizing = result["audit"]["sizing"]
+    # Sourced facts trade at the fact prior; the unproven opinion is only forecast.
+    assert {row["instrument_id"] for row in sizing["accepted"]} == {
         "polymarket:900001:YES",
         "kalshi:KXEXAMPLE-26OCT20:NO",
     }
-    # Unmeasured playbooks are sized at the prior trust, not the stated p_win.
-    assert all(row["trust"] == "0.30" for row in accepted)
-    # Highest annualized after-cost return is funded first.
-    assert accepted[0]["instrument_id"] == "polymarket:900001:YES"
-    assert Decimal(accepted[0]["annualized_return"]) > Decimal(accepted[1]["annualized_return"])
+    assert all(row["kind"] == "fact" for row in sizing["accepted"])
+    assert all(row["believed_p_win"] == "0.95" for row in sizing["accepted"])
+    assert {
+        "instrument_id": "polymarket:900002:YES",
+        "reason": "opinion_without_proven_skill",
+    } in sizing["dropped"]
     report = _run(["fund-report", *common], capsys)
-    assert report["forecast_skill"]["summary"]["forecasts"] == 2
-    assert report["forecast_skill"]["variants"]["resolution_reading"]["trust"] == 0.3
+    assert report["forecast_skill"]["summary"]["forecasts"] == 3
+    assert report["forecast_skill"]["variants"]["resolution_reading"]["trust"] == 0
 
 
 def test_fund_cli_report_postmortem_and_alerts(tmp_path, capsys) -> None:
@@ -228,7 +230,8 @@ def test_evolved_prompt_reaches_next_research_context_without_changing_parent(
     assert candidate["prompt"] == review["proposals"][0]["patch"]["prompt"]
     assert all(book in after["playbooks"] for book in before["playbooks"])
     sleeve = next(row for row in after["sleeves"] if row["playbook_id"] == candidate_id)
-    assert Decimal(sleeve["weight"]) == Decimal("0.25")  # four sleeves share one budget
+    # A new experiment is capped at the incubation weight, not handed a slice of the others.
+    assert Decimal(sleeve["weight"]) == Decimal("0.50")
     assert after["review"]["completed_reviews"] == 1
     assert "schema" in after["forecast_contract"]
     assert result["verification"]["ok"]
@@ -288,7 +291,7 @@ def _contract_quote(instrument_id: str, price: str, *, settled: bool = False) ->
     )
 
 
-def test_forecast_skill_promotes_one_experiment_and_freezes_another(
+def test_forecast_skill_earns_one_playbook_trust_and_leaves_noise_unproven(
     tmp_path, capsys, monkeypatch
 ) -> None:
     common = ["--config", str(PREDICTIONS), "--ledger", str(tmp_path / "fund.db")]
@@ -339,12 +342,14 @@ def test_forecast_skill_promotes_one_experiment_and_freezes_another(
     review_path.write_text(json.dumps(review))
     evolved = _run(["fund-evolve", *common, "--postmortem", str(review_path)], capsys)
     statuses = {row["playbook_id"]: row["to_status"] for row in evolved["transitions"]}
-    assert statuses == {"resolution_reading": "active", "consistency": "frozen"}
+    # Both are measured; only the informed playbook's opinions earn trust.
+    assert statuses == {"resolution_reading": "active", "consistency": "active"}
     context = _run(["fund-context", *common], capsys)
     skill = context["forecast_skill"]["variants"]
     assert skill["resolution_reading"]["skill"] > 0
     assert skill["resolution_reading"]["trust"] > 0.6
     assert skill["consistency"]["estimated_trust"] <= 0.05
+    assert skill["consistency"]["trust"] == 0
     assert context["forecast_skill"]["head_to_head"][0]["left"] == "consistency"
     assert context["forecast_skill"]["head_to_head"][0]["left_advantage"] < 0
     # Research is steered to the playbook with no settled forecasts and away from the

@@ -170,30 +170,69 @@ def test_belief_without_contract_evidence_is_dropped_before_the_ledger() -> None
     assert result.dropped[0]["reason"] == "no_instrument_evidence"
 
 
-def test_unmeasured_playbook_bets_a_modest_share_of_nav() -> None:
-    policy = TradingPolicy()
-    result = _size([_belief("A")], [_quote("A")], trust={"*": policy.prior_trust}, policy=policy)
-    # 0.39 + 0.30 x (0.60 - 0.39) = 0.453 believed; full Kelly (0.453 - 0.40) / 0.60 = 9% of NAV.
-    # Enough to trade without skill evidence; measured trust, not the prior, earns larger bets.
-    notional = Decimal(result.accepted[0]["notional"])
-    assert Decimal("70") < notional < Decimal("110")
+def test_unproven_opinions_are_forecast_not_traded() -> None:
+    result = _size([_belief("A")], [_quote("A")], trust={"*": Decimal("0")})
+    assert result.decision.orders == ()
+    assert result.dropped[0]["reason"] == "opinion_without_proven_skill"
 
 
-def test_trust_shrinks_belief_toward_market_and_zero_trust_never_trades() -> None:
+def test_proven_trust_shrinks_an_opinion_toward_the_market() -> None:
     assert shrink_to_market(Decimal("0.6"), Decimal("0.4"), Decimal("0.5")) == Decimal("0.50")
-    none = _size([_belief("A")], [_quote("A")], trust={"*": Decimal("0")})
-    assert none.decision.orders == ()
-    assert none.dropped[0]["reason"] == "below_edge_threshold"
     half = _size([_belief("A")], [_quote("A")], trust={"resolution_reading": Decimal("0.5")})
     assert half.accepted[0]["believed_p_win"] == "0.495"
-    assert half.accepted[0]["trust"] == "0.5"
+    assert (half.accepted[0]["trust"], half.accepted[0]["kind"]) == ("0.5", "opinion")
 
 
-def test_unmeasured_playbook_falls_back_to_prior_trust() -> None:
+def test_unmeasured_playbook_uses_the_wildcard_trust() -> None:
     result = _size(
         [_belief("A")], [_quote("A")], trust={"*": Decimal("0.5"), "other": Decimal("0")}
     )
     assert result.accepted[0]["trust"] == "0.5"
+
+
+def test_a_fact_trades_without_opinion_trust_but_capped_by_fact_accuracy() -> None:
+    quote = _quote("A", bid="0.86", ask="0.88")
+    result = _size(
+        [_belief("A", "0.99")],
+        [quote],
+        trust={"*": Decimal("0")},
+        facts={"resolution_reading": Decimal("0.95")},
+    )
+    assert result.accepted[0]["kind"] == "fact"
+    assert result.accepted[0]["believed_p_win"] == "0.95"
+    # Half Kelly on (0.95 - 0.88) / 0.12 is 29%, so the 20% position cap binds.
+    assert Decimal(result.accepted[0]["kelly_weight"]) == Decimal("0.20")
+
+
+def test_a_fact_record_that_lost_stops_paying_for_thin_facts() -> None:
+    quote = _quote("A", bid="0.86", ask="0.88")
+    result = _size(
+        [_belief("A", "0.99")], [quote], trust={"*": Decimal("0")}, facts={"*": Decimal("0.87")}
+    )
+    assert result.decision.orders == ()
+    assert result.dropped[0]["reason"] == "below_edge_threshold"
+
+
+def test_a_fact_needs_a_primary_source_beyond_the_venue() -> None:
+    decision = _decision((_belief("A", "0.99"),))
+    venue_only = decision.model_copy(
+        update={
+            "evidence": (
+                decision.evidence[0].model_copy(
+                    update={"source_url": "https://kalshi.com/markets/kxa"}
+                ),
+            )
+        }
+    )
+    result = size_decision(
+        decision=venue_only,
+        quotes=(_quote("A", bid="0.86", ask="0.88"),),
+        state=_state(),
+        mandate=MANDATE,
+        trust={"*": Decimal("0")},
+    )
+    assert result.decision.orders == ()
+    assert result.dropped[0]["reason"] == "fact_without_primary_source"
 
 
 def test_velocity_drops_slow_edges_and_funds_fast_edges_first() -> None:
@@ -282,7 +321,8 @@ def test_fees_can_erase_a_positive_midprice_edge() -> None:
 def test_entries_fit_cash_instead_of_rejecting_the_whole_cycle() -> None:
     names = ("A", "B", "C", "D", "E")
     quotes = [_quote(name) for name in names]
-    result = _size([_belief(name, "0.95") for name in names], quotes)
+    policy = TradingPolicy(kelly_fraction="1", max_prediction_weight="0.25")
+    result = _size([_belief(name, "0.95") for name in names], quotes, policy=policy)
     outcome = run_cycle_accounting(
         mandate=MANDATE, prior_state=_state(), decision=result.decision, quotes=quotes
     )

@@ -11,6 +11,7 @@ import pytest
 
 from edgecraft.forecasts import (
     ForecastFile,
+    fact_map,
     favorite_bias_probability,
     fit_gamma,
     forecast_skill,
@@ -163,32 +164,59 @@ def test_informative_forecasts_earn_trust_and_refreshes_do_not_add_samples(tmp_p
     assert metrics["skill"] > 0
     assert metrics["estimated_trust"] >= 1
     assert metrics["trust"] > 0.8
-    assert trust_map(skill, TradingPolicy())["resolution_reading"] == Decimal(str(metrics["trust"]))
+    assert trust_map(skill)["resolution_reading"] == Decimal(str(metrics["trust"]))
+    assert trust_map(skill)["*"] == 0
 
 
-def test_drift_toward_the_forecast_is_fast_evidence_before_resolution(tmp_path):
+def test_drift_is_reported_but_never_earns_trust(tmp_path):
     router = Router()
-    rows = [("0.70", "0.50", None)] * 12
+    rows = [("0.70", "0.50", None)] * 40
     with _ledger(tmp_path) as ledger:
         _forecast_and_resolve(ledger, router, rows)
         early = NOW + timedelta(hours=1)
-        for index in range(12):
+        for index in range(40):
             key = f"kalshi:M{index}:YES"
             router.marks[key] = _quote(key, "0.40", at=early)
         score_forecasts(ledger, "fund", router, limit=500, now=early)
-        # Marks within the first 12 hours are noise and must not move trust.
-        assert forecast_skill(ledger, "fund")["variants"]["resolution_reading"]["trust_basis"] == (
-            "prior"
+        # Marks within the first 12 hours are noise and are not reported as drift.
+        assert (
+            forecast_skill(ledger, "fund")["variants"]["resolution_reading"]["drift_observed"] == 0
         )
         later = NOW + timedelta(hours=13)
-        for index in range(12):
+        for index in range(40):
             key = f"kalshi:M{index}:YES"
             router.marks[key] = _quote(key, "0.60", at=later)
         score_forecasts(ledger, "fund", router, limit=500, now=later)
         metrics = forecast_skill(ledger, "fund")["variants"]["resolution_reading"]
-    assert metrics["trust_basis"] == "drift"
-    assert metrics["drift_trust"] == 0.5
     assert metrics["mean_drift_toward_forecast"] == 0.1
+    # The market moving our way is not a settled outcome; it cannot size a bet.
+    assert (metrics["trust_basis"], metrics["trust"]) == ("unproven", 0.0)
+
+
+def test_lucky_small_samples_stay_unproven(tmp_path):
+    router = Router()
+    rows = [("0.80", "0.50", 1), ("0.20", "0.50", 0)] * 10
+    with _ledger(tmp_path) as ledger:
+        _forecast_and_resolve(ledger, router, rows)
+        metrics = forecast_skill(ledger, "fund")["variants"]["resolution_reading"]
+    assert metrics["skill"] > 0
+    assert metrics["resolved"] < TradingPolicy().promotion_forecasts
+    assert metrics["trust"] == 0
+
+
+def test_fact_accuracy_starts_at_the_prior_and_learns_from_settled_fact_calls(tmp_path):
+    router = Router()
+    # Two fact calls the market doubted: one settled as called, one did not.
+    # The agreeing call and the opinion are not fact calls.
+    rows = [("0.97", "0.85", 1), ("0.02", "0.10", 1), ("0.98", "0.97", 1), ("0.70", "0.50", 1)]
+    with _ledger(tmp_path) as ledger:
+        _forecast_and_resolve(ledger, router, rows)
+        skill = forecast_skill(ledger, "fund")
+    metrics = skill["variants"]["resolution_reading"]
+    assert (metrics["fact_calls"], metrics["fact_wins"]) == (2, 1)
+    assert metrics["fact_accuracy"] == round((1 + 0.95 * 20) / 22, 4)
+    assert fact_map(skill)["resolution_reading"] == Decimal(str(metrics["fact_accuracy"]))
+    assert fact_map(skill)["*"] == Decimal("0.95")
 
 
 def test_uninformed_forecasts_fall_to_zero_estimated_trust(tmp_path):
@@ -199,6 +227,7 @@ def test_uninformed_forecasts_fall_to_zero_estimated_trust(tmp_path):
         metrics = forecast_skill(ledger, "fund")["variants"]["resolution_reading"]
     assert metrics["skill"] < 0
     assert metrics["estimated_trust"] <= 0.05
+    assert metrics["trust"] == 0
 
 
 def test_journal_beliefs_become_yes_forecasts():
