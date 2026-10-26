@@ -24,7 +24,7 @@ from edgecraft.playbooks import LoadedPlaybook, PlaybookSpec, PlaybookStatus
 
 
 def _mandate() -> FundMandate:
-    raw = json.loads(Path("examples/fund.mandate.predictions.json").read_text())
+    raw = json.loads(Path("examples/fund.mandate.facts.json").read_text())
     return FundMandate.model_validate(raw["mandate"])
 
 

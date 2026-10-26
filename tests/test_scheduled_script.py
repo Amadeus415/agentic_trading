@@ -42,20 +42,20 @@ def test_scheduled_script_is_fixed_to_paper_fund(tmp_path):
     assert result.returncode == 0
     calls = trace.read_text().splitlines()
     assert calls == [
-        "fund-init --config examples/fund.mandate.predictions.json "
+        "fund-init --config examples/fund.mandate.facts.json "
         "--ledger state/edgecraft-aggressive.db",
-        "fund-verify --config examples/fund.mandate.predictions.json "
+        "fund-verify --config examples/fund.mandate.facts.json "
         "--ledger state/edgecraft-aggressive.db",
-        "fund-run --config examples/fund.mandate.predictions.json "
+        "fund-run --config examples/fund.mandate.facts.json "
         f"--input {input_path} --ledger state/edgecraft-aggressive.db --require-as-of-today "
         "--max-decision-age-seconds 1800 --require-cycle-key "
         f"{scheduled_cycle_key(datetime.now(UTC))} --require-brain-journal "
         "--code-owned-quotes --size-beliefs",
-        "fund-verify --config examples/fund.mandate.predictions.json "
+        "fund-verify --config examples/fund.mandate.facts.json "
         "--ledger state/edgecraft-aggressive.db",
-        "fund-visualize --config examples/fund.mandate.predictions.json "
+        "fund-visualize --config examples/fund.mandate.facts.json "
         "--ledger state/edgecraft-aggressive.db --output state/prediction-progress.svg",
-        "fund-report --config examples/fund.mandate.predictions.json "
+        "fund-report --config examples/fund.mandate.facts.json "
         "--ledger state/edgecraft-aggressive.db --output state/fund-report.json",
     ]
 
@@ -149,6 +149,7 @@ def test_preparation_uses_installed_environment_without_network(tmp_path):
     assert trace.read_text().splitlines() == [
         "fund-init",
         "fund-verify",
+        "fund-verify",
         "fund-init",
         "fund-verify",
         "fund-report",
@@ -188,7 +189,7 @@ def test_session_forecasts_are_recorded_before_the_packet_applies(tmp_path):
     assert f"--input {forecasts}" in trace.read_text()
 
 
-def test_monitor_loop_runs_both_funds_and_the_code_only_baseline(tmp_path):
+def test_monitor_loop_runs_research_wind_down_and_baseline_funds(tmp_path):
     scripts = tmp_path / "scripts"
     scripts.mkdir()
     script = scripts / "run_local_monitor.sh"
@@ -202,9 +203,13 @@ def test_monitor_loop_runs_both_funds_and_the_code_only_baseline(tmp_path):
     assert result.returncode == 0
     calls = trace.read_text().splitlines()
     commands = [line.split()[0] for line in calls]
-    assert commands.count("monitor") == 2
-    assert commands.count("fund-forecast-score") == 2
+    assert commands.count("monitor") == 3
+    assert commands.count("fund-forecast-score") == 3
     assert commands.index("fund-baseline") > max(
         index for index, name in enumerate(commands) if name == "monitor"
     )
     assert any("fund-report-edgecraft-baseline.json" in line for line in calls)
+    assert any("fund-report-edgecraft-predictions.json" in line for line in calls)
+    assert any(
+        "fund.mandate.facts.json" in line and "state/fund-report.json" in line for line in calls
+    )

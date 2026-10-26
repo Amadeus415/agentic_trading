@@ -16,7 +16,7 @@ if [[ "${EDGECRAFT_LEDGER_LOCKED:-0}" != "1" ]] && command -v lockf >/dev/null 2
   exec lockf -t 300 -k state/.paper-ledger.lock "$0" "$@"
 fi
 
-CONFIG="${FUND_CONFIG:-examples/fund.mandate.predictions.json}"
+CONFIG="${FUND_CONFIG:-examples/fund.mandate.facts.json}"
 LEDGER="${FUND_LEDGER:-state/edgecraft-aggressive.db}"
 HOUR=$((10#$(date -u +%H)))
 DATE_UTC="$(date -u +%F)"

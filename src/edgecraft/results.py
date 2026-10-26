@@ -37,7 +37,7 @@ from edgecraft.lineage import REPO_ROOT
 EXTRACT_SCHEMA = "edgecraft.results-extract.v1"
 PUBLIC_SCHEMA = "edgecraft.results-public.v1"
 RESULTS_SCHEMA = "edgecraft.results.v1"
-ERAS = {"edgecraft-aggressive": "v1", "edgecraft-predictions": "v2"}
+ERAS = {"edgecraft-aggressive": "v1", "edgecraft-predictions": "v2", "edgecraft-facts": "v3"}
 RESULTS_DIR = REPO_ROOT / "results"
 DATA_DIR = RESULTS_DIR / "data"
 POLYMARKET_ID = re.compile(r"^polymarket:(\d+):(YES|NO)$")

@@ -55,8 +55,12 @@ if [[ ! -x "$RUN" ]]; then
 fi
 
 "$RUN" fund-init \
-  --config examples/fund.mandate.predictions.json \
+  --config examples/fund.mandate.facts.json \
   --ledger state/edgecraft-aggressive.db
+"$RUN" fund-verify \
+  --config examples/fund.mandate.facts.json \
+  --ledger state/edgecraft-aggressive.db
+# The retired-in-waiting prediction fund keeps verifying until its last positions settle.
 "$RUN" fund-verify \
   --config examples/fund.mandate.predictions.json \
   --ledger state/edgecraft-aggressive.db
@@ -67,6 +71,6 @@ fi
   --config examples/fund.mandate.baseline.json \
   --ledger state/edgecraft-aggressive.db
 "$RUN" fund-report \
-  --config examples/fund.mandate.predictions.json \
+  --config examples/fund.mandate.facts.json \
   --ledger state/edgecraft-aggressive.db \
   --output state/fund-report.json

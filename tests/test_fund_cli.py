@@ -15,8 +15,8 @@ from edgecraft.schedule import scheduled_cycle_key
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "examples" / "fund.mandate.json"
 EXAMPLE = ROOT / "examples" / "fund-cycle.starting.example.json"
-PREDICTIONS = ROOT / "examples" / "fund.mandate.predictions.json"
-PREDICTION_EXAMPLE = ROOT / "examples" / "fund-cycle.prediction.example.json"
+FACTS = ROOT / "examples" / "fund.mandate.facts.json"
+FACTS_EXAMPLE = ROOT / "examples" / "fund-cycle.facts.example.json"
 
 
 def _run(argv: list[str], capsys: pytest.CaptureFixture[str]) -> dict:
@@ -114,14 +114,14 @@ def test_fund_cli_rejects_noncurrent_scheduled_input(tmp_path, capsys) -> None:
 
 
 def test_sized_run_turns_research_beliefs_into_trades_and_forecasts(tmp_path, capsys) -> None:
-    common = ["--config", str(PREDICTIONS), "--ledger", str(tmp_path / "fund.db")]
+    common = ["--config", str(FACTS), "--ledger", str(tmp_path / "fund.db")]
     _run(["fund-init", *common], capsys)
     result = _run(
         [
             "fund-run",
             *common,
             "--input",
-            str(PREDICTION_EXAMPLE),
+            str(FACTS_EXAMPLE),
             "--require-brain-journal",
             "--size-beliefs",
         ],
@@ -176,7 +176,7 @@ def test_fund_cycle_key_prints_current_session(capsys) -> None:
 def test_fund_snapshot_isolates_optional_candidate_provider_failure(
     tmp_path, capsys, monkeypatch
 ) -> None:
-    common = ["--config", str(PREDICTIONS), "--ledger", str(tmp_path / "fund.db")]
+    common = ["--config", str(FACTS), "--ledger", str(tmp_path / "fund.db")]
     _run(["fund-init", *common], capsys)
 
     def quote(_router, instrument_id, asset_class):
@@ -208,7 +208,7 @@ def test_fund_snapshot_isolates_optional_candidate_provider_failure(
 def test_evolved_prompt_reaches_next_research_context_without_changing_parent(
     tmp_path, capsys
 ) -> None:
-    common = ["--config", str(PREDICTIONS), "--ledger", str(tmp_path / "fund.db")]
+    common = ["--config", str(FACTS), "--ledger", str(tmp_path / "fund.db")]
     _run(["fund-init", *common], capsys)
     before = _run(["fund-context", *common], capsys)
     review = _run(["fund-postmortem", *common], capsys)
@@ -231,7 +231,7 @@ def test_evolved_prompt_reaches_next_research_context_without_changing_parent(
     assert all(book in after["playbooks"] for book in before["playbooks"])
     sleeve = next(row for row in after["sleeves"] if row["playbook_id"] == candidate_id)
     # A new experiment is capped at the incubation weight, not handed a slice of the others.
-    assert Decimal(sleeve["weight"]) == Decimal("0.50")
+    assert Decimal(sleeve["weight"]) == Decimal("1.00")
     assert after["review"]["completed_reviews"] == 1
     assert "schema" in after["forecast_contract"]
     assert result["verification"]["ok"]
@@ -239,10 +239,10 @@ def test_evolved_prompt_reaches_next_research_context_without_changing_parent(
 
 def test_fitted_packet_replays_original_size_after_policy_changes(tmp_path, capsys) -> None:
     config = tmp_path / "config.json"
-    config.write_text(PREDICTIONS.read_text())
+    config.write_text(FACTS.read_text())
     common = ["--config", str(config), "--ledger", str(tmp_path / "fund.db")]
     _run(["fund-init", *common], capsys)
-    packet = json.loads(PREDICTION_EXAMPLE.read_text())
+    packet = json.loads(FACTS_EXAMPLE.read_text())
     path = tmp_path / "packet.json"
     path.write_text(json.dumps(packet))
     first = _run(["fund-run", *common, "--input", str(path), "--size-beliefs"], capsys)
@@ -294,7 +294,7 @@ def _contract_quote(instrument_id: str, price: str, *, settled: bool = False) ->
 def test_forecast_skill_earns_one_playbook_trust_and_leaves_noise_unproven(
     tmp_path, capsys, monkeypatch
 ) -> None:
-    common = ["--config", str(PREDICTIONS), "--ledger", str(tmp_path / "fund.db")]
+    common = ["--config", str(FACTS), "--ledger", str(tmp_path / "fund.db")]
     _run(["fund-init", *common], capsys)
     marks: dict[str, FundQuote] = {}
 
@@ -326,7 +326,7 @@ def test_forecast_skill_earns_one_playbook_trust_and_leaves_noise_unproven(
             }
         )
     path = tmp_path / "forecasts.json"
-    path.write_text(json.dumps({"fund_id": "edgecraft-predictions", "forecasts": forecasts}))
+    path.write_text(json.dumps({"fund_id": "edgecraft-facts", "forecasts": forecasts}))
     recorded = _run(["fund-forecast", *common, "--input", str(path)], capsys)
     assert recorded["recorded"] == 80
     for index in range(40):
@@ -363,9 +363,9 @@ def test_forecast_skill_earns_one_playbook_trust_and_leaves_noise_unproven(
 def test_monitor_bridges_a_blip_with_a_fresh_cached_mark_but_not_an_outage(
     tmp_path, capsys, monkeypatch
 ) -> None:
-    common = ["--config", str(PREDICTIONS), "--ledger", str(tmp_path / "fund.db")]
+    common = ["--config", str(FACTS), "--ledger", str(tmp_path / "fund.db")]
     _run(["fund-init", *common], capsys)
-    fund_run = ["fund-run", *common, "--input", str(PREDICTION_EXAMPLE)]
+    fund_run = ["fund-run", *common, "--input", str(FACTS_EXAMPLE)]
     _run([*fund_run, "--require-brain-journal", "--size-beliefs"], capsys)
     monkeypatch.chdir(tmp_path)  # The monitor's quote cache lives under ./state/marks.
     clock = iter(datetime.now(UTC) + timedelta(seconds=step - 60) for step in range(60))

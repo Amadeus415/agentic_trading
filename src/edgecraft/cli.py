@@ -47,9 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _fund_parent() -> argparse.ArgumentParser:
     parent = argparse.ArgumentParser(add_help=False)
-    parent.add_argument(
-        "--config", default=Path("examples/fund.mandate.predictions.json"), type=Path
-    )
+    parent.add_argument("--config", default=Path("examples/fund.mandate.facts.json"), type=Path)
     parent.add_argument("--ledger", default=DEFAULT_FUND_LEDGER)
     return parent
 
@@ -75,9 +73,7 @@ def _add_fund_commands(commands: Any) -> None:
         "fund-cycle-key",
         help="Print the current UTC session cycle key for a scheduled packet.",
     )
-    cycle_key.add_argument(
-        "--config", type=Path, default=Path("examples/fund.mandate.predictions.json")
-    )
+    cycle_key.add_argument("--config", type=Path, default=Path("examples/fund.mandate.facts.json"))
     cycle_key.add_argument(
         "--plain",
         action="store_true",

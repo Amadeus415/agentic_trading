@@ -34,7 +34,7 @@ from edgecraft.policy import TradingPolicy
 
 NOW = datetime(2026, 10, 18, 15, tzinfo=UTC)
 MANDATE = FundMandate.model_validate(
-    json.loads(Path("examples/fund.mandate.predictions.json").read_text())["mandate"]
+    json.loads(Path("examples/fund.mandate.facts.json").read_text())["mandate"]
 )
 
 

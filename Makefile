@@ -1,6 +1,6 @@
 .PHONY: install test lint security results results-data fund-init fund-context fund-cycle-key fund-show fund-report fund-lineage fund-scan fund-report-file fund-verify fund-visualize fund-monitor fund-alerts fund-forecast fund-forecast-score fund-baseline baseline-report scheduled-cycle validate dashboard
 
-FUND_CONFIG ?= examples/fund.mandate.predictions.json
+FUND_CONFIG ?= examples/fund.mandate.facts.json
 FUND_LEDGER ?= state/edgecraft-aggressive.db
 BASELINE_CONFIG ?= examples/fund.mandate.baseline.json
 EDGECRAFT ?= $(if $(wildcard .venv/bin/edgecraft),.venv/bin/edgecraft,uv run --no-sync edgecraft)

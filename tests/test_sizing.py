@@ -31,7 +31,7 @@ from edgecraft.sizing import shrink_to_market, size_decision
 
 NOW = datetime(2026, 10, 18, 15, tzinfo=UTC)
 MANDATE = FundMandate.model_validate(
-    json.loads(Path("examples/fund.mandate.predictions.json").read_text())["mandate"]
+    json.loads(Path("examples/fund.mandate.facts.json").read_text())["mandate"]
 )
 
 

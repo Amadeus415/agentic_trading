@@ -23,7 +23,7 @@ NOW = datetime(2026, 10, 15, tzinfo=UTC)
 
 def mandate():
     return FundMandate.model_validate(
-        json.loads(Path("examples/fund.mandate.predictions.json").read_text())["mandate"]
+        json.loads(Path("examples/fund.mandate.facts.json").read_text())["mandate"]
     )
 
 

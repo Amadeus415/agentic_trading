@@ -15,21 +15,26 @@ fi
 
 RUN=("$ROOT/.venv/bin/edgecraft")
 LEDGER="state/edgecraft-aggressive.db"
-RESEARCH="examples/fund.mandate.predictions.json"
+RESEARCH="examples/fund.mandate.facts.json"
+# Winding down: no new entries (its drawdown gate refuses them), but its open
+# positions still need exits and settlement, and its forecasts still settle.
+PREDICTIONS="examples/fund.mandate.predictions.json"
 BASELINE="examples/fund.mandate.baseline.json"
 
-for CONFIG in "$RESEARCH" "$BASELINE"; do
+for CONFIG in "$RESEARCH" "$PREDICTIONS" "$BASELINE"; do
   "${RUN[@]}" fund-init --config "$CONFIG" --ledger "$LEDGER" >/dev/null
   "${RUN[@]}" fund-verify --config "$CONFIG" --ledger "$LEDGER"
   "${RUN[@]}" monitor --config "$CONFIG" --ledger "$LEDGER"
   "${RUN[@]}" fund-forecast-score --config "$CONFIG" --ledger "$LEDGER"
 done
 "${RUN[@]}" fund-baseline --config "$BASELINE" --ledger "$LEDGER"
-for CONFIG in "$RESEARCH" "$BASELINE"; do
+for CONFIG in "$RESEARCH" "$PREDICTIONS" "$BASELINE"; do
   "${RUN[@]}" fund-verify --config "$CONFIG" --ledger "$LEDGER"
 done
 "${RUN[@]}" fund-report --config "$RESEARCH" --ledger "$LEDGER" \
   --output state/fund-report.json
+"${RUN[@]}" fund-report --config "$PREDICTIONS" --ledger "$LEDGER" \
+  --output state/fund-report-edgecraft-predictions.json
 "${RUN[@]}" fund-report --config "$BASELINE" --ledger "$LEDGER" \
   --output state/fund-report-edgecraft-baseline.json
 "${RUN[@]}" fund-alerts --config "$RESEARCH" --ledger "$LEDGER"
