@@ -191,7 +191,12 @@ export function getFund(fundId: string): Fund | null {
 
 export function getDefaultFund(): Fund | null {
   const funds = listFunds();
-  return funds.find((fund) => fund.fund_id === "edgecraft-predictions") ?? funds[0] ?? null;
+  // The live research fund first, then the archived ones.
+  for (const id of ["edgecraft-facts", "edgecraft-predictions"]) {
+    const fund = funds.find((item) => item.fund_id === id);
+    if (fund) return fund;
+  }
+  return funds[0] ?? null;
 }
 
 export type FundSearchParams = Promise<{ [key: string]: string | string[] | undefined }>;

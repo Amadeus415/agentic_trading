@@ -103,6 +103,7 @@ export default async function AttributionPage({ searchParams }: { searchParams: 
                   <th className="num">Resolved</th>
                   <th className="num">Skill</th>
                   <th className="num">Trust</th>
+                  <th className="num">Facts</th>
                   <th className="num">Closed</th>
                   <th className="num">Average</th>
                 </tr>
@@ -119,6 +120,7 @@ export default async function AttributionPage({ searchParams }: { searchParams: 
                       <td className="num">{variant?.resolved ?? "—"}</td>
                       <td className="num">{variant ? score(variant.skill) : "—"}</td>
                       <td className="num">{variant ? variant.trust.toFixed(2) : "—"}</td>
+                      <td className="num">{variant?.fact_calls ? `${variant.fact_wins}/${variant.fact_calls}` : "—"}</td>
                       <td className="num">{results?.count ?? 0}</td>
                       <td className="num">{results ? <Money value={results.pnl / results.count} /> : "—"}</td>
                     </tr>

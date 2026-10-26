@@ -233,15 +233,16 @@ function adaptivePrompts(
   activity: FundActivityMemory,
 ): string[] {
   const prompts = [
-    "Scan every eligible playbook within the configured mandate and express every positive after-cost edge with a complete belief.",
-    "State p_win, target, invalidation, driver, and playbook. Uncertainty is not itself a reason to hold; quantify it and let deterministic sizing decide.",
+    "Hunt facts: contracts whose outcome a published primary source already decides while the price still doubts it. Only those trade before a playbook proves skill.",
+    "A fact belief states p_win >= 0.95, quotes the deciding source and the exact settlement rule, and cites evidence from that source, not the venue page.",
+    "State your honest p_win, never hedged toward the market price and never raised to 0.95 without a deciding source: a wrong fact call lowers every later fact bet.",
     "Trade only the configured asset classes. For prediction-only funds, buy YES or NO with cash and read the exact settlement rules.",
     "Re-test every open position against its current falsifiers before adding risk.",
     "Compare new opportunities with the opportunity cost of every existing position.",
   ];
   if (activity.idle_cash) {
     prompts.unshift(
-      "The book is 100% cash. Search all active playbooks aggressively and submit every belief that clears estimated costs; cash is valid only when each candidate's logged expected value is below the deterministic threshold.",
+      "The book is 100% cash. Search the catalysts harder for sourced facts; cash is valid when no researched contract is already decided by a published source.",
     );
     if (activity.consecutive_all_cash_holds) {
       prompts.splice(

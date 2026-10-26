@@ -47,8 +47,11 @@ export type VariantSkill = {
   skill: number | null;
   drift_observed: number;
   mean_drift_toward_forecast: number | null;
-  trust_basis: "prior" | "resolution" | "drift";
+  trust_basis: "resolution" | "unproven";
   trust: number;
+  fact_calls?: number;
+  fact_wins?: number;
+  fact_accuracy?: number;
 };
 
 export type ForecastSkill = {

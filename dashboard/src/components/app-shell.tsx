@@ -7,7 +7,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 const FUND_LABELS: Record<string, string> = {
-  "edgecraft-predictions": "Prediction markets",
+  "edgecraft-facts": "Facts",
+  "edgecraft-predictions": "v2 predictions",
   "edgecraft-baseline": "Baseline",
   "edgecraft-aggressive": "v1 archive",
 };
@@ -30,7 +31,7 @@ export function AppShell({ children, funds }: { children: React.ReactNode; funds
   const pathname = usePathname() ?? "/";
   const router = useRouter();
   const selected =
-    params.get("fund") ?? (funds.includes("edgecraft-predictions") ? "edgecraft-predictions" : funds[0]);
+    params.get("fund") ?? ["edgecraft-facts", "edgecraft-predictions"].find((fund) => funds.includes(fund)) ?? funds[0];
   const query = params.get("fund") ? `?fund=${encodeURIComponent(params.get("fund")!)}` : "";
 
   function switchFund(fund: string) {
