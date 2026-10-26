@@ -504,9 +504,11 @@ def _fund_context(args: argparse.Namespace) -> dict[str, Any]:
             "rules": [
                 "Research the scan's catalysts and highest-ranked candidates first: capital "
                 "compounds fastest in contracts that resolve soon.",
-                "Sizing shrinks every p_win toward the market by the playbook's measured "
-                "trust and drops edges below the annualized hurdle; state honest beliefs.",
-                "Scan every active playbook eagerly and submit every positive after-cost edge.",
+                "A p_win of 0.95 or more is a fact: it needs a non-venue primary source tagged "
+                "to the contract and is capped by the playbook's settled fact accuracy.",
+                "Any lower p_win is an opinion: it trades only after the playbook's settled "
+                "forecasts prove skill, shrunk toward the market by that proven trust.",
+                "Scan every active playbook eagerly and submit every sourced fact.",
                 "Cash is a position, but a hold must log why each researched candidate fell "
                 "below the after-cost edge threshold.",
                 "State p_win, target, invalidation, driver, and playbook; deterministic code "
