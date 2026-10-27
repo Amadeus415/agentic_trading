@@ -2,22 +2,37 @@
 
 **Can an AI agent make money trading prediction markets, and get better at it by rewriting its own code?**
 
-Nightshift is a benchmark that answers that question with live markets and paper money. Each agent gets $1,000 on Polymarket and Kalshi, four work sessions a day, and four weeks. Between sessions it can rewrite anything in its own workspace: its tools, its notes, and the instructions it reads at the start of the next session. Identical agents that start fresh every session are the control.
-
 [![CI](https://github.com/Amadeus415/agentic_trading/actions/workflows/ci.yml/badge.svg)](https://github.com/Amadeus415/agentic_trading/actions/workflows/ci.yml)
 ![Paper money only](https://img.shields.io/badge/money-simulated-lightgrey)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 
-## Status
+## The problem
 
-**v1 is live: October 27 to November 24, 2026.**
+AI agents are starting to work unattended for days at a time. Two questions decide whether that's a good idea, and today's benchmarks rarely test either one:
+
+1. **Can an agent decide well when nobody knows the answer yet, and mistakes cost money?** Most benchmarks grade questions whose answers already exist: a test passes or a fact is right. Those answers can leak into training data, and a wrong one costs nothing.
+2. **Does an agent get better when it can rewrite its own tools and instructions?** Self-improving agents are a common claim, but the claim is rarely tested against a control: the same agent, at the same moments, that can't keep its changes.
+
+Prediction markets test both. Thousands of questions resolve every week, so there is nothing to memorize. The market price is a strong public forecast to beat. And spreads and fees make an agent that is merely as good as the market lose money.
+
+## The experiment
+
+<p align="center">
+  <img src="docs/img/experiment.svg" width="900" alt="Live Polymarket and Kalshi markets feed three groups that trade at the same moments for 28 days: evolving agents that keep their workspace, frozen agents whose workspace resets every session, and code-only baselines. Each is scored on money, judgment and the evolving-minus-frozen gap.">
+</p>
+
+Each agent gets $1,000 in paper money, four work sessions a day, and four weeks. It trades real Polymarket and Kalshi order books through one command, `ns`. Between sessions it can rewrite anything in its own workspace: its tools, its notes, and the instructions it reads at the start of the next session.
+
+The control is an identical agent whose workspace resets every session. Both run at the same moments against the same markets, so any gap between them is what keeping its own code bought.
+
+**v1 is live from October 27 to November 24, 2026:**
 
 | Run | What it is |
 | --- | --- |
 | `opus-evolving-1`, `opus-evolving-2` | Claude Opus 5.5 in Claude Code. Keeps and rewrites its workspace. |
 | `opus-frozen-1`, `opus-frozen-2` | The same model and prompt. Its workspace resets every session. |
 | `favorites` | Code only: buys 90–97¢ favorites near close. |
-| `random` | Code only: buys random outcomes. Shows what spread and fees cost. |
+| `random` | Code only: buys random outcomes. Shows what spreads and fees cost. |
 
 The results page rebuilds every 15 minutes. It isn't hosted publicly yet.
 
@@ -25,11 +40,17 @@ The results page rebuilds every 15 minutes. It isn't hosted publicly yet.
 
 | Question | How it's measured |
 | --- | --- |
-| **Does it make money?** | Account value at the end of four weeks, against cash, the code-only baselines and the S&P 500. |
-| **Does it judge better than the market?** | Every trade and every researched market records the agent's probability. When the market resolves, that probability is scored (Brier) against the market's own price at the same moment. Above zero means the agent saw something the market missed. |
-| **Does rewriting its own code help?** | Evolving agents vs frozen agents: same model, same prompt, same markets, same moments. Any gap between them is what self-modification bought. |
+| **Does it make money?** | Account value after four weeks, against cash, the code-only baselines and the S&P 500. |
+| **Does it judge better than the market?** | Every trade and forecast records the agent's probability. When the market resolves, that probability is scored against the market's price at the same moment. |
+| **Does rewriting its own code help?** | Evolving minus frozen, on both numbers above. |
 
-Money is the headline, but four weeks of trades is a small sample and mostly luck. Forecasts cover many more markets, so judgment shows up there first. Every number comes with a 95% interval.
+Here is one market scored both ways:
+
+<p align="center">
+  <img src="docs/img/scoring.svg" width="900" alt="The market sells YES at 40 cents and the agent forecasts 70 percent and buys. If YES, the agent's squared error is 0.09 against the market's 0.36, and it makes 58 cents a share. If NO, its error is 0.49 against 0.16, and it loses 42 cents a share.">
+</p>
+
+A single market is mostly luck, so neither number means much alone. Judgment is the steadier signal: an agent forecasts many more markets than it trades, and the error is measured against the market's own price, not against zero. **Skill** is 1 − (agent's average squared error ÷ market's), so above 0 means the agent saw something the market missed. Every number on the results page comes with a 95% interval.
 
 ## The rules
 
