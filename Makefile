@@ -1,92 +1,24 @@
-.PHONY: install test lint security results results-data fund-init fund-context fund-cycle-key fund-show fund-report fund-lineage fund-scan fund-report-file fund-verify fund-visualize fund-monitor fund-alerts fund-forecast fund-forecast-score fund-baseline baseline-report scheduled-cycle validate dashboard
-
-FUND_CONFIG ?= examples/fund.mandate.facts.json
-FUND_LEDGER ?= state/edgecraft-aggressive.db
-BASELINE_CONFIG ?= examples/fund.mandate.baseline.json
-EDGECRAFT ?= $(if $(wildcard .venv/bin/edgecraft),.venv/bin/edgecraft,uv run --no-sync edgecraft)
-RESULTS_LEDGER ?= $(FUND_LEDGER)
+.PHONY: install check session tick publish site
 
 install:
 	uv sync --extra dev
 
-test:
+check:
 	uv run pytest
+	uv run ruff check src tests
+	uv run ruff format --check src tests
 
-lint:
-	uv run ruff check src tests scripts/deny_broker_tools.py
-	uv run ruff format --check src tests scripts/deny_broker_tools.py
+# One session for every live agent run, in parallel.
+session:
+	uv run nightshift session
 
-security:
-	uv export --frozen --no-dev --no-emit-project --format requirements-txt | uvx --python 3.13 --from pip-audit==2.10.1 pip-audit -r /dev/stdin --disable-pip
-	uvx --python 3.13 --from bandit==1.9.4 bandit -q -r src scripts -ll --skip B608
+# Settle, mark, resolve forecasts, trade baselines; then rebuild the site.
+tick:
+	uv run nightshift tick
+	uv run nightshift publish
 
-fund-init:
-	$(EDGECRAFT) fund-init --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
+publish:
+	uv run nightshift publish
 
-fund-context:
-	$(EDGECRAFT) fund-context --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
-
-fund-cycle-key:
-	$(EDGECRAFT) fund-cycle-key
-
-fund-show:
-	$(EDGECRAFT) fund-show --config $(FUND_CONFIG) --ledger $(FUND_LEDGER) --history
-
-fund-scan:
-	$(EDGECRAFT) fund-scan --config $(FUND_CONFIG) --ledger $(FUND_LEDGER) --output state/market-scan.json
-
-# Record a session's research forecasts the moment they are written: FORECASTS=<path>.
-fund-forecast:
-	$(EDGECRAFT) fund-forecast --config $(FUND_CONFIG) --ledger $(FUND_LEDGER) --input $(FORECASTS)
-
-fund-forecast-score:
-	$(EDGECRAFT) fund-forecast-score --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
-
-# The code-only control fund: favorite bias and exclusive NO baskets, no model.
-fund-baseline:
-	$(EDGECRAFT) fund-baseline --config $(BASELINE_CONFIG) --ledger $(FUND_LEDGER)
-
-baseline-report:
-	$(EDGECRAFT) fund-report --config $(BASELINE_CONFIG) --ledger $(FUND_LEDGER) --output state/fund-report-edgecraft-baseline.json
-
-fund-lineage:
-	$(EDGECRAFT) fund-lineage --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
-
-fund-report:
-	$(EDGECRAFT) fund-report --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
-
-fund-report-file:
-	$(EDGECRAFT) fund-report --config $(FUND_CONFIG) --ledger $(FUND_LEDGER) --output state/fund-report.json
-
-fund-monitor:
-	$(EDGECRAFT) monitor --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
-
-fund-alerts:
-	$(EDGECRAFT) fund-alerts --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
-
-fund-verify:
-	$(EDGECRAFT) fund-verify --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
-
-fund-visualize:
-	$(EDGECRAFT) fund-visualize --config $(FUND_CONFIG) --ledger $(FUND_LEDGER)
-
-# Rebuild results/results.json and results/charts/*.png from the committed data (offline).
-results:
-	uv run --extra dev python -m edgecraft.results report
-
-# Refresh results/data: snapshot a ledger read-only, then fetch public outcomes and SPY closes.
-results-data:
-	uv run python -m edgecraft.results extract --ledger $(RESULTS_LEDGER)
-	uv run python -m edgecraft.results fetch
-
-# Read-only Next.js dashboard over the paper ledger (Node/npm required).
-dashboard:
-	cd dashboard && npm run dev
-
-# The Claude research task writes this UTC session's researched input; this applies fake-money accounting only.
-scheduled-cycle:
-	./scripts/run_scheduled_cycle.sh
-
-validate: test lint
-	uv run edgecraft fund-validate --config $(FUND_CONFIG)
-	uv run edgecraft fund-validate --config $(BASELINE_CONFIG)
+site: publish
+	open -a Helium var/site/index.html
