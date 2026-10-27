@@ -45,8 +45,28 @@ def bootstrap(clusters: dict[str, list[tuple[float, float]]], stat, seed: int = 
         value = stat(pairs)
         if value is not None:
             draws.append(value)
+    return _interval(draws)
+
+
+def _interval(draws: list[float]) -> list[float] | None:
+    if len(draws) < 100:
+        return None
     draws.sort()
     return [draws[int(0.025 * len(draws))], draws[int(0.975 * len(draws)) - 1]]
+
+
+def bootstrap_difference(a: dict[str, list], b: dict[str, list], stat, seed: int = 0):
+    """95% interval of stat(a) - stat(b), resampling each side's clusters independently."""
+    if len(a) < 2 or len(b) < 2:
+        return None
+    rng = random.Random(seed)
+    draws = []
+    for _ in range(BOOTSTRAP):
+        sa = stat([p for k in rng.choices(list(a), k=len(a)) for p in a[k]])
+        sb = stat([p for k in rng.choices(list(b), k=len(b)) for p in b[k]])
+        if sa is not None and sb is not None:
+            draws.append(sa - sb)
+    return _interval(draws)
 
 
 def _edge(pairs: list[tuple[float, float]]) -> float | None:
@@ -60,8 +80,14 @@ def _skill(pairs: list[tuple[float, float]]) -> float | None:
     return 1 - mean(a for a, _ in pairs) / market if market else None
 
 
-def closed_positions(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Each holding from first buy until its shares return to zero, with its P&L."""
+def closed_positions(
+    events: list[dict[str, Any]], final_marks: dict[tuple[str, str], Decimal] | None = None
+) -> list[dict[str, Any]]:
+    """Each holding from first buy until its shares return to zero, with its P&L.
+
+    Given the final marks of a finished run, holdings still open close at them,
+    so selling winners and keeping losers past the window cannot flatter edge.
+    """
     open_: dict[tuple[str, str], dict[str, Any]] = {}
     closed = []
     for e in events:
@@ -94,6 +120,9 @@ def closed_positions(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if pos["shares"] == 0:
             closed.append({**pos, "closed_at": e["at"], "pnl": pos["cash"]})
             del open_[key]
+    for key, pos in open_.items() if final_marks is not None else ():
+        value = pos["shares"] * final_marks.get(key, Decimal(0))
+        closed.append({**pos, "how": "open at end", "closed_at": None, "pnl": pos["cash"] + value})
     return closed
 
 
@@ -137,7 +166,9 @@ def score_run(run: Run) -> dict[str, Any]:
         peak = max(peak, v)
         drawdown = max(drawdown, 1 - v / peak)
 
-    closed = closed_positions(events)
+    acct = fold(events)
+    finished = not run.active() and acct.marked_at is not None and acct.marked_at >= run.ends_at
+    closed = closed_positions(events, acct.marks if finished else None)
     by_event: dict[str, list[tuple[float, float]]] = defaultdict(list)
     for pos in closed:
         by_event[pos["event"]].append((float(pos["staked"]), float(pos["pnl"])))
@@ -154,7 +185,6 @@ def score_run(run: Run) -> dict[str, Any]:
 
     sessions = run.sessions()
     fills = [e for e in events if e["kind"] == "fill"]
-    acct = fold(events)
     holding = [
         {
             "market": p.market,
@@ -204,7 +234,7 @@ def score_run(run: Run) -> dict[str, Any]:
         "cost_usd": round(sum(s.get("cost_usd") or 0 for s in sessions), 2),
         "output_tokens": sum(s.get("output_tokens") or 0 for s in sessions),
         "lines_changed": sum(s.get("insertions", 0) + s.get("deletions", 0) for s in sessions),
-        "self_commits": sum(len(s.get("commit_messages", [])) for s in sessions),
+        "sessions_changed": sum(1 for s in sessions if s.get("insertions") or s.get("deletions")),
         "series": series,
         "trades": [_public_fill(e) for e in fills],
         "holding": holding,
@@ -232,12 +262,13 @@ def score_run(run: Run) -> dict[str, Any]:
                     "files_changed",
                     "insertions",
                     "deletions",
-                    "commit_messages",
+                    "files",
                     "summary",
                 )
             }
             for s in sessions
         ],
+        "_scored": scored,  # per-event Brier pairs for the arm comparison; not published
     }
 
 
@@ -256,7 +287,11 @@ def _public_fill(e: dict[str, Any]) -> dict[str, Any]:
 
 
 def compare_arms(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Evolving vs frozen, per model: the benchmark's self-improvement test."""
+    """Evolving vs frozen, per model: the benchmark's self-improvement test.
+
+    Returns are compared by replicate; forecast skill pools each arm's resolved
+    forecasts by event and reports a bootstrap interval for the difference (H2).
+    """
     groups: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
     for r in runs:
         if r["kind"] == "agent":
@@ -272,21 +307,34 @@ def compare_arms(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "skill": [m["skill"] for m in members],
                 "mean_return": round(mean(m["return"] for m in members), 4) if members else None,
             }
-        if row["evolving"]["mean_return"] is not None and row["frozen"]["mean_return"] is not None:
-            row["difference"] = round(
-                row["evolving"]["mean_return"] - row["frozen"]["mean_return"], 4
+            pooled: dict[str, list] = defaultdict(list)
+            for m in members:
+                for event, pairs in m.get("_scored", {}).items():
+                    pooled[event] += pairs
+            row[arm]["pooled_skill"] = _round(
+                _skill([p for ps in pooled.values() for p in ps]) if pooled else None
             )
+            row[arm]["resolved"] = sum(len(ps) for ps in pooled.values())
+            row[arm]["_pooled"] = pooled
+        e, f = row["evolving"], row["frozen"]
+        if e["mean_return"] is not None and f["mean_return"] is not None:
+            row["difference"] = round(e["mean_return"] - f["mean_return"], 4)
+        if e["pooled_skill"] is not None and f["pooled_skill"] is not None:
+            row["skill_difference"] = round(e["pooled_skill"] - f["pooled_skill"], 4)
+            row["skill_difference_ci"] = bootstrap_difference(e["_pooled"], f["_pooled"], _skill)
+        e.pop("_pooled"), f.pop("_pooled")
         rows.append(row)
     return rows
 
 
-def spy_return(start: str) -> dict[str, Any] | None:
-    """S&P 500 (SPY, dividends included) from the earliest run start to now."""
+def spy_return(start: str, end: str) -> dict[str, Any] | None:
+    """S&P 500 (SPY, dividends included) over the runs' window."""
     t0 = int(_at(start).timestamp()) - 5 * 86400
+    t1 = min(datetime.now(UTC), _at(end))
     query = urllib.parse.urlencode(
         {
             "period1": t0,
-            "period2": int(datetime.now(UTC).timestamp()),
+            "period2": int(t1.timestamp()),
             "interval": "1d",
             "events": "div",
         }
@@ -313,30 +361,37 @@ def build() -> dict[str, Any]:
     runs = [score_run(r) for r in load_runs()]
     runs.sort(key=lambda r: r["value"], reverse=True)
     start = min((r["started_at"] for r in runs), default=None)
+    end = max((r["ends_at"] for r in runs), default=None)
     activity = []
     for r in runs:
+        if r["kind"] != "agent":
+            continue
         for t in r["trades"]:
             activity.append({"run": r["id"], "type": "trade", **t})
         for s in r["session_log"]:
-            for message in s.get("commit_messages") or []:
+            if s.get("insertions") or s.get("deletions"):
                 activity.append(
                     {
                         "run": r["id"],
                         "type": "code",
                         "at": s["ended_at"],
-                        "message": message,
                         "session": s["session"],
+                        "files": s.get("files") or [],
+                        "lines": (s.get("insertions") or 0) + (s.get("deletions") or 0),
                     }
                 )
     activity.sort(key=lambda a: a["at"], reverse=True)
+    arms = compare_arms(runs)
+    for r in runs:
+        r.pop("_scored")
     return {
         "generated_at": now_iso(),
         "benchmark": BENCHMARK_VERSION,
         "code": _commit(),
         "started_at": start,
         "runs": runs,
-        "arms": compare_arms(runs),
-        "spy": spy_return(start) if start else None,
+        "arms": arms,
+        "spy": spy_return(start, end) if start else None,
         "activity": activity[:60],
         "operator_log": notes(),
     }

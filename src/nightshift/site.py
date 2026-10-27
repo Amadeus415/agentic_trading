@@ -251,7 +251,7 @@ def _row(rank: str, r: dict[str, Any], colors: dict[str, int]) -> str:
     if r["provisional"]:
         status += ' <span class="tag">provisional</span>'
     code = (
-        f'{r["lines_changed"]:,} lines<span class="n">{plural(r["self_commits"], "commit")}</span>'
+        f'{r["lines_changed"]:,} lines<span class="n">in {plural(r["sessions_changed"], "session")}</span>'
         if agent
         else "—"
     )
@@ -274,25 +274,36 @@ def arms(results: dict[str, Any]) -> str:
             values = ", ".join(pct(v) for v in a["return"]) or "—"
             cells.append(
                 f'<td class="num {tone(a["mean_return"])}">{pct(a["mean_return"])}'
-                f'<span class="n">{a["replicates"]} runs: {values}</span></td>'
+                f'<span class="n">{plural(a["replicates"], "run")}: {values}</span></td>'
             )
-        diff = g.get("difference")
+        for arm in ("evolving", "frozen"):
+            a = g[arm]
+            skill = "—" if a["pooled_skill"] is None else f"{a['pooled_skill']:+.3f}"
+            cells.append(
+                f'<td class="num">{skill}<span class="n">{a["resolved"]:,} resolved</span></td>'
+            )
+        diff, skill_diff = g.get("difference"), g.get("skill_difference")
+        skill_cell = "—" if skill_diff is None else f"{skill_diff:+.3f}"
+        skill_cell += interval(g.get("skill_difference_ci"), "{:+.3f}")
         rows.append(
             f"<tr><td><span class='who'>{escape(g['model'])}</span></td>{''.join(cells)}"
-            f"<td class='num {tone(diff)}'>{pct(diff)}</td></tr>"
+            f"<td class='num {tone(diff)}'>{pct(diff)}</td><td class='num'>{skill_cell}</td></tr>"
         )
-    return f"""<div class="scroll"><table class="board">
-<thead><tr><th>Model</th><th class="num">Evolving: keeps and rewrites its workspace</th><th class="num">Frozen: fresh workspace every session</th><th class="num">Difference</th></tr></thead>
-<tbody>{"".join(rows)}</tbody></table></div>"""
+    head = (
+        "<th>Model</th><th class='num'>Return, evolving</th><th class='num'>Return, frozen</th>"
+        "<th class='num'>Skill, evolving</th><th class='num'>Skill, frozen</th>"
+        "<th class='num'>Return gap</th><th class='num'>Skill gap [95%]</th>"
+    )
+    return (
+        f'<div class="scroll"><table class="board"><thead><tr>{head}</tr></thead>'
+        f"<tbody>{''.join(rows)}</tbody></table></div>"
+    )
 
 
 def activity(results: dict[str, Any], colors: dict[str, int], limit: int = 25) -> str:
     items = []
     for a in results["activity"][:limit]:
         dot = f'<i class="dot c{colors[a["run"]]}"></i>' if a["run"] in colors else ""
-        is_agent = any(r["id"] == a["run"] and r["kind"] == "agent" for r in results["runs"])
-        if not is_agent:
-            continue
         if a["type"] == "trade":
             what = (
                 f"{'Bought' if a['side'] == 'buy' else 'Sold'} {a['shares']:,.0f} {a['outcome']} at "
@@ -300,7 +311,11 @@ def activity(results: dict[str, Any], colors: dict[str, int], limit: int = 25) -
             )
             why = f'<p class="why">{escape(a["note"] or "")}</p>' if a.get("note") else ""
         else:
-            what = f'<span class="tag">code</span> {escape(a["message"])}'
+            files = ", ".join(a["files"][:4]) + (" …" if len(a["files"]) > 4 else "")
+            what = (
+                f'<span class="tag">code</span> session {a["session"]} changed '
+                f"{plural(a['lines'], 'line')}: <span class='mono'>{escape(files)}</span>"
+            )
             why = ""
         items.append(
             f'<li><span class="when">{when(a["at"])}</span><div>{dot}<b>{escape(a["run"])}</b> {what}{why}</div></li>'
@@ -351,11 +366,11 @@ def index(results: dict[str, Any], colors: dict[str, int]) -> str:
 <div><b>1 · Research</b><p>A headless Claude Code session reads markets, rules and the web. The agent forecasts every market it studies.</p></div>
 <div><b>2 · Trade</b><p>Orders fill against the live book at the asks or bids, whole shares, real fees. Nothing fills that the book can't fill.</p></div>
 <div><b>3 · Settle</b><p>A model-free ticker pays out resolved markets and values open positions at the bid every 15 minutes.</p></div>
-<div><b>4 · Rewrite</b><p>Between sessions, an evolving agent's workspace is committed to git. Its <code>AGENTS.md</code> opens its next session.</p></div>
+<div><b>4 · Rewrite</b><p>An evolving agent keeps its workspace between sessions, and its <code>AGENTS.md</code> opens the next one. The harness snapshots every change.</p></div>
 </div>
 <ul class="rules">
-<li>Agents act only through <code>ns</code>, inside an OS sandbox that can write nothing but their own workspace. Ledgers are append-only and hash-chained.</li>
-<li>One rule beyond cash: no position may cost more than 25% of the account. No leverage, no shorting; buy the other outcome instead.</li>
+<li>Agents act only through <code>ns</code>, inside an OS sandbox that can write nothing but their own workspace and can't read the harness or the records. Ledgers are append-only and hash-chained.</li>
+<li>One rule beyond cash: no event may hold more than 25% of the account. No leverage, no shorting; buy the other outcome instead.</li>
 <li>Live markets only, so no answer can be in any model's training data.</li>
 <li>Full rules, metrics and pre-registered hypotheses: <a href="{REPO_URL}/blob/main/docs/METHODOLOGY.md">METHODOLOGY.md</a>.</li>
 </ul></section>
@@ -399,7 +414,7 @@ def run_page(results: dict[str, Any], run: dict[str, Any], colors: dict[str, int
     markers = [
         {
             "at": s["ended_at"],
-            "label": f"session {s['session']}: " + "; ".join(s["commit_messages"]),
+            "label": f"session {s['session']}: " + ", ".join(s.get("files") or []),
         }
         for s in run["session_log"]
         if (s.get("insertions") or 0) + (s.get("deletions") or 0) > 0
@@ -438,8 +453,8 @@ def run_page(results: dict[str, Any], run: dict[str, Any], colors: dict[str, int
         f"{(s.get('insertions') or 0) + (s.get('deletions') or 0)} lines changed"
         f"{' · <span class=tag>timed out</span>' if s.get('timed_out') else ''}</summary>"
         + "".join(
-            f'<p class="commit"><span class="tag">commit</span> {escape(m)}</p>'
-            for m in s.get("commit_messages") or []
+            f'<p class="commit"><span class="tag">changed</span> <span class="mono">{escape(f)}</span></p>'
+            for f in s.get("files") or []
         )
         + f'<div class="summary">{escape(s.get("summary") or "No summary.")}</div></details>'
         for s in reversed(run["session_log"])

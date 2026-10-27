@@ -4,6 +4,7 @@ from nightshift.score import (
     _edge,
     _skill,
     bootstrap,
+    bootstrap_difference,
     closed_positions,
     compare_arms,
     first_forecasts,
@@ -72,3 +73,36 @@ def test_arms_compare_evolving_against_frozen_per_model():
     (row,) = compare_arms(runs)
     assert row["evolving"]["mean_return"] == 0.05
     assert row["difference"] == 0.07
+
+
+def test_bootstrap_gives_up_quietly_when_no_draw_is_defined():
+    certain = {"e1": [(0.0, 0.0)], "e2": [(0.0, 0.0)]}  # market Brier 0: skill undefined
+    assert bootstrap(certain, _skill) is None
+
+
+def test_skill_gap_between_arms_has_an_interval():
+    better = {f"e{i}": [(0.01, 0.09)] for i in range(10)}
+    worse = {f"e{i}": [(0.12, 0.09)] for i in range(10)}
+    lo, hi = bootstrap_difference(better, worse, _skill)
+    assert 0 < lo <= hi
+    runs = [
+        {
+            "kind": "agent",
+            "model": "m",
+            "arm": "evolving",
+            "return": 0.1,
+            "skill": 0.8,
+            "_scored": better,
+        },
+        {
+            "kind": "agent",
+            "model": "m",
+            "arm": "frozen",
+            "return": 0.0,
+            "skill": -0.3,
+            "_scored": worse,
+        },
+    ]
+    (row,) = compare_arms(runs)
+    assert row["skill_difference"] > 0 and row["skill_difference_ci"][0] > 0
+    assert row["evolving"]["resolved"] == 10
