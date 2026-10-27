@@ -21,4 +21,4 @@ publish:
 	uv run nightshift publish
 
 site: publish
-	open -a Helium var/site/index.html
+	open -a Helium $${NIGHTSHIFT_HOME:-$$HOME/.nightshift}/site/index.html

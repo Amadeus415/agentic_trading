@@ -1,18 +1,21 @@
 """Runs, sessions, and the ticker.
 
 A run is one agent configuration trading one $1,000 account for a fixed
-window. Its files live under $NIGHTSHIFT_HOME (default ./var):
+window. Its files live under $NIGHTSHIFT_HOME (default ~/.nightshift), which
+must sit outside this repository:
 
     runs/<id>/run.json        what the run is (model, harness, arm, window)
     runs/<id>/ledger.db       its account, append-only
     runs/<id>/sessions.jsonl  one line per session: cost, tokens, code change
     runs/<id>/sessions/NNN.jsonl   full transcripts
-    workspaces/<id>/          the agent's own git repository, and its cwd
+    runs/<id>/history.git     the harness's snapshots of the workspace
+    workspaces/<id>/          the agent's working directory, entirely its own
 
 A session starts the run's exchange on a Unix socket, then runs Claude Code
 headless in the workspace inside the OS sandbox: it can write only its
-workspace, read nothing of the benchmark's records or other agents, and reach
-the exchange only through that socket.
+workspace, cannot read the harness, the records or other agents, and reaches
+the exchange only through that socket. The harness never runs git or reads a
+file inside the workspace in a way the agent could redirect.
 """
 
 from __future__ import annotations
@@ -41,6 +44,7 @@ REPO = Path(__file__).resolve().parents[2]
 AGENT = REPO / "agent"
 TOOLS = "Bash,Read,Edit,Write,Glob,Grep,WebSearch,WebFetch,Agent"
 SHARED_TMP = re.compile(r"(?<![\w.])/(private/)?tmp/|/var/folders/")
+SYSTEM_PROMPT_LIMIT = 40_000  # characters of AGENTS.md carried into the next session
 ARMS = {
     "evolving": "Everything in it persists from session to session.",
     "frozen": (
@@ -51,7 +55,7 @@ ARMS = {
 
 
 def home() -> Path:
-    return Path(os.environ.get("NIGHTSHIFT_HOME", REPO / "var")).resolve()
+    return Path(os.environ.get("NIGHTSHIFT_HOME", Path.home() / ".nightshift")).resolve()
 
 
 @dataclass
@@ -76,12 +80,11 @@ class Run:
     def workspace(self) -> Path:
         return home() / "workspaces" / self.id
 
-    @property
-    def socket(self) -> Path:
-        # Unix socket paths are capped near 104 bytes, so keep this one short. It sits
-        # outside /tmp, which the sandbox lets every agent write, so no agent can remove it.
-        digest = hashlib.sha256(str(self.dir).encode()).hexdigest()[:16]
-        return Path.home() / ".nightshift" / f"{digest}.sock"
+    def socket(self, session: int) -> Path:
+        """A fresh, short path per session (Unix sockets cap near 104 bytes), outside /tmp,
+        which every sandboxed agent can write."""
+        digest = hashlib.sha256(f"{self.dir}:{session}".encode()).hexdigest()[:16]
+        return Path.home() / ".nightshift" / "sockets" / f"{digest}.sock"
 
     def ledger(self) -> Ledger:
         return Ledger(self.dir / "ledger.db")
@@ -96,12 +99,6 @@ class Run:
 
 def _at(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
-
-
-def _git(cwd: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
-    ).stdout.strip()
 
 
 def load_runs() -> list[Run]:
@@ -128,6 +125,8 @@ def create_run(
         raise ValueError(f"arm must be one of {', '.join(ARMS)}")
     if strategy and strategy not in baselines.STRATEGIES:
         raise ValueError(f"strategy must be one of {', '.join(baselines.STRATEGIES)}")
+    if home().is_relative_to(REPO):
+        raise ValueError("NIGHTSHIFT_HOME must be outside the repository agents may not read")
     start = start or datetime.now(UTC)
     run = Run(
         id=run_id,
@@ -147,6 +146,8 @@ def create_run(
     ledger.close()
     if run.kind == "agent":
         _seed_workspace(run)
+        _snapshot(run, "init", "-q")
+        _commit(run, "Seed")
     return run
 
 
@@ -157,7 +158,13 @@ def _claude_version() -> str:
 
 def _harness_commit() -> str:
     try:
-        return _git(REPO, "rev-parse", "--short", "HEAD")
+        return subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
         return ""
 
@@ -165,23 +172,86 @@ def _harness_commit() -> str:
 def _seed_workspace(run: Run) -> None:
     shutil.rmtree(run.workspace, ignore_errors=True)
     shutil.copytree(AGENT / "seed", run.workspace)
-    _git(run.workspace, "init", "-q", "-b", "main")
-    _git(run.workspace, "config", "user.name", run.id)
-    _git(run.workspace, "config", "user.email", f"{run.id}@nightshift.invalid")
-    _git(run.workspace, "add", "-A")
-    _git(run.workspace, "commit", "-qm", "Seed workspace")
+
+
+# --- workspace snapshots ----------------------------------------------------
+
+
+def _snapshot(run: Run, *args: str) -> str:
+    """Git on the harness's own repository of the workspace, never the agent's.
+
+    The git directory lives in the run's records, out of the agent's reach, and
+    hooks, filters and user config are off, so nothing the agent writes in its
+    workspace can make this command run its code.
+    """
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
+    command = [
+        "git",
+        f"--git-dir={run.dir / 'history.git'}",
+        f"--work-tree={run.workspace}",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        f"user.name={run.id}",
+        "-c",
+        "user.email=harness@nightshift.invalid",
+        *args,
+    ]
+    out = subprocess.run(command, cwd=run.dir, env=env, check=True, capture_output=True, text=True)
+    return out.stdout.strip()
+
+
+def _commit(run: Run, message: str) -> str:
+    _snapshot(run, "add", "-A")
+    if _snapshot(run, "status", "--porcelain"):
+        _snapshot(run, "commit", "-qm", message)
+    return _snapshot(run, "rev-parse", "HEAD")
+
+
+def _diff(run: Run, start: str, end: str) -> dict[str, Any]:
+    rows = [
+        line.split("\t") for line in _snapshot(run, "diff", "--numstat", start, end).splitlines()
+    ]
+    return {
+        "commit": end[:12],
+        "files_changed": len(rows),
+        "insertions": sum(int(r[0]) for r in rows if r[0] != "-"),
+        "deletions": sum(int(r[1]) for r in rows if r[1] != "-"),
+        "files": [r[2] for r in rows][:50],
+    }
+
+
+def _system_prompt(run: Run) -> Path | None:
+    """Copy the agent's AGENTS.md for Claude Code to append, refusing anything but a
+    plain file in the workspace, so it cannot point the harness at another file."""
+    source = run.workspace / "AGENTS.md"
+    if source.is_symlink() or not source.is_file():
+        return None
+    if not source.resolve().is_relative_to(run.workspace.resolve()):
+        return None
+    text = source.read_text(errors="replace")
+    if len(text) > SYSTEM_PROMPT_LIMIT:
+        text = (
+            text[:SYSTEM_PROMPT_LIMIT] + "\n\n[AGENTS.md was cut off here at 40,000 characters.]\n"
+        )
+    target = run.dir / "system-prompt.md"
+    target.write_text(text)
+    return target
 
 
 # --- sessions ---------------------------------------------------------------
 
 
-def session_settings(run: Run, others: list[Run]) -> dict[str, Any]:
+def session_settings(run: Run, others: list[Run], socket: Path) -> dict[str, Any]:
     """Claude Code settings for one session. They live outside the workspace."""
-    records = home() / "runs"
-    deny = [f"Read(/{records}/**)", f"Edit(/{records}/**)", f"Read(/{home() / 'site'}/**)"]
-    for other in others:
-        if other.id != run.id:
-            deny += [f"Read(/{other.workspace}/**)", f"Edit(/{other.workspace}/**)"]
+    private = [REPO, home() / "runs", home() / "logs", home() / "site", home() / "operator.jsonl"]
+    private += [other.workspace for other in others if other.id != run.id]
+    deny = []
+    for path in private:
+        pattern = f"/{path}/**" if path.suffix != ".jsonl" else f"/{path}"
+        deny += [f"Read({pattern})", f"Edit({pattern})"]
     return {
         "permissions": {
             "allow": [
@@ -201,7 +271,7 @@ def session_settings(run: Run, others: list[Run]) -> dict[str, Any]:
             "enabled": True,
             "autoAllowBashIfSandboxed": True,
             "allowUnsandboxedCommands": False,
-            "network": {"allowUnixSockets": [str(run.socket)]},
+            "network": {"allowUnixSockets": [str(socket)]},
         },
         "autoMemoryEnabled": False,
     }
@@ -224,6 +294,22 @@ def render_prompt(run: Run, session: int, now: datetime, minutes: int = 45) -> s
     )
 
 
+def _install_ns() -> Path:
+    """`ns` as one standalone file, because the sandbox may not read this repository."""
+    bin_dir = home() / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    source = (REPO / "src" / "nightshift" / "ns.py").read_text()
+    (bin_dir / "ns").write_text("#!/usr/bin/env python3\n" + source)
+    (bin_dir / "ns").chmod(0o755)
+    return bin_dir
+
+
+def _next_session(run: Run) -> int:
+    """Numbered from transcripts on disk, so a session that crashed keeps its transcript."""
+    numbers = [int(p.stem) for p in (run.dir / "sessions").glob("*.jsonl") if p.stem.isdigit()]
+    return max(numbers + [len(run.sessions())]) + 1
+
+
 def run_session(run: Run, others: list[Run], timeout_minutes: int = 45) -> dict[str, Any] | None:
     """One headless session. Returns its record, or None if one is already running."""
     run.dir.mkdir(parents=True, exist_ok=True)
@@ -232,20 +318,17 @@ def run_session(run: Run, others: list[Run], timeout_minutes: int = 45) -> dict[
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         return None
-    number = len(run.sessions()) + 1
+    number = _next_session(run)
     now = datetime.now(UTC)
     if run.arm == "frozen":
         _seed_workspace(run)
-    start_commit = _git(run.workspace, "rev-parse", "HEAD")
+        _commit(run, f"Reset to seed before session {number}")
+    start_commit = _commit(run, f"Before session {number}")
 
+    socket = run.socket(number)
     settings_path = run.dir / "settings.json"
-    settings_path.write_text(json.dumps(session_settings(run, others), indent=2))
-    bin_dir = home() / "bin"
-    bin_dir.mkdir(parents=True, exist_ok=True)
-    ns = bin_dir / "ns"
-    if not ns.exists():
-        ns.symlink_to(Path(shutil.which("ns") or REPO / ".venv/bin/ns"))
-    run.socket.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(json.dumps(session_settings(run, others, socket), indent=2))
+    bin_dir = _install_ns()
     transcript = run.dir / "sessions" / f"{number:03d}.jsonl"
     transcript.parent.mkdir(exist_ok=True)
 
@@ -270,18 +353,24 @@ def run_session(run: Run, others: list[Run], timeout_minutes: int = 45) -> dict[
         "stream-json",
         "--verbose",
     ]
-    if (run.workspace / "AGENTS.md").exists():
-        command += ["--append-system-prompt-file", str(run.workspace / "AGENTS.md")]
+    system_prompt = _system_prompt(run)
+    if system_prompt:
+        command += ["--append-system-prompt-file", str(system_prompt)]
+    # The agent's PATH must not lead into this repository, which it may not read.
+    path = [
+        p for p in os.environ.get("PATH", "").split(os.pathsep) if not Path(p).is_relative_to(REPO)
+    ]
     env = {
         **os.environ,
-        "NS_SOCKET": str(run.socket),
-        "PATH": f"{bin_dir}:{os.environ.get('PATH', '')}",
+        "NS_SOCKET": str(socket),
+        "PATH": os.pathsep.join([str(bin_dir), *path]),
         "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
         "DISABLE_AUTOUPDATER": "1",  # the harness must not change under a live run
     }
+    env.pop("VIRTUAL_ENV", None)
 
     ledger = run.ledger()
-    server = serve(Exchange(ledger, session=number), run.socket)
+    server = serve(Exchange(ledger, session=number, ends_at=run.ends_at), socket)
     timed_out, code = False, None
     try:
         with transcript.open("w") as out:
@@ -303,9 +392,10 @@ def run_session(run: Run, others: list[Run], timeout_minutes: int = 45) -> dict[
     finally:
         server.shutdown()
         server.server_close()
-        run.socket.unlink(missing_ok=True)
+        socket.unlink(missing_ok=True)
         ledger.close()
 
+    end_commit = _commit(run, f"Session {number}")
     record = {
         "session": number,
         "started_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -314,8 +404,8 @@ def run_session(run: Run, others: list[Run], timeout_minutes: int = 45) -> dict[
         "harness": _claude_version(),
         "exit": code,
         "timed_out": timed_out,
-        **_transcript_summary(transcript),
-        **_commit_workspace(run, number, start_commit),
+        **_transcript_summary(transcript, run.workspace),
+        **_diff(run, start_commit, end_commit),
         "transcript": str(transcript.relative_to(run.dir)),
     }
     with (run.dir / "sessions.jsonl").open("a") as f:
@@ -333,8 +423,9 @@ def _stop(proc: subprocess.Popen) -> None:
         proc.wait()
 
 
-def _transcript_summary(path: Path) -> dict[str, Any]:
+def _transcript_summary(path: Path, workspace: Path | None = None) -> dict[str, Any]:
     """Cost, tokens, turns, and the closing summary from Claude Code's result line."""
+    own = str(workspace) if workspace else None
     result: dict[str, Any] = {}
     tools = tmp_refs = 0
     for line in path.read_text(errors="replace").splitlines():
@@ -346,7 +437,9 @@ def _transcript_summary(path: Path) -> dict[str, Any]:
             content = (msg.get("message") or {}).get("content") or []
             calls = [c for c in content if c.get("type") == "tool_use"]
             tools += len(calls)
-            tmp_refs += sum(1 for c in calls if SHARED_TMP.search(json.dumps(c.get("input"))))
+            for c in calls:
+                text = json.dumps(c.get("input"))
+                tmp_refs += bool(SHARED_TMP.search(text.replace(own, "") if own else text))
         elif msg.get("type") == "result":
             result = msg
     usage = result.get("usage") or {}
@@ -364,23 +457,6 @@ def _transcript_summary(path: Path) -> dict[str, Any]:
         # The sandbox must leave /tmp writable, so a frozen agent could hide notes there.
         "tmp_refs": tmp_refs,
         "summary": (result.get("result") or "")[:4000],
-    }
-
-
-def _commit_workspace(run: Run, number: int, start: str) -> dict[str, Any]:
-    ws = run.workspace
-    _git(ws, "add", "-A")
-    if _git(ws, "status", "--porcelain"):
-        _git(ws, "commit", "-qm", f"Session {number}: uncommitted changes")
-    end = _git(ws, "rev-parse", "HEAD")
-    rows = [line.split("\t") for line in _git(ws, "diff", "--numstat", start, end).splitlines()]
-    messages = _git(ws, "log", "--format=%s", f"{start}..{end}").splitlines()
-    return {
-        "commit": end[:12],
-        "files_changed": len(rows),
-        "insertions": sum(int(r[0]) for r in rows if r[0] != "-"),
-        "deletions": sum(int(r[1]) for r in rows if r[1] != "-"),
-        "commit_messages": list(reversed(messages)),
     }
 
 
@@ -418,39 +494,49 @@ def tick() -> dict[str, Any]:
     """Settle, mark, and resolve every run; let baselines trade once an hour.
 
     A run's money stops at its first valuation after the window ends: what it
-    still holds then is worth the bid. Forecasts keep resolving afterwards.
+    still holds then is worth the bid. Forecasts keep resolving afterwards. One
+    run's failure is reported and does not stop the others.
     """
     cache: dict = {}
-    report = {}
+    report: dict[str, Any] = {}
     for run in load_runs():
-        ledger = run.ledger()
-        exchange = Exchange(ledger)
         try:
-            marks = ledger.events("mark")
-            closed = not run.active() and marks and marks[-1]["at"] >= run.ends_at
-            if run.kind == "baseline" and run.active() and _due(run, hours=1):
-                rng = random.Random(f"{run.id}:{now_iso()[:13]}")
-                baselines.STRATEGIES[run.strategy or ""](exchange, rng)
-                (run.dir / "last_trade").write_text(now_iso())
-            settled, value = [], marks[-1]["value"] if marks else run.cash
-            if not closed:
-                result = exchange.settle_and_mark(cache)
-                settled, value = result["settled"], result["mark"]["value"]
-            report[run.id] = {
-                "value": Decimal(value).quantize(Decimal("0.01")),
-                "settled": len(settled),
-                "resolved": len(exchange.resolve_forecasts(cache)),
-                "final": bool(closed),
-            }
-        finally:
-            ledger.close()
+            report[run.id] = _tick_run(run, cache)
+        except Exception as exc:
+            report[run.id] = {"error": f"{type(exc).__name__}: {exc}"}
     return report
 
 
-def _due(run: Run, hours: float) -> bool:
-    path = run.dir / "last_trade"
-    if not path.exists():
+def _tick_run(run: Run, cache: dict) -> dict[str, Any]:
+    ledger = run.ledger()
+    exchange = Exchange(ledger, ends_at=run.ends_at)
+    try:
+        marks = ledger.events("mark")
+        final = bool(not run.active() and marks and marks[-1]["at"] >= run.ends_at)
+        if run.kind == "baseline" and run.active() and _due(run.dir / "last_trade", hours=1):
+            rng = random.Random(f"{run.id}:{now_iso()[:13]}")
+            baselines.STRATEGIES[run.strategy or ""](exchange, rng)
+            (run.dir / "last_trade").write_text(now_iso())
+        settled, value = [], marks[-1]["value"] if marks else run.cash
+        if not final:
+            result = exchange.settle_and_mark(cache)
+            settled, value = result["settled"], result["mark"]["value"]
+        sweep = _due(run.dir / "last_sweep", hours=24)
+        resolved = exchange.resolve_forecasts(cache, everything=sweep)
+        if sweep:
+            (run.dir / "last_sweep").write_text(now_iso())
+        return {
+            "value": Decimal(value).quantize(Decimal("0.01")),
+            "settled": len(settled),
+            "resolved": len(resolved),
+            "final": final,
+        }
+    finally:
+        ledger.close()
+
+
+def _due(stamp: Path, hours: float) -> bool:
+    if not stamp.exists():
         return True
-    return datetime.now(UTC) - _at(path.read_text().strip()) >= timedelta(hours=hours) - timedelta(
-        minutes=5
-    )
+    elapsed = datetime.now(UTC) - _at(stamp.read_text().strip())
+    return elapsed >= timedelta(hours=hours) - timedelta(minutes=5)

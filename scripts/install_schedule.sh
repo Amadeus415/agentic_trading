@@ -3,11 +3,11 @@
 #   com.nightshift.session  four agent sessions a day (00:15, 06:15, 12:15, 18:15 local)
 #   com.nightshift.tick     settle, mark, trade baselines, publish the site, every 15 minutes
 # Sessions run only while the Mac is awake; launchd runs one missed session after sleep.
-# Run it from the checkout the benchmark should use. NIGHTSHIFT_HOME defaults to ./var.
+# Run it from the checkout the benchmark should use. NIGHTSHIFT_HOME defaults to ~/.nightshift.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-HOME_DIR="${NIGHTSHIFT_HOME:-${ROOT}/var}"
+HOME_DIR="${NIGHTSHIFT_HOME:-${HOME}/.nightshift}"
 BIN="${ROOT}/.venv/bin/nightshift"
 CLAUDE_BIN="$(command -v claude)" || { echo "claude CLI not found on PATH." >&2; exit 2; }
 [[ -x "$BIN" ]] || { echo "Run 'make install' first." >&2; exit 2; }
