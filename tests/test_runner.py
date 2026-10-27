@@ -49,6 +49,7 @@ def test_prompt_tells_each_arm_what_persists(home):
     now = datetime.now(UTC)
     text = runner.render_prompt(evolving, 3, now)
     assert "session 3" in text and "day 1 of 28" in text and "persists from session" in text
+    assert "up to 45 minutes" in text
     assert "reset to its starting state" in runner.render_prompt(frozen, 1, now)
 
 

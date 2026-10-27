@@ -20,7 +20,10 @@ def socket_env(exchange, monkeypatch):
 
 def run(capsys, *argv):
     code = ns.main(list(argv))
-    return code, json.loads(capsys.readouterr().out)
+    out = capsys.readouterr().out
+    if argv[0] in ("markets", "history"):
+        return code, [json.loads(line) for line in out.splitlines()]
+    return code, json.loads(out)
 
 
 def test_agent_can_trade_through_the_socket(socket_env, capsys):

@@ -24,6 +24,7 @@ import os
 import random
 import re
 import shutil
+import signal
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
@@ -206,7 +207,7 @@ def session_settings(run: Run, others: list[Run]) -> dict[str, Any]:
     }
 
 
-def render_prompt(run: Run, session: int, now: datetime) -> str:
+def render_prompt(run: Run, session: int, now: datetime, minutes: int = 45) -> str:
     start, end = _at(run.started_at), _at(run.ends_at)
     return (
         (AGENT / "PROMPT.md")
@@ -218,6 +219,7 @@ def render_prompt(run: Run, session: int, now: datetime) -> str:
             days=(end - start).days,
             ends=end.strftime("%Y-%m-%d %H:%M UTC"),
             workspace_rule=ARMS[run.arm or "evolving"],
+            minutes=minutes,
         )
     )
 
@@ -250,7 +252,7 @@ def run_session(run: Run, others: list[Run], timeout_minutes: int = 45) -> dict[
     command = [
         "claude",
         "-p",
-        render_prompt(run, number, now),
+        render_prompt(run, number, now, timeout_minutes),
         "--model",
         run.model or "",
         "--settings",
@@ -283,18 +285,21 @@ def run_session(run: Run, others: list[Run], timeout_minutes: int = 45) -> dict[
     timed_out, code = False, None
     try:
         with transcript.open("w") as out:
-            proc = subprocess.run(
+            # Its own process group, so a timeout stops every shell the agent started too.
+            proc = subprocess.Popen(
                 command,
                 cwd=run.workspace,
                 env=env,
                 stdin=subprocess.DEVNULL,
                 stdout=out,
                 stderr=subprocess.STDOUT,
-                timeout=timeout_minutes * 60,
+                start_new_session=True,
             )
-            code = proc.returncode
-    except subprocess.TimeoutExpired:
-        timed_out = True
+            try:
+                code = proc.wait(timeout=timeout_minutes * 60)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                _stop(proc)
     finally:
         server.shutdown()
         server.server_close()
@@ -317,6 +322,15 @@ def run_session(run: Run, others: list[Run], timeout_minutes: int = 45) -> dict[
         f.write(json.dumps(record) + "\n")
     lock.close()
     return record
+
+
+def _stop(proc: subprocess.Popen) -> None:
+    os.killpg(proc.pid, signal.SIGTERM)
+    try:
+        proc.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
 
 
 def _transcript_summary(path: Path) -> dict[str, Any]:

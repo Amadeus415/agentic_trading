@@ -28,7 +28,7 @@ examples:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="ns",
-        description="Trade your simulated prediction-market account.",
+        description="Trade your simulated prediction-market account. Lists print one JSON object per line.",
         epilog=EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -77,7 +77,12 @@ def main(argv: list[str] | None = None) -> int:
         if command == "market":
             args = {"market_id": args.pop("market")}
     response = request({"command": command, "args": args})
-    print(json.dumps(response.get("result", response), indent=1))
+    result = response.get("result", response)
+    if isinstance(result, list):
+        # One compact object per line: hundreds of markets fit on a screen and grep cleanly.
+        print("\n".join(json.dumps(item) for item in result))
+    else:
+        print(json.dumps(result, indent=1))
     return 0 if response.get("ok") else 1
 
 
