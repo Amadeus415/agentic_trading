@@ -105,6 +105,7 @@ H2 and H3 are the benchmark's main result. With two or three replicates per arm,
 - **Luck and common shocks.** Four weeks is one market regime. Arms run at the same moments to share it, and replicates show the spread.
 - **Correlated bets.** Same-event markets resolve together. Intervals resample events, not markets.
 - **Simulated fills.** They are optimistic in one way: they take displayed depth without moving the market, and two accounts can take the same size. They are pessimistic in another: no limit orders, so the spread is always paid.
+- **Voided markets.** Only YES/NO resolutions (and Polymarket's 50/50 split) pay out. A market a venue voids or settles to another value keeps its last bid, and any such case is logged as an intervention.
 - **Category mix.** Available markets lean to sports and short-dated events. Results describe this market mix, not forecasting in general.
 - **Harness drift.** A Claude Code update mid-run changes the harness. Sessions record their Claude Code version, auto-update is disabled for sessions, and version changes are logged as interventions.
 - **Shared scratch space.** Claude Code's shell needs a writable `/tmp`, which all agents share. A frozen agent could in principle keep notes there between resets, or read another agent's scratch files. Each session records `tmp_refs`, its tool calls that name a shared temporary path, and those transcripts are read.
