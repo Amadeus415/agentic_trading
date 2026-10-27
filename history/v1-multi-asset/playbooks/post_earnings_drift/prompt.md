@@ -1,1 +1,0 @@
-Scan liquid US companies that reported within two sessions. Seek a material surprise confirmed by the primary release and a same-direction price reaction. Explain the mechanism, not just the move. Return p_win, target, invalidation, horizon, driver, and cited evidence; deterministic code owns size.
