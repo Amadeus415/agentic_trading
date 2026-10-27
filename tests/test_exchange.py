@@ -98,3 +98,71 @@ def test_unknown_commands_and_bad_args_come_back_as_errors(exchange):
     assert (
         "unexpected keyword" in handle(exchange, {"command": "status", "args": {"x": 1}})["error"]
     )
+
+
+def test_the_cap_covers_a_whole_event(ledger):
+    a = market("kalshi:A", yes_bids=((D("0.40"), D("10000")),), event="kalshi:ELECTION")
+    b = market("kalshi:B", yes_bids=((D("0.40"), D("10000")),), event="kalshi:ELECTION")
+    ex = Exchange(ledger, get_market=FakeVenues(a, b).get)
+    ex.buy("kalshi:A", "NO", 900, p_yes=0.1)
+    with pytest.raises(OrderError, match="no room"):
+        ex.buy("kalshi:B", "NO", 100, p_yes=0.1)
+    assert ledger.account().positions[("kalshi:A", "NO")].cost <= 250
+
+
+def test_a_yes_ask_and_a_no_bid_are_the_same_order(ledger):
+    thin = market(yes_asks=((D("0.42"), D("10")),), yes_bids=((D("0.40"), D("10")),))
+    ex = Exchange(ledger, get_market=FakeVenues(thin).get)
+    ex.buy(thin.id, "NO", 100, p_yes=0.1)  # takes the YES bids
+    with pytest.raises(OrderError, match="hold no"):
+        ex.sell(thin.id, "YES", 1)
+    assert ex.buy(thin.id, "YES", 100, p_yes=0.9)["shares"] == 10  # YES asks untouched
+    with pytest.raises(OrderError, match="no bids"):
+        ex.sell(thin.id, "NO", "all")  # NO bids are the YES asks just taken
+
+
+def test_forecasts_are_scored_only_against_a_tight_two_sided_book(ledger):
+    wide = market("kalshi:WIDE", yes_bids=((D("0.01"), D("50")),), yes_asks=((D("0.25"), D("50")),))
+    one_sided = market("kalshi:ONE", yes_bids=())
+    ex = Exchange(ledger, get_market=FakeVenues(wide, one_sided).get)
+    assert ex.forecast("kalshi:WIDE", 0.05)["market_yes"] is None
+    assert ex.forecast("kalshi:ONE", 0.05)["market_yes"] is None
+
+
+def test_no_trading_after_the_window(ledger, venues):
+    ex = Exchange(ledger, ends_at="2020-01-01T00:00:00Z", get_market=venues.get)
+    with pytest.raises(OrderError, match="window closed"):
+        ex.buy("kalshi:TEST-1", "YES", 10, p_yes=0.5)
+    with pytest.raises(OrderError, match="window closed"):
+        ex.forecast("kalshi:TEST-1", 0.5)
+
+
+def test_history_leaves_notes_in_the_ledger(exchange):
+    exchange.buy("kalshi:TEST-1", "YES", 10, p_yes=0.6, note="my whole strategy")
+    (event,) = exchange.history()
+    assert "note" not in event and event["kind"] == "fill"
+
+
+def test_closed_unpaid_markets_keep_their_last_bid(exchange, venues, ledger):
+    exchange.buy("kalshi:TEST-1", "YES", 42, p_yes=0.6)
+    exchange.settle_and_mark()
+    venues.markets["kalshi:TEST-1"] = market(status="closed")
+    mark = exchange.settle_and_mark()["mark"]
+    assert mark["positions"][0]["price"] == D("0.40")
+
+
+def test_settlement_pays_only_shares_held_inside_its_transaction(exchange, venues, ledger):
+    held = exchange.buy("kalshi:TEST-1", "YES", 42, p_yes=0.6)["shares"]
+    venues.markets["kalshi:TEST-1"] = market(status="resolved", payout_yes=D(1))
+    real_fetch = exchange._fetch
+
+    def fetch_then_trade(ids, cache=None):
+        fetched = real_fetch(ids, cache)
+        if not ledger.events("settle"):  # the agent sells 50 while the ticker is fetching
+            sale = {"market": "kalshi:TEST-1", "outcome": "YES", "side": "sell"}
+            ledger.append("fill", {**sale, "shares": "50", "cash": "20", "fee": "0"})
+        return fetched
+
+    exchange._fetch = fetch_then_trade
+    (settled,) = exchange.settle_and_mark()["settled"]
+    assert D(settled["shares"]) == held - 50

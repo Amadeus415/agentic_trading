@@ -14,6 +14,7 @@ from decimal import Decimal
 from typing import Any
 
 from nightshift.exchange import Exchange, OrderError
+from nightshift.venues import VenueError
 
 STAKE = Decimal("0.05")
 MAX_SPREAD = Decimal("0.03")
@@ -42,15 +43,22 @@ def _buy_each(exchange: Exchange, picks: list[tuple[str, str, Decimal]]) -> int:
             # No claimed edge: the stated probability is the price paid.
             p_yes = ask if outcome == "YES" else 1 - ask
             exchange.buy(market, outcome, stake, p_yes=p_yes, note="baseline")
-        except OrderError:
+        except (OrderError, VenueError):
             continue
         held.add(market)
         bought += 1
     return bought
 
 
+def _listing(exchange: Exchange, hours: int) -> list[dict[str, Any]]:
+    try:
+        return exchange.markets(max_hours=hours, limit=500)
+    except VenueError:
+        return []  # a venue outage means no trades this hour, not a stopped ticker
+
+
 def favorites(exchange: Exchange, rng: _random.Random) -> int:
-    rows = exchange.markets(max_hours=72, limit=500)
+    rows = _listing(exchange, 72)
     picks = [
         (row["id"], outcome, ask)
         for row in sorted(rows, key=lambda r: r["closes_at"] or "")
@@ -61,7 +69,7 @@ def favorites(exchange: Exchange, rng: _random.Random) -> int:
 
 
 def random(exchange: Exchange, rng: _random.Random) -> int:
-    rows = exchange.markets(max_hours=168, limit=500)
+    rows = _listing(exchange, 168)
     picks = [
         (row["id"], outcome, ask)
         for row in rows

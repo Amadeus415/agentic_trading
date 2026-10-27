@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import functools
 import json
-import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -76,13 +75,15 @@ class Market:
 
 
 def get_json(url: str) -> Any:
+    """Every failure (HTTP, network, bad JSON) becomes a VenueError; a timeout is retried once."""
     request = urllib.request.Request(url, headers={"User-Agent": "nightshift-benchmark"})
     for attempt in (1, 2):
         try:
             with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
                 return json.loads(response.read().decode())
-        except (TimeoutError, urllib.error.URLError) as exc:
-            if attempt == 2 or not isinstance(getattr(exc, "reason", exc), TimeoutError):
+        except Exception as exc:
+            timed_out = isinstance(getattr(exc, "reason", exc), TimeoutError)
+            if attempt == 2 or not timed_out:
                 raise VenueError(f"{url}: {exc}") from exc
     raise AssertionError("unreachable")
 
@@ -178,7 +179,11 @@ def _kalshi(key: str, with_books: bool) -> Market:
     m = get_json(url)["market"]
     series = m.get("series_ticker") or str(m["event_ticker"]).split("-")[0]
     status, payout = "open", None
-    if m.get("status") in ("settled", "finalized") and m.get("result") in ("yes", "no"):
+    # "determined" means the outcome is official and payout is only waiting on the clearinghouse.
+    if m.get("status") in ("determined", "settled", "finalized") and m.get("result") in (
+        "yes",
+        "no",
+    ):
         status, payout = "resolved", Decimal(int(m["result"] == "yes"))
     elif m.get("status") != "active":
         status = "closed"
