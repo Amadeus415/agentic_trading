@@ -34,7 +34,7 @@ This is four Opus sessions at a time, four times a day. If the subscription has 
 ./scripts/install_schedule.sh
 ```
 
-This installs two LaunchAgents that read `NIGHTSHIFT_HOME` (default `./var`):
+This installs two LaunchAgents that read `NIGHTSHIFT_HOME` (default `~/.nightshift`, which must be outside the repository):
 
 | Job | When | What |
 | --- | --- | --- |

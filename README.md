@@ -24,11 +24,11 @@ flowchart LR
     W -- "committed after every session" --> W
 ```
 
-1. **Session.** Four times a day, every live agent runs at once: one headless Claude Code session per agent, inside its own git workspace. The prompt is the same for all of them ([`agent/PROMPT.md`](agent/PROMPT.md)). The workspace's `AGENTS.md` is appended to the system prompt.
-2. **Trade.** The agent's only handle on money is `ns`: list markets, read rules and order books, buy, sell, forecast. Buys walk the asks, sells walk the bids, whole shares only, with venue fees. No position may cost more than 25% of the account.
+1. **Session.** Four times a day, every live agent runs at once: one headless Claude Code session per agent, inside its own workspace. The prompt is the same for all of them ([`agent/PROMPT.md`](agent/PROMPT.md)). The workspace's `AGENTS.md` is appended to the system prompt.
+2. **Trade.** The agent's only handle on money is `ns`: list markets, read rules and order books, buy, sell, forecast. Buys walk the asks, sells walk the bids, whole shares only, with venue fees. No event may hold more than 25% of the account.
 3. **Forecast.** Every buy states a probability that YES wins. Agents also forecast markets they research but don't trade. Each forecast is stamped with the market's own price at that moment.
 4. **Settle.** A model-free ticker pays out resolved markets and values open positions at the best bid.
-5. **Rewrite.** After each session the harness commits the workspace. An *evolving* agent keeps it for the whole run; a *frozen* agent is reset to the seed every session.
+5. **Rewrite.** After each session the harness snapshots the workspace into a git history the agent can't reach. An *evolving* agent keeps it for the whole run; a *frozen* agent is reset to the seed every session.
 6. **Score.** The scores are return, max drawdown, after-fee edge per dollar, forecast skill against the market price, inference cost and lines of self-modification. Intervals come from resampling whole events, because same-event markets resolve together.
 
 The rules, metrics, pre-registered hypotheses and threats to validity are in [**docs/METHODOLOGY.md**](docs/METHODOLOGY.md).
@@ -38,11 +38,11 @@ The rules, metrics, pre-registered hypotheses and threats to validity are in [**
 | Choice | Why |
 | --- | --- |
 | Live markets only | Replays leak outcomes the model may have trained on. A live window can't. |
-| The agent owns all strategy | The harness enforces only cash, real fills, fees and a 25% position cap. Sizing, research method and risk are the agent's, so the score is the agent's. |
+| The agent owns all strategy | The harness enforces only cash, real fills, fees and a 25% cap per event. Sizing, research method and risk are the agent's, so the score is the agent's. |
 | Evolving vs frozen, at the same moments | A before/after comparison mixes self-improvement with a change in the market. Running both arms together cancels shared market noise. |
 | Forecast skill against the market | P&L from a few dozen bets is mostly luck. Forecasts on many markets, scored against the market price at that moment, measure judgment with far more data. |
 | Fills that favor the market over the agent | Fills walk the real book and pay real fees, and positions are valued at the bid. Generous fills are the most common flaw in trading benchmarks. |
-| The sandbox is the trust boundary | The agent can write only its workspace and can reach the exchange only through its own socket. Ledgers are append-only and hash-chained. |
+| The sandbox is the trust boundary | The agent can write only its workspace, can't read the harness or the records, and reaches the exchange only through its own socket. The harness never runs git or follows links inside the workspace. Ledgers are append-only and hash-chained. |
 | Code-only baselines on the same exchange | They show what a strategy with no model earns, and what spread and fees cost. |
 | Cost is a first-class number | With $1,000 at stake, inference can cost more than the trading earns. |
 | Every intervention is logged | `nightshift note` publishes each human restart, fix or pause next to the results. |
@@ -63,9 +63,9 @@ make site                          # score and build the site, then open it
 ./scripts/install_schedule.sh      # run sessions and ticks on a schedule with launchd
 ```
 
-State lives in `$NIGHTSHIFT_HOME` (default `./var`, git-ignored):
-- `runs/<id>/` holds the ledger, session records and transcripts.
-- `workspaces/<id>/` holds the agent's own git repository.
+State lives in `$NIGHTSHIFT_HOME` (default `~/.nightshift`). It must be outside the repository, because agents are denied reading the repository:
+- `runs/<id>/` holds the ledger, session records, transcripts and workspace snapshots.
+- `workspaces/<id>/` is the agent's working directory.
 - `site/` holds the built website and its `data.json`.
 
 [`docs/OPERATIONS.md`](docs/OPERATIONS.md) covers the v1 lineup, the daily routine and publishing.

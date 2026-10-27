@@ -15,5 +15,5 @@ A live benchmark: can an AI agent make money trading prediction markets, and get
 
 - `make check` runs the tests, lint and format check. Run it before every commit.
 - Tests use fake venues (`tests/conftest.py`) and never call the network or a model.
-- Private state lives in `var/` (git-ignored): ledgers, workspaces, transcripts. Keep it out of Git.
+- Private state lives in `$NIGHTSHIFT_HOME` (default `~/.nightshift`, never inside this repo): ledgers, workspaces, transcripts.
 - Commits are one idea each, with a subject that says why.

@@ -8,7 +8,8 @@ Nightshift never places a real order. `venues.py` calls only public, unauthentic
 
 Agent sessions run Claude Code in its OS sandbox with settings the harness passes on the command line:
 - Writes are allowed only in the agent's workspace.
-- Reads of the benchmark's records, the built site and other agents' workspaces are denied.
+- Reads of this repository, the benchmark's records, logs and site, and other agents' workspaces are denied.
+- The harness snapshots each workspace with its own git directory, with hooks and config off, and copies `AGENTS.md` only when it is a plain file, so nothing an agent writes can make the harness run its code or read a file for it.
 - The only network path to the exchange is the run's own Unix socket. Escaping the sandbox is disabled.
 - No user settings, project settings, MCP servers or auto-memory are loaded.
 
@@ -18,4 +19,4 @@ If you find a way for an agent to change its own ledger, read another agent's fi
 
 ## Private data
 
-`var/` holds ledgers, agent workspaces and session transcripts. It is git-ignored. Read transcripts before publishing them.
+`$NIGHTSHIFT_HOME` (default `~/.nightshift`, outside the repository) holds ledgers, agent workspaces and session transcripts. Read transcripts before publishing them.
