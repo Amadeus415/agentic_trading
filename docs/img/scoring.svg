@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 318" width="900" height="318" role="img" aria-labelledby="t d">
+<title id="t">One market, scored two ways</title>
+<desc id="d">The market sells YES at 40 cents and the agent believes 70 percent, so it buys. If the market resolves YES, the agent's squared error is 0.09 against the market's 0.36 and it makes 58 cents a share. If it resolves NO, the agent's error is 0.49 against 0.16 and it loses 42 cents a share.</desc>
+<style>
+text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;fill:#1C1E26}
+.bg{fill:#FAF9F6}.h{font-size:17px;font-weight:650}.b{font-size:14px;font-weight:650}.s{font-size:12.5px}.n{font-size:15px;font-variant-numeric:tabular-nums}
+.m{fill:#63635E}.grid{stroke:#E4E2DC}.axis{stroke:#9A988F}
+.agent{fill:#0F5C4A}.agentl{stroke:#0F5C4A}.mkt{fill:#9A988F}.mktl{stroke:#9A988F}.ring{stroke:#FAF9F6}
+.gain{fill:#15803D}.loss{fill:#B91C1C}
+@media (prefers-color-scheme:dark){
+text{fill:#EEEEEC}.bg{fill:#111110}.m{fill:#B5B3AD}.grid{stroke:#2A2A28}.axis{stroke:#7C7A74}
+.agent{fill:#4FB59A}.agentl{stroke:#4FB59A}.mkt{fill:#8A8880}.mktl{stroke:#8A8880}.ring{stroke:#111110}
+.gain{fill:#4ADE80}.loss{fill:#F87171}}
+</style>
+<rect class="bg" width="900" height="318" rx="12"/>
+<text x="24" y="36" class="h">One market, scored two ways</text>
+<text x="24" y="58" class="s m">The market sells YES at 40¢. The agent forecasts 70% and buys. The bars show how far each was from what happened.</text>
+
+<!-- probability axis: x = 200 + 3.6 * cents -->
+<path class="grid" d="M200 108V276M290 108V276M380 108V276M470 108V276M560 108V276"/>
+<text x="200" y="102" text-anchor="middle" class="s m">0</text>
+<text x="290" y="102" text-anchor="middle" class="s m">25</text>
+<text x="380" y="102" text-anchor="middle" class="s m">50</text>
+<text x="470" y="102" text-anchor="middle" class="s m">75</text>
+<text x="560" y="102" text-anchor="middle" class="s m">100%</text>
+<circle cx="344" cy="124" r="6" class="mkt ring" stroke-width="2"/>
+<text x="334" y="129" text-anchor="end" class="s">market 40¢</text>
+<circle cx="452" cy="124" r="6" class="agent ring" stroke-width="2"/>
+<text x="462" y="129" class="s">agent 70%</text>
+
+<!-- column headers -->
+<text x="660" y="129" text-anchor="end" class="s m">agent error²</text>
+<text x="760" y="129" text-anchor="end" class="s m">market error²</text>
+<text x="876" y="129" text-anchor="end" class="s m">profit / share</text>
+
+<!-- resolves YES -->
+<text x="24" y="172" class="b">If it resolves YES</text>
+<text x="24" y="191" class="s m">each share pays $1</text>
+<path class="agentl" stroke-width="8" stroke-linecap="round" d="M456 166H556"/>
+<path class="mktl" stroke-width="8" stroke-linecap="round" d="M348 186H556"/>
+<path class="axis" stroke-width="2" d="M560 156V196"/>
+<text x="660" y="182" text-anchor="end" class="n" font-weight="650">0.09</text>
+<text x="760" y="182" text-anchor="end" class="n">0.36</text>
+<text x="876" y="182" text-anchor="end" class="n gain" font-weight="650">+$0.58</text>
+
+<!-- resolves NO -->
+<text x="24" y="240" class="b">If it resolves NO</text>
+<text x="24" y="259" class="s m">each share pays $0</text>
+<path class="agentl" stroke-width="8" stroke-linecap="round" d="M204 234H448"/>
+<path class="mktl" stroke-width="8" stroke-linecap="round" d="M204 254H340"/>
+<path class="axis" stroke-width="2" d="M200 224V264"/>
+<text x="660" y="250" text-anchor="end" class="n">0.49</text>
+<text x="760" y="250" text-anchor="end" class="n" font-weight="650">0.16</text>
+<text x="876" y="250" text-anchor="end" class="n loss" font-weight="650">−$0.42</text>
+
+<text x="24" y="302" class="s m">One market is a coin flip. Skill averages these errors over hundreds of markets: 1 − agent ÷ market. Above 0 beats the market.</text>
+</svg>

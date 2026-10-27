@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 360" width="900" height="360" role="img" aria-labelledby="t d">
+<title id="t">The Nightshift experiment</title>
+<desc id="d">Live Polymarket and Kalshi markets feed three groups that trade at the same moments for 28 days: evolving agents that keep their workspace between sessions, frozen agents whose workspace resets every session, and code-only baselines. Every account is scored on money, judgment against the market, and the gap between evolving and frozen.</desc>
+<style>
+text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;fill:#1C1E26}
+.bg{fill:#FAF9F6}.card{fill:#FFFFFF;stroke:#E4E2DC}
+.h{font-size:17px;font-weight:650}.b{font-size:14px;font-weight:650}.s{font-size:12.5px}.m{fill:#63635E}
+.evo{fill:#0F5C4A}.evol{stroke:#0F5C4A}.fro{fill:#2547B8}.frol{stroke:#2547B8}.chip{fill:#FFFFFF;font-size:12px;font-weight:600}
+.wire{stroke:#9A988F;fill:none}.head{fill:#9A988F}
+@media (prefers-color-scheme:dark){
+text{fill:#EEEEEC}.bg{fill:#111110}.card{fill:#191918;stroke:#2A2A28}.m{fill:#B5B3AD}
+.evo{fill:#4FB59A}.evol{stroke:#4FB59A}.fro{fill:#7C9CF5}.frol{stroke:#7C9CF5}.chip{fill:#111110}
+.wire{stroke:#7C7A74}.head{fill:#7C7A74}}
+</style>
+<defs><marker id="a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L8 4L0 8z" class="head"/></marker></defs>
+<rect class="bg" width="900" height="360" rx="12"/>
+<text x="24" y="36" class="h">One experiment, live for 28 days</text>
+<text x="24" y="58" class="s m">Every account starts with $1,000 in paper money. Agents get 4 sessions a day, all at the same moments, with the same prompt.</text>
+
+<!-- markets -->
+<rect class="card" x="24" y="96" width="170" height="236" rx="8"/>
+<text x="40" y="190" class="b">Live markets</text>
+<text x="40" y="212" class="s m">Polymarket + Kalshi</text>
+<text x="40" y="230" class="s m">real order books</text>
+<text x="40" y="248" class="s m">and real fees</text>
+<path class="wire" stroke-width="1.5" d="M194 135H226" marker-end="url(#a)"/><path class="wire" stroke-width="1.5" d="M194 225H226" marker-end="url(#a)"/><path class="wire" stroke-width="1.5" d="M194 304H226" marker-end="url(#a)"/>
+
+<!-- evolving -->
+<rect class="card" x="230" y="96" width="374" height="78" rx="8"/>
+<text x="246" y="124" class="b">Evolving ×2</text>
+<text x="246" y="156" class="s m">Claude Opus 5.5</text>
+<path class="evol" stroke-width="2" d="M412 119H424M464 119H476M516 119H526M546 119H556"/>
+<rect class="evo" x="372" y="106" width="40" height="26" rx="6"/><text x="392" y="123" text-anchor="middle" class="chip">S1</text>
+<rect class="evo" x="424" y="106" width="40" height="26" rx="6"/><text x="444" y="123" text-anchor="middle" class="chip">S2</text>
+<rect class="evo" x="476" y="106" width="40" height="26" rx="6"/><text x="496" y="123" text-anchor="middle" class="chip">S3</text>
+<text x="536" y="123" text-anchor="middle" class="s m">…</text>
+<rect class="evo" x="556" y="106" width="44" height="26" rx="6"/><text x="578" y="123" text-anchor="middle" class="chip">S112</text>
+<text x="372" y="156" class="s m">keeps its workspace</text>
+
+<!-- frozen -->
+<rect class="card" x="230" y="186" width="374" height="78" rx="8"/>
+<text x="246" y="214" class="b">Frozen ×2</text>
+<text x="246" y="246" class="s m">Claude Opus 5.5</text>
+<path class="frol" stroke-width="1.5" stroke-dasharray="3 3" d="M372 232H600M392 222V232M444 222V232M496 222V232M578 222V232"/>
+<rect class="fro" x="372" y="196" width="40" height="26" rx="6"/><text x="392" y="213" text-anchor="middle" class="chip">S1</text>
+<rect class="fro" x="424" y="196" width="40" height="26" rx="6"/><text x="444" y="213" text-anchor="middle" class="chip">S2</text>
+<rect class="fro" x="476" y="196" width="40" height="26" rx="6"/><text x="496" y="213" text-anchor="middle" class="chip">S3</text>
+<text x="536" y="213" text-anchor="middle" class="s m">…</text>
+<rect class="fro" x="556" y="196" width="44" height="26" rx="6"/><text x="578" y="213" text-anchor="middle" class="chip">S112</text>
+<text x="372" y="252" class="s m">resets every session</text>
+
+<!-- baselines -->
+<rect class="card" x="230" y="276" width="374" height="56" rx="8"/>
+<text x="246" y="300" class="b">Baselines</text>
+<text x="246" y="319" class="s m">code only</text>
+<text x="372" y="300" class="s">favorites, random</text>
+<text x="372" y="319" class="s m">fixed rules, trade every hour</text>
+
+<!-- scores -->
+<path class="wire" stroke-width="1.5" d="M604 135H618M604 225H618M604 304H618M618 135V304"/>
+<path class="wire" stroke-width="1.5" d="M618 132H636" marker-end="url(#a)"/><path class="wire" stroke-width="1.5" d="M618 214H636" marker-end="url(#a)"/><path class="wire" stroke-width="1.5" d="M618 296H636" marker-end="url(#a)"/>
+<rect class="card" x="640" y="96" width="236" height="72" rx="8"/>
+<text x="656" y="120" class="b">Money</text>
+<text x="656" y="140" class="s m">value after 28 days, vs cash,</text>
+<text x="656" y="157" class="s m">the baselines and the S&amp;P 500</text>
+<rect class="card" x="640" y="178" width="236" height="72" rx="8"/>
+<text x="656" y="202" class="b">Judgment</text>
+<text x="656" y="222" class="s m">its forecasts vs the market's</text>
+<text x="656" y="239" class="s m">price, once markets resolve</text>
+<rect class="card" x="640" y="260" width="236" height="72" rx="8"/>
+<text x="656" y="284" class="b">Self-improvement</text>
+<text x="656" y="304" class="s m">evolving minus frozen: what</text>
+<text x="656" y="321" class="s m">keeping its own code bought</text>
+</svg>
