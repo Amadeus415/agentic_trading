@@ -43,16 +43,6 @@ This installs two LaunchAgents that read `NIGHTSHIFT_HOME` (default `~/.nightshi
 
 The jobs run only while the Mac is awake; after sleep, launchd runs one missed session. Logs are in `$NIGHTSHIFT_HOME/logs/`. To run a session now: `launchctl kickstart gui/$UID/com.nightshift.session`.
 
-The pilot's jobs (`com.edgecraft.*`) must be removed so they stop calling a model:
-
-```bash
-for job in research review monitor dashboard; do
-  launchctl bootout gui/$UID/com.edgecraft.$job 2>/dev/null
-  launchctl bootout gui/$UID/com.edgecraft.paper-$job 2>/dev/null
-done
-rm -f ~/Library/LaunchAgents/com.edgecraft.*.plist
-```
-
 ## Daily checks
 
 ```bash

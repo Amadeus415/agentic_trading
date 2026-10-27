@@ -2,100 +2,121 @@
 
 **Can an AI agent make money trading prediction markets, and get better at it by rewriting its own code?**
 
-Nightshift is a live benchmark. Each agent gets a simulated $1,000 account on Polymarket and Kalshi and four sessions a day for 28 days. Every order fills against the venue's live order book with its real fees. Between sessions, an agent can rewrite everything in its own workspace: tools, notes, data, and the instructions that open its next session. Identical agents that start fresh every session are the control. The gap between the two arms is the self-improvement result.
+Nightshift is a benchmark that answers that question with live markets and paper money. Each agent gets $1,000 on Polymarket and Kalshi, four work sessions a day, and four weeks. Between sessions it can rewrite anything in its own workspace: its tools, its notes, and the instructions it reads at the start of the next session. Identical agents that start fresh every session are the control.
 
 [![CI](https://github.com/Amadeus415/agentic_trading/actions/workflows/ci.yml/badge.svg)](https://github.com/Amadeus415/agentic_trading/actions/workflows/ci.yml)
 ![Paper money only](https://img.shields.io/badge/money-simulated-lightgrey)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 
-## How it works
+## Status
+
+**v1 is live: October 27 to November 24, 2026.**
+
+| Run | What it is |
+| --- | --- |
+| `opus-evolving-1`, `opus-evolving-2` | Claude Opus 5.5 in Claude Code. Keeps and rewrites its workspace. |
+| `opus-frozen-1`, `opus-frozen-2` | The same model and prompt. Its workspace resets every session. |
+| `favorites` | Code only: buys 90–97¢ favorites near close. |
+| `random` | Code only: buys random outcomes. Shows what spread and fees cost. |
+
+The results page rebuilds every 15 minutes. It isn't hosted publicly yet.
+
+## What it measures
+
+| Question | How it's measured |
+| --- | --- |
+| **Does it make money?** | Account value at the end of four weeks, against cash, the code-only baselines and the S&P 500. |
+| **Does it judge better than the market?** | Every trade and every researched market records the agent's probability. When the market resolves, that probability is scored (Brier) against the market's own price at the same moment. Above zero means the agent saw something the market missed. |
+| **Does rewriting its own code help?** | Evolving agents vs frozen agents: same model, same prompt, same markets, same moments. Any gap between them is what self-modification bought. |
+
+Money is the headline, but four weeks of trades is a small sample and mostly luck. Forecasts cover many more markets, so judgment shows up there first. Every number comes with a 95% interval.
+
+## The rules
+
+An agent can:
+- list markets, read their rules and live order books, and research on the web;
+- buy and sell with `ns`, its only handle on money;
+- write any code, notes or data in its workspace, including its `AGENTS.md`, which opens its next session.
+
+The exchange makes trading as hard as it is for real:
+- Orders fill against the live order book at the moment they arrive, with each venue's real fees.
+- Positions are valued at what someone would pay for them now (the best bid).
+- No leverage and no shorting. No single event may hold more than 25% of the account.
+
+An agent cannot:
+- read or change the exchange, the ledger, the scoring code, or another agent's files (an OS sandbox enforces this);
+- trade after its four weeks end.
+
+The full rules, metrics and pre-registered hypotheses are in [**docs/METHODOLOGY.md**](docs/METHODOLOGY.md).
+
+## How a session works
 
 ```mermaid
 flowchart LR
-    subgraph Agent["Agent session · Claude Code in an OS sandbox"]
-        W[Workspace<br/>code · notes · AGENTS.md]
-        R[Research<br/>rules · books · web]
-    end
-    R -- "ns buy / sell / forecast" --> X[Exchange<br/>live order books<br/>real fees]
-    X --> L[(Append-only<br/>hash-chained ledger)]
-    T[Ticker every 15 min<br/>settle · value at bid] --> L
-    B[Code-only baselines] --> X
-    L --> S[Score + website]
-    W -- "committed after every session" --> W
+    A[Agent session<br/>Claude Code in a sandbox] -- "ns buy / sell / forecast" --> X[Exchange<br/>live order books, real fees]
+    X --> L[(Ledger<br/>append-only)]
+    T[Ticker, every 15 min<br/>pays out, values at the bid] --> L
+    L --> S[Scores + website]
+    A -- "rewrites its workspace" --> W[Workspace<br/>code, notes, AGENTS.md]
+    W -- "opens the next session" --> A
 ```
 
-1. **Session.** Four times a day, every live agent runs at once: one headless Claude Code session per agent, inside its own workspace. The prompt is the same for all of them ([`agent/PROMPT.md`](agent/PROMPT.md)). The workspace's `AGENTS.md` is appended to the system prompt.
-2. **Trade.** The agent's only handle on money is `ns`: list markets, read rules and order books, buy, sell, forecast. Buys walk the asks, sells walk the bids, whole shares only, with venue fees. No event may hold more than 25% of the account.
-3. **Forecast.** Every buy states a probability that YES wins. Agents also forecast markets they research but don't trade. Each forecast is stamped with the market's own price at that moment.
-4. **Settle.** A model-free ticker pays out resolved markets and values open positions at the best bid.
-5. **Rewrite.** After each session the harness snapshots the workspace into a git history the agent can't reach. An *evolving* agent keeps it for the whole run; a *frozen* agent is reset to the seed every session.
-6. **Score.** The scores are return, max drawdown, after-fee edge per dollar, forecast skill against the market price, inference cost and lines of self-modification. Intervals come from resampling whole events, because same-event markets resolve together.
+1. Four times a day, every agent starts at the same moment in its own workspace, with the same prompt ([`agent/PROMPT.md`](agent/PROMPT.md)).
+2. It researches, trades and forecasts through `ns` for up to 45 minutes.
+3. The harness snapshots its workspace. Evolving agents keep it; frozen agents are reset.
+4. Every 15 minutes a ticker with no model pays out resolved markets and values open positions.
+5. Scores and the website are rebuilt from the ledgers.
 
-The rules, metrics, pre-registered hypotheses and threats to validity are in [**docs/METHODOLOGY.md**](docs/METHODOLOGY.md).
+## Why it's built this way
 
-## Design choices
-
-| Choice | Why |
+| Choice | Reason |
 | --- | --- |
-| Live markets only | Replays leak outcomes the model may have trained on. A live window can't. |
-| The agent owns all strategy | The harness enforces only cash, real fills, fees and a 25% cap per event. Sizing, research method and risk are the agent's, so the score is the agent's. |
-| Evolving vs frozen, at the same moments | A before/after comparison mixes self-improvement with a change in the market. Running both arms together cancels shared market noise. |
-| Forecast skill against the market | P&L from a few dozen bets is mostly luck. Forecasts on many markets, scored against the market price at that moment, measure judgment with far more data. |
-| Fills that favor the market over the agent | Fills walk the real book and pay real fees, and positions are valued at the bid. Generous fills are the most common flaw in trading benchmarks. |
-| The sandbox is the trust boundary | The agent can write only its workspace, can't read the harness or the records, and reaches the exchange only through its own socket. The harness never runs git or follows links inside the workspace. Ledgers are append-only and hash-chained. |
-| Code-only baselines on the same exchange | They show what a strategy with no model earns, and what spread and fees cost. |
-| Cost is a first-class number | With $1,000 at stake, inference can cost more than the trading earns. |
-| Every intervention is logged | `nightshift note` publishes each human restart, fix or pause next to the results. |
+| Live markets only | Nothing that resolves next week can be in a model's training data. Backtests can't promise that. |
+| The agent owns the strategy | The harness enforces only what a real exchange would. Sizing, research and risk are the agent's, so the score is the agent's. |
+| Two arms running at the same moments | Comparing an agent with itself last month mixes in market changes. Running both arms at once cancels them. |
+| Fills that favor the market | Real books, real fees, bid valuation. Generous fills are the most common way trading benchmarks overstate results. |
+| A sandbox, not trust | The agent can only write its workspace and reach its own exchange socket. The ledger is hash-chained, so edits are detectable. |
+| Logged interventions | Every human restart, fix or pause is published next to the results (`nightshift note`). |
 
-## Run it
+## Run it yourself
 
-Requires macOS (for Claude Code's sandbox), Python 3.11+, [uv](https://docs.astral.sh/uv/), and Claude Code signed in.
+You need macOS (for Claude Code's sandbox), Python 3.11+, [uv](https://docs.astral.sh/uv/), and Claude Code signed in.
 
 ```bash
 make install
-uv run nightshift new opus-evolving-1 --model claude-opus-5-5 --arm evolving
-uv run nightshift new opus-frozen-1   --model claude-opus-5-5 --arm frozen
+uv run nightshift new my-agent --model claude-opus-5-5 --arm evolving
 uv run nightshift new favorites --baseline favorites
-uv run nightshift new random    --baseline random
-uv run nightshift session          # one session for every live agent, in parallel
-uv run nightshift tick             # settle, value at the bid, trade baselines
-make site                          # score and build the site, then open it
-./scripts/install_schedule.sh      # run sessions and ticks on a schedule with launchd
+uv run nightshift session    # one session for every live agent, in parallel
+uv run nightshift tick       # pay out, value at the bid, let baselines trade
+make site                    # build the results page and open it
 ```
 
-State lives in `$NIGHTSHIFT_HOME` (default `~/.nightshift`). It must be outside the repository, because agents are denied reading the repository:
-- `runs/<id>/` holds the ledger, session records, transcripts and workspace snapshots.
-- `workspaces/<id>/` is the agent's working directory.
-- `site/` holds the built website and its `data.json`.
+State lives in `~/.nightshift`, outside the repository, because agents aren't allowed to read the repository. [`docs/OPERATIONS.md`](docs/OPERATIONS.md) covers scheduling, daily checks and publishing.
 
-[`docs/OPERATIONS.md`](docs/OPERATIONS.md) covers the v1 lineup, the daily routine and publishing.
+## Where things are
 
-## Repo map
-
-| Path | What's there |
+| Path | What it does |
 | --- | --- |
-| [`src/nightshift/venues.py`](src/nightshift/venues.py) | Read-only Polymarket and Kalshi data: listings, rules, order books, fees, resolutions |
-| [`src/nightshift/exchange.py`](src/nightshift/exchange.py) | Fills, the position cap, settlement, valuation, and the socket an agent trades through |
-| [`src/nightshift/ledger.py`](src/nightshift/ledger.py) | The append-only, hash-chained event log; account state is a fold over it |
-| [`src/nightshift/ns.py`](src/nightshift/ns.py) | `ns`, the agent's command-line client |
-| [`src/nightshift/runner.py`](src/nightshift/runner.py) | Runs, sandboxed sessions, workspace commits, the ticker |
-| [`src/nightshift/baselines.py`](src/nightshift/baselines.py) | Code-only favorites and random accounts |
-| [`src/nightshift/score.py`](src/nightshift/score.py) | Metrics and cluster-bootstrap intervals |
-| [`src/nightshift/site.py`](src/nightshift/site.py) | The static website |
-| [`agent/`](agent) | What every agent sees: the session prompt and the seed workspace |
-| [`docs/METHODOLOGY.md`](docs/METHODOLOGY.md) | The benchmark specification |
-| [`history/`](history) | The pilot this benchmark grew out of |
+| [`agent/`](agent) | Everything an agent sees: the session prompt and its starting workspace |
+| [`src/nightshift/venues.py`](src/nightshift/venues.py) | Reads Polymarket and Kalshi: markets, rules, order books, fees, outcomes |
+| [`src/nightshift/exchange.py`](src/nightshift/exchange.py) | Fills orders, enforces the rules, pays out, values positions |
+| [`src/nightshift/ledger.py`](src/nightshift/ledger.py) | The append-only record of every account |
+| [`src/nightshift/ns.py`](src/nightshift/ns.py) | `ns`, the agent's command |
+| [`src/nightshift/runner.py`](src/nightshift/runner.py) | Creates runs, runs sandboxed sessions, runs the ticker |
+| [`src/nightshift/baselines.py`](src/nightshift/baselines.py) | The code-only baselines |
+| [`src/nightshift/score.py`](src/nightshift/score.py) | Every metric and interval |
+| [`src/nightshift/site.py`](src/nightshift/site.py) | The results website |
 
-## Limitations
+## Limits
 
-- **Paper money.** Fills take displayed depth without moving the market, and there are no limit orders.
-- **Small samples.** A 28-day window rarely has enough resolved bets to tell return differences from luck; forecast skill is the steadier signal.
-- **One harness.** Version 0.1 runs Claude models in Claude Code only. The exchange works with any agent that can run a shell command, so other harnesses are an extension, not a rewrite.
+- **Paper money.** Fills don't move the real market, and there are no limit orders.
+- **Small samples.** Four weeks rarely separates skill from luck on returns alone; forecast skill is the steadier signal.
+- **One harness.** v1 tests Claude models in Claude Code. `ns` works for any agent that can run a shell command, so other models and harnesses are a lineup change, not a rewrite.
 - **Market mix.** Open markets lean toward sports and short-dated events.
 
 ## Where this came from
 
-From August to October 2026 the same idea ran as a human-designed fund: Python owned sizing and risk, and Claude proposed trades. It lost 57% of its paper bankroll in its final version. The main lesson: the harness designer's strategy was being tested, not the agent's. [`history/`](history) has the record, and the code is tagged `pilot`.
+From August to October 2026 this repo ran a human-designed fund: Claude proposed trades and Python decided their size. The final version lost 57% of its paper money. The main lesson was that the fund was testing my sizing rules, not Claude's judgment. [`history/`](history) has the record, and the code is tagged `pilot`.
 
 ## Citation
 
