@@ -1,14 +1,19 @@
-# Edgecraft
+# Nightshift
 
-Build an understandable autonomous prediction-market paper fund researched by scheduled Claude Code sessions. Aim for aggressive compounded growth and measurable outperformance against the S&P 500.
+A live benchmark: can an AI agent make money trading prediction markets, and get better at it by rewriting its own code? Start with `README.md`; the spec is `docs/METHODOLOGY.md`.
 
-- Search eagerly, manage sourced event-contract positions, and learn from outcomes. Trade only when the expected edge clears costs; never force fills.
-- Claude researches and proposes. Python owns quotes, sizing, exits, accounting, and limits. Every fill is simulated; no broker, wallet, transfer, or real-order tools.
-- Preserve the one-time bankroll and append-only ledger. Never erase losses, rewrite history, or weaken gates to pass a decision.
-- Trading runs follow `docs/SCHEDULED_TASKS.md`: one packet, one apply, verify, stop on failure. Research runs do not edit tracked source or policy.
-- Reviews follow `docs/EVOLUTION.md` daily or after 10 additional completed positions. Test new versions separately; do not borrow a parent's track record.
-- Forecast every researched market, traded or not. Scored forecasts earn each playbook the trust that sizing applies; a code-only baseline fund (`edgecraft-baseline`) is the bar to beat.
-- YOLO means meaningful paper exposure and fast forward experiments. Tune `trading` settings inside the immutable mandate; retain after-cost edge, source integrity, and honest losses.
-- Keep one operational path, one ledger, and a read-only dashboard. Prefer deleting unnecessary complexity to adding frameworks.
-- Keep private state and credentials out of Git. Preserve unrelated work. Run `make validate`; dashboard changes also require lint, tests, build, and DB smoke.
-- Explain claims honestly: simulated performance, sample size, benchmark window, and unproven assumptions. Split commits by idea and explain why each change matters.
+## Principles
+
+- **Environment vs agent.** The harness (`src/nightshift`) owns market data, fills, fees, accounting, settlement and scoring. Agents own everything in their workspace, including strategy, sizing and their own instructions. Never move strategy into the harness, and never give an agent a way to write outside its workspace.
+- **Fills favor the market.** Walk the real book, charge real fees, value at the bid, and refuse what the book can't fill. When in doubt, choose the rule that makes the agent's result less flattering.
+- **Measure, don't steer.** Prompts, the seed workspace and the rules are identical across agents. Arms differ in exactly one thing.
+- **Versioned and pre-registered.** Any change to what agents face or how they are scored bumps `BENCHMARK_VERSION` and gets a `CHANGELOG.md` entry. Live runs are never patched; log every intervention with `nightshift note`.
+- **Simple.** Standard library only at runtime. One ledger per run, one website, one command per job. Prefer deleting code to adding options.
+- **Honest numbers.** Report sample sizes and intervals, say when a difference is not distinguishable from luck, and keep simulated results labelled as simulated.
+
+## Working here
+
+- `make check` runs the tests, lint and format check. Run it before every commit.
+- Tests use fake venues (`tests/conftest.py`) and never call the network or a model.
+- Private state lives in `var/` (git-ignored): ledgers, workspaces, transcripts. Keep it out of Git.
+- Commits are one idea each, with a subject that says why.

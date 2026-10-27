@@ -1,20 +1,18 @@
-# History
+# The pilot
 
-Edgecraft changes over time. This folder holds the record of how it changed and what each version did.
+Before Nightshift was a benchmark, it was a single paper fund run by scheduled Claude Code sessions, from August to October 2026. Its code is tagged `pilot` (the multi-asset first version is also tagged `v1-multi-asset`), and the full record is in the git history before the benchmark overhaul.
 
-| Era | Fund ID | Dates | Result | Record |
-| --- | --- | --- | --- | --- |
-| v1: multi-asset | `edgecraft-aggressive` | 2026-08-22 → 2026-10-05 | $1,000 → $1,020.41, 22 closed trades | [v1-multi-asset](v1-multi-asset/README.md) |
-| v2: prediction markets | `edgecraft-predictions` | 2026-10-17 → 2026-10-26 | $1,000 → $425.50, 19 closed trades; stopped by its 50% drawdown limit, retired once its last positions settle | shared append-only ledger |
-| v3: facts | `edgecraft-facts` | started 2026-10-26 | fresh $1,000, new track record | shared append-only ledger |
+| Era | Dates | Design | Result (simulated) |
+| --- | --- | --- | --- |
+| v1: multi-asset | Aug 22 – Oct 5 | Claude proposed stock, crypto and prediction trades; Python sized them | $1,000 → $1,020 (+2%), 27% max drawdown, 22 closed trades |
+| v2: prediction markets | Oct 17 – Oct 26 | Python sized Claude's beliefs with full Kelly and a forecast-trust estimate | $1,000 → $425.50 (−57%), 64% drawdown, 19 closed trades |
+| v3: facts | Oct 26 | Trade only "already decided by a primary source" calls | Superseded by the benchmark before it ran |
 
-Each era is a separate fund in the same append-only ledger. A new era never inherits the previous era's track record, and old cycles are never rewritten.
+The code-only control fund lost 8% over v2's window.
 
-## Linking code to performance
+## What carried over
 
-- [`CHANGELOG.md`](../CHANGELOG.md) records why each trading change was made and what it should move.
-- `make fund-lineage` groups a fund's cycles by the code revision that applied them, with NAV change, fills, and fees for each revision.
-  - **v2 and v3:** every cycle records its revision directly.
-  - **v1:** cycles predate that field. Their revision is inferred from [`deployments.json`](deployments.json), built from the runtime checkout's git reflog and, before the runtime existed, from commit dates.
-
-Lineage shows which code was live during each stretch. It does not prove that a change caused a result: positions opened under one revision can be marked under the next, and most segments hold only a handful of trades.
+- **The harness designer's strategy got tested, not the agent's.** Python owned sizing, trust and risk, so v2's loss mostly measured those rules. In the benchmark the agent owns strategy, and the harness enforces only cash, real fills and fees.
+- **Forecasts measure judgment faster than P&L.** Across 368 settled v2 forecasts, Claude did worse than the market price exactly where it disagreed with it. Forecast skill against the market became a primary metric.
+- **Fills must favor the market.** Real order books, venue fees and bid valuation came from the pilot and stayed.
+- **One unproven-but-promising signal.** When the agent said a published source had already decided a contract the market still doubted, it was right 18 of 18 times. The benchmark doesn't build this in; an agent that finds it on its own should show up in its forecast skill.

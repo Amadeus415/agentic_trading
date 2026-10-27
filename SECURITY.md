@@ -1,36 +1,21 @@
-# Security policy
+# Security
 
-## Active product boundary
+## Paper money only
 
-The Edgecraft paper fund is fake-money-only by construction:
+Nightshift never places a real order. `venues.py` calls only public, unauthenticated read endpoints of Polymarket and Kalshi. There is no broker, wallet, API key or order endpoint anywhere in the code, and there won't be one.
 
-- `FundMandate` has no live mode.
-- `paper_fund.py` imports no broker client or execution adapter.
-- The scheduled script invokes only `fund-init`, `fund-verify`, `fund-run`, and the read-only `fund-visualize` and `fund-report`.
-- The repository contains no broker mutation path, permit, or live policy.
-- A Claude Code PreToolUse hook (`.claude/settings.json`) denies `place_*` / `cancel_*`
-  order tools via `scripts/deny_broker_tools.py`.
-- Generated ledgers and decision inputs are gitignored.
-- SQLite cycles and events are append-only and hash-chained.
+## Agent containment
 
-Do not add a broker call, live mandate, credential, or mutating financial tool to the fund domain or scheduled prompt.
+Agent sessions run Claude Code in its OS sandbox with settings the harness passes on the command line:
+- Writes are allowed only in the agent's workspace.
+- Reads of the benchmark's records, the built site and other agents' workspaces are denied.
+- The only network path to the exchange is the run's own Unix socket. Escaping the sandbox is disabled.
+- No user settings, project settings, MCP servers or auto-memory are loaded.
 
-## Sensitive data
+Ledgers are append-only (SQLite triggers) and hash-chained (`nightshift verify`).
 
-Never commit or retain:
+If you find a way for an agent to change its own ledger, read another agent's files, or reach anything outside its workspace, please report it privately through GitHub's security advisories rather than in an issue.
 
-- credentials, OAuth tokens, cookies, or API keys;
-- account numbers, broker exports, tax records, or private balances;
-- unnecessary personal information;
-- raw private messages or form contents;
-- generated SQLite ledgers or state packets.
+## Private data
 
-Public evidence packets should contain concise claims and direct source URLs, not copied articles or secrets.
-
-## Dependency and source checks
-
-Run `make validate` and `make security` before release. CI runs tests and static checks; the repository also uses dependency updates and secret scanning.
-
-## Reporting
-
-Report suspected vulnerabilities privately through GitHub's security advisory flow. Include affected version, reproduction, impact, and a proposed mitigation if available. Do not open a public issue for an unpatched secret or execution-boundary problem.
+`var/` holds ledgers, agent workspaces and session transcripts. It is git-ignored. Read transcripts before publishing them.
