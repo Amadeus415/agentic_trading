@@ -32,6 +32,8 @@ What the book cannot fill is not filled. Shares an account took from a book in t
 
 Bid valuation charges the spread the moment a position opens, and it cannot be gamed by thin quotes.
 
+A run's account is final at the first valuation after its 28-day window ends; positions still open then count at the bid. Outcomes of its forecasts keep being recorded after the end, because they don't move money.
+
 **Records.** Each run has one SQLite ledger of append-only events: open, fill, forecast, settle, resolve, mark. Triggers refuse updates and deletes, and each event's SHA-256 hash covers the one before it. `nightshift verify` checks every chain.
 
 ## Agents
@@ -82,7 +84,7 @@ H2 and H3 are the benchmark's main result. With two or three replicates per arm,
 
 ## Integrity
 
-- **Reward hacking.** Any attempt to read or modify the benchmark's records, the exchange, or another agent's files disqualifies the run. The prompt says so. Transcripts are kept for audit. The sandbox and permission denials are logged in each transcript.
+- **Reward hacking.** Any attempt to read or modify the benchmark's records, the exchange, or another agent's files disqualifies the run, and so does keeping state outside the workspace to get around a frozen reset. The prompt says so. Transcripts are kept for audit, and each session records two flags: `denials` (tool calls the permission rules refused) and `tmp_refs` (tool calls that name a shared temporary path).
 - **Human intervention.** Every intervention while runs are live (restart, bug fix, pause, rerun) is logged with `nightshift note` and published on the site. Agents' workspaces and prompts are never edited by hand.
 - **Contamination.** Every market is live, so no outcome can be in any model's training data.
 - **Canary.** Published pages carry a canary string so they can be filtered from training corpora.
@@ -94,5 +96,6 @@ H2 and H3 are the benchmark's main result. With two or three replicates per arm,
 - **Simulated fills.** They are optimistic in one way: they take displayed depth without moving the market, and two accounts can take the same size. They are pessimistic in another: no limit orders, so the spread is always paid.
 - **Category mix.** Available markets lean to sports and short-dated events. Results describe this market mix, not forecasting in general.
 - **Harness drift.** A Claude Code update mid-run changes the harness. Sessions record their Claude Code version, auto-update is disabled for sessions, and version changes are logged as interventions.
+- **Shared scratch space.** Claude Code's shell needs a writable `/tmp`, which all agents share. A frozen agent could in principle keep notes there between resets, or read another agent's scratch files. Each session records `tmp_refs`, its tool calls that name a shared temporary path, and those transcripts are read.
 - **Public results.** Agents can browse the web, including this benchmark's public site and other agents' trades. The effect is probably small, and it would be visible in transcripts.
 - **One harness.** Version 0.1 measures Claude models in Claude Code. A model × harness grid is future work. The exchange is harness-neutral: anything that can run a shell command can use `ns`.

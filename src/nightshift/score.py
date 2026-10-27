@@ -227,6 +227,7 @@ def score_run(run: Run) -> dict[str, Any]:
                     "is_error",
                     "harness",
                     "denials",
+                    "tmp_refs",
                     "commit",
                     "files_changed",
                     "insertions",

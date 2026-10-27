@@ -39,6 +39,7 @@ from nightshift.ledger import Ledger, now_iso
 REPO = Path(__file__).resolve().parents[2]
 AGENT = REPO / "agent"
 TOOLS = "Bash,Read,Edit,Write,Glob,Grep,WebSearch,WebFetch,Agent"
+SHARED_TMP = re.compile(r"(?<![\w.])/(private/)?tmp/|/var/folders/")
 ARMS = {
     "evolving": "Everything in it persists from session to session.",
     "frozen": (
@@ -76,9 +77,10 @@ class Run:
 
     @property
     def socket(self) -> Path:
-        # Unix socket paths are capped near 104 bytes, so keep this one short.
+        # Unix socket paths are capped near 104 bytes, so keep this one short. It sits
+        # outside /tmp, which the sandbox lets every agent write, so no agent can remove it.
         digest = hashlib.sha256(str(self.dir).encode()).hexdigest()[:16]
-        return Path("/tmp").resolve() / "nightshift" / f"{digest}.sock"
+        return Path.home() / ".nightshift" / f"{digest}.sock"
 
     def ledger(self) -> Ledger:
         return Ledger(self.dir / "ledger.db")
@@ -320,7 +322,7 @@ def run_session(run: Run, others: list[Run], timeout_minutes: int = 45) -> dict[
 def _transcript_summary(path: Path) -> dict[str, Any]:
     """Cost, tokens, turns, and the closing summary from Claude Code's result line."""
     result: dict[str, Any] = {}
-    tools = 0
+    tools = tmp_refs = 0
     for line in path.read_text(errors="replace").splitlines():
         try:
             msg = json.loads(line)
@@ -328,7 +330,9 @@ def _transcript_summary(path: Path) -> dict[str, Any]:
             continue
         if msg.get("type") == "assistant":
             content = (msg.get("message") or {}).get("content") or []
-            tools += sum(1 for c in content if c.get("type") == "tool_use")
+            calls = [c for c in content if c.get("type") == "tool_use"]
+            tools += len(calls)
+            tmp_refs += sum(1 for c in calls if SHARED_TMP.search(json.dumps(c.get("input"))))
         elif msg.get("type") == "result":
             result = msg
     usage = result.get("usage") or {}
@@ -343,6 +347,8 @@ def _transcript_summary(path: Path) -> dict[str, Any]:
         "is_error": result.get("is_error"),
         # Tool calls the permission rules refused: the first place to look for tampering.
         "denials": len(result.get("permission_denials") or []),
+        # The sandbox must leave /tmp writable, so a frozen agent could hide notes there.
+        "tmp_refs": tmp_refs,
         "summary": (result.get("result") or "")[:4000],
     }
 
@@ -395,23 +401,32 @@ def notes() -> list[dict[str, Any]]:
 
 
 def tick() -> dict[str, Any]:
-    """Settle, mark, and resolve every run; let baselines trade once an hour."""
+    """Settle, mark, and resolve every run; let baselines trade once an hour.
+
+    A run's money stops at its first valuation after the window ends: what it
+    still holds then is worth the bid. Forecasts keep resolving afterwards.
+    """
     cache: dict = {}
     report = {}
     for run in load_runs():
         ledger = run.ledger()
         exchange = Exchange(ledger)
         try:
+            marks = ledger.events("mark")
+            closed = not run.active() and marks and marks[-1]["at"] >= run.ends_at
             if run.kind == "baseline" and run.active() and _due(run, hours=1):
                 rng = random.Random(f"{run.id}:{now_iso()[:13]}")
                 baselines.STRATEGIES[run.strategy or ""](exchange, rng)
                 (run.dir / "last_trade").write_text(now_iso())
-            result = exchange.settle_and_mark(cache)
-            resolved = exchange.resolve_forecasts(cache)
+            settled, value = [], marks[-1]["value"] if marks else run.cash
+            if not closed:
+                result = exchange.settle_and_mark(cache)
+                settled, value = result["settled"], result["mark"]["value"]
             report[run.id] = {
-                "value": Decimal(result["mark"]["value"]).quantize(Decimal("0.01")),
-                "settled": len(result["settled"]),
-                "resolved": len(resolved),
+                "value": Decimal(value).quantize(Decimal("0.01")),
+                "settled": len(settled),
+                "resolved": len(exchange.resolve_forecasts(cache)),
+                "final": bool(closed),
             }
         finally:
             ledger.close()

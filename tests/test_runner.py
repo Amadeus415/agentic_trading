@@ -40,7 +40,7 @@ def test_session_settings_fence_the_agent_into_its_workspace(home):
     sandbox = settings["sandbox"]
     assert sandbox["enabled"] and not sandbox["allowUnsandboxedCommands"]
     assert sandbox["network"]["allowUnixSockets"] == [str(me.socket)]
-    assert len(str(me.socket)) < 100 and me.socket.parent == Path("/tmp").resolve() / "nightshift"
+    assert len(str(me.socket)) < 100 and me.socket.parent == Path.home() / ".nightshift"
 
 
 def test_prompt_tells_each_arm_what_persists(home):
@@ -70,7 +70,11 @@ def test_commit_records_what_the_agent_changed(home):
 def test_transcript_summary_reads_cost_and_tool_calls(tmp_path):
     path = tmp_path / "t.jsonl"
     lines = [
-        {"type": "assistant", "message": {"content": [{"type": "tool_use"}, {"type": "text"}]}},
+        {"type": "assistant", "message": {"content": [{"type": "tool_use", "input": {}}]}},
+        {
+            "type": "assistant",
+            "message": {"content": [{"type": "tool_use", "input": {"command": "cat /tmp/x"}}]},
+        },
         {
             "type": "result",
             "total_cost_usd": 1.25,
@@ -81,7 +85,8 @@ def test_transcript_summary_reads_cost_and_tool_calls(tmp_path):
     ]
     path.write_text("\n".join(json.dumps(x) for x in lines) + "\nnot json\n")
     summary = runner._transcript_summary(path)
-    assert summary["cost_usd"] == 1.25 and summary["tool_calls"] == 1
+    assert summary["cost_usd"] == 1.25 and summary["tool_calls"] == 2
+    assert summary["tmp_refs"] == 1
     assert summary["output_tokens"] == 99 and summary["summary"] == "done"
 
 
@@ -151,3 +156,25 @@ def test_scores_and_intervals_from_a_ledger(home, monkeypatch):
     results = score.write(home / "site" / "data.json")
     site.build(results, home / "site")
     assert 'class="ci">[' in (home / "site" / "index.html").read_text()
+
+
+def test_money_stops_at_the_first_mark_after_the_window(home, monkeypatch):
+    from datetime import timedelta
+
+    from nightshift.exchange import Exchange
+
+    marked = []
+    monkeypatch.setattr(
+        Exchange,
+        "settle_and_mark",
+        lambda self, cache: (
+            marked.append(1)
+            or {"settled": [], "mark": self.ledger.append("mark", {"value": "1000"})}
+        ),
+    )
+    monkeypatch.setattr(Exchange, "resolve_forecasts", lambda self, cache: [])
+    start = datetime.now(UTC) - timedelta(days=8)
+    runner.create_run("ended", model="m", arm="evolving", days=7, start=start)
+    assert runner.tick()["ended"]["final"] is False
+    assert runner.tick()["ended"]["final"] is True
+    assert len(marked) == 1
