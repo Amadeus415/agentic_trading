@@ -47,4 +47,4 @@ for hour in 0 6 12 18; do
   times+="<dict><key>Hour</key><integer>${hour}</integer><key>Minute</key><integer>15</integer></dict>"
 done
 install_agent session "'${BIN}' session" "<key>StartCalendarInterval</key><array>${times}</array>"
-install_agent tick "'${BIN}' tick && '${BIN}' publish" "<key>StartInterval</key><integer>900</integer><key>RunAtLoad</key><true/>"
+install_agent tick "'${BIN}' tick &amp;&amp; '${BIN}' publish" "<key>StartInterval</key><integer>900</integer><key>RunAtLoad</key><true/>"
