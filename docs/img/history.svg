@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 430" width="900" height="430" role="img" aria-labelledby="t d">
+<title id="t">How Nightshift got here</title>
+<desc id="d">Three panels. First, a paper fund I designed traded stocks, crypto and prediction markets from August 22 to October 5, 2026 and ended up 2 percent after a 27 percent drawdown. Second, a fund that traded prediction markets only, sizing Claude's forecasts with Kelly, went from 1,000 to a peak of 1,176 dollars on October 21 and ended at 426 dollars on October 26, down 57 percent, while a code-only control fund lost 8 percent. Third, the benchmark: six accounts live from October 27 to November 24, with results published every 15 minutes.</desc>
+<style>
+text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;fill:#1C1E26}
+.bg{fill:#FAF9F6}.card{fill:#FFFFFF;stroke:#E4E2DC}
+.h{font-size:17px;font-weight:650}.b{font-size:14px;font-weight:650}.s{font-size:12.5px}.xs{font-size:11px}.m{fill:#63635E}.f{fill:#9A988F}
+.n{font-variant-numeric:tabular-nums}
+.grid{stroke:#E4E2DC}.axis{stroke:#9A988F}
+.v1{stroke:#2E7D9A}.v1f{fill:#2E7D9A}.v2{stroke:#B4572E}.v2f{fill:#B4572E}.ctl{stroke:#9A988F}.ctlf{fill:#9A988F}
+.bench{fill:#0F5C4A}.benchl{stroke:#0F5C4A}.live{fill:#0F5C4A;fill-opacity:.08}
+.era{fill:#EDECE7}.chip{fill:#FFFFFF;font-size:12px;font-weight:600}
+.agent{fill:#0F5C4A}.harness{fill:#9A988F}.human{fill:#2547B8}
+.gain{fill:#15803D}.loss{fill:#B91C1C}
+@media (prefers-color-scheme:dark){
+text{fill:#EEEEEC}.bg{fill:#111110}.card{fill:#191918;stroke:#2A2A28}.m{fill:#B5B3AD}.f{fill:#7C7A74}
+.grid{stroke:#2A2A28}.axis{stroke:#7C7A74}
+.v1{stroke:#5FB7D4}.v1f{fill:#5FB7D4}.v2{stroke:#E08A5F}.v2f{fill:#E08A5F}.ctl{stroke:#8A8880}.ctlf{fill:#8A8880}
+.bench{fill:#4FB59A}.benchl{stroke:#4FB59A}.live{fill:#4FB59A;fill-opacity:.12}
+.era{fill:#222220}.chip{fill:#111110}
+.agent{fill:#4FB59A}.harness{fill:#8A8880}.human{fill:#7C9CF5}
+.gain{fill:#4ADE80}.loss{fill:#F87171}}
+</style>
+<rect class="bg" width="900" height="430" rx="12"/>
+<text x="24" y="36" class="h">Three attempts in four months</text>
+<text x="24" y="58" class="s m">Every account starts with $1,000 in paper money and trades real order books. Two funds I designed, then a benchmark.</text>
+<text x="56" y="333.4" text-anchor="end" class="xs m n">$400</text>
+<text x="56" y="291.2" text-anchor="end" class="xs m n">$600</text>
+<text x="56" y="249.0" text-anchor="end" class="xs m n">$800</text>
+<text x="56" y="206.8" text-anchor="end" class="xs m n">$1,000</text>
+<text x="56" y="164.6" text-anchor="end" class="xs m n">$1,200</text>
+<text x="64" y="104" class="b">1 · A fund I designed</text>
+<text x="64" y="122" class="xs m">Aug 22 – Oct 5 · stocks, crypto, prediction markets</text>
+<path class="grid" d="M64 329.4H330"/>
+<path class="grid" d="M64 287.2H330"/>
+<path class="grid" d="M64 245.0H330"/>
+<path class="grid" d="M64 202.8H330"/>
+<path class="grid" d="M64 160.6H330"/>
+<path class="axis" d="M64 340H330"/>
+<text x="64" y="358" class="xs m">Aug 22</text>
+<text x="330" y="358" text-anchor="end" class="xs m">Oct 5</text>
+<text x="197.0" y="358" text-anchor="middle" class="xs f">44 days</text>
+<path class="v1" fill="none" stroke-width="2.2" stroke-linejoin="round" d="M65.1 202.8L68.4 202.8L75.1 202.8L80.4 202.8L86.5 202.8L93.3 203.1L98.6 204.3L99.3 205.5L104.6 186.3L111.3 187.2L119.9 187.6L122.8 162.9L123.5 193.5L129.6 217.1L134.9 219.6L135.6 219.1L141.0 219.8L141.7 220.3L141.9 220.3L142.1 220.3L142.4 220.3L142.6 220.3L144.2 220.3L144.4 220.3L144.8 220.3L145.2 220.3L145.6 220.3L145.7 220.3L146.0 220.3L146.2 220.2L146.4 220.1L146.7 220.2L146.9 220.3L147.2 220.4L148.6 220.4L222.4 221.1L222.5 222.3L222.7 221.9L223.0 223.6L223.2 224.4L223.5 224.4L223.7 225.2L224.0 225.6L224.8 225.6L231.0 225.7L234.3 225.4L234.6 225.4L234.8 225.5L235.1 225.5L235.4 225.4L235.7 225.5L236.1 225.5L236.1 225.5L236.3 225.5L236.8 225.5L237.0 225.5L237.1 225.5L237.3 225.5L239.6 225.5L245.7 231.6L245.9 203.4L249.0 203.4L249.7 203.4L250.5 203.5L250.7 203.6L250.9 203.6L253.9 203.8L254.3 203.9L254.6 203.9L254.9 203.8L255.0 203.8L256.2 203.7L256.5 203.8L256.5 203.8L258.7 203.8L261.1 203.8L261.8 203.8L267.3 203.8L269.9 203.8L273.2 203.8L273.9 203.8L274.7 203.8L275.9 203.8L291.3 203.8L292.8 203.8L294.1 203.8L297.6 203.8L329.0 205.3L329.0 205.3L329.0 205.3L329.1 204.0L329.1 203.0L329.1 201.5L329.2 202.8L329.2 209.1L329.3 206.0L330.4 198.5"/>
+<text x="360" y="104" class="b">2 · Prediction markets only</text>
+<text x="360" y="122" class="xs m">Oct 17 – 26 · Kelly sizing on Claude’s forecasts</text>
+<path class="grid" d="M360 329.4H626"/>
+<path class="grid" d="M360 287.2H626"/>
+<path class="grid" d="M360 245.0H626"/>
+<path class="grid" d="M360 202.8H626"/>
+<path class="grid" d="M360 160.6H626"/>
+<path class="axis" d="M360 340H626"/>
+<text x="360" y="358" class="xs m">Oct 17</text>
+<text x="626" y="358" text-anchor="end" class="xs m">Oct 27</text>
+<text x="493.0" y="358" text-anchor="middle" class="xs f">10 days</text>
+<path class="ctl" fill="none" stroke-width="1.5" stroke-dasharray="3 3" d="M390.2 202.8L390.2 204.1L390.3 204.2L390.6 204.2L390.7 204.2L390.8 204.1L390.8 205.1L390.9 205.6L391.0 206.3L483.8 190.9L484.0 193.0L484.1 193.4L484.2 193.4L484.3 193.4L484.4 193.4L484.5 193.4L484.6 193.4L494.8 190.4L494.8 190.6L495.2 190.6L495.3 190.5L495.7 190.4L495.8 190.4L495.9 190.4L496.4 190.4L496.4 191.5L496.6 192.6L497.1 192.3L497.2 192.5L497.4 192.8L497.5 192.6L497.7 192.5L497.8 192.8L497.8 193.0L498.0 193.1L498.1 193.1L498.2 193.1L498.4 193.1L498.6 192.6L498.8 193.5L498.9 193.7L499.1 193.9L499.1 194.2L499.6 194.2L509.5 217.7L509.6 218.7L509.7 219.0L509.8 220.4L509.9 220.3L510.0 219.8L510.2 219.9L510.2 220.1L510.3 220.3L510.4 220.1L510.7 220.6L510.9 220.7L510.9 220.5L511.1 220.4L511.2 220.4L511.3 220.5L511.4 220.0L522.5 205.2L522.5 205.7L523.0 205.2L523.1 205.1L523.1 205.5L523.2 205.2L523.4 205.3L523.5 205.2L523.6 205.1L523.7 205.2L523.7 205.2L523.9 204.3L524.1 204.7L525.0 203.9L525.8 204.9L528.2 206.7L528.2 206.7L531.8 203.3L534.6 203.7L534.6 203.7L537.5 204.5L537.5 204.6L539.2 205.8L539.2 205.9L539.3 205.8L539.6 206.1L539.7 206.2L539.9 206.0L540.1 205.9L540.2 206.0L540.3 206.0L540.4 206.0L540.6 205.9L540.8 206.1L542.1 205.9L542.2 208.1L542.3 208.1L542.4 206.3L542.6 206.4L542.7 206.1L542.8 205.2L542.9 207.4L543.1 207.5L543.2 207.4L543.3 207.3L544.3 205.5L544.5 204.8L544.6 204.9L544.7 204.9L544.8 204.9L544.9 205.0L545.2 205.0L545.3 204.5L545.4 204.5L549.5 203.7L549.5 203.7L549.9 203.9L551.1 203.3L551.4 203.6L565.0 211.5L565.4 211.2L565.8 211.7L566.0 212.6L566.2 212.5L566.4 212.6L566.6 212.5L566.8 212.5L566.9 212.5L567.1 212.4L567.2 212.4L567.4 212.3L567.6 212.4L567.8 212.4L567.9 212.5L568.2 212.5L568.3 212.5L568.6 212.3L569.0 212.4L569.1 212.4L569.4 212.4L569.6 212.4L569.8 212.4L569.9 212.4L570.0 212.4L603.5 220.8L603.5 220.9L611.3 220.0L611.3 220.2L616.0 220.3L616.7 220.5L617.6 220.6L618.1 220.6L618.5 220.5L618.7 220.4L619.1 220.5L619.3 220.5L619.3 220.6L619.7 220.3L619.8 220.3L620.2 220.2L620.2 220.2L620.3 220.3L620.6 220.6L621.3 220.3L621.3 220.3L622.0 220.3L623.0 220.8L623.1 220.7L623.4 220.6L623.6 220.4L624.0 220.3L624.6 220.6L625.8 219.4L626.1 220.2L626.2 220.3L626.4 220.1L626.5 220.1L626.9 219.9L627.0 219.8L627.2 219.6"/>
+<path class="v2" fill="none" stroke-width="2.2" stroke-linejoin="round" d="M377.3 202.8L417.0 208.9L473.5 165.7L482.9 168.6L483.0 168.6L483.1 170.3L483.2 171.0L483.3 170.9L483.4 170.7L483.8 170.6L483.8 170.7L483.9 170.7L484.0 170.9L484.1 170.0L484.2 170.0L484.3 170.0L484.4 170.0L484.5 170.0L484.6 168.6L484.8 168.8L494.8 171.4L494.9 171.4L495.0 171.4L495.1 171.4L495.2 171.4L495.3 171.4L495.4 171.4L495.5 171.4L495.6 171.4L495.7 171.4L495.8 171.4L495.9 171.4L496.0 171.4L496.1 171.4L496.2 174.3L496.3 174.5L496.4 174.6L496.5 174.2L496.6 177.5L496.7 177.2L496.8 177.2L496.9 177.3L497.0 177.2L497.1 178.7L497.2 177.6L497.3 177.8L497.4 175.4L497.4 175.1L497.5 176.3L497.6 176.7L497.7 176.3L497.8 176.1L497.9 176.3L498.0 175.1L498.2 177.5L498.3 177.5L498.3 177.5L498.4 177.5L498.6 177.5L498.8 170.3L498.9 170.6L499.0 170.8L499.1 169.5L499.2 169.7L499.3 169.7L499.4 169.8L499.5 169.8L499.6 175.4L499.7 171.9L499.8 171.9L499.9 173.6L501.9 171.0L508.7 174.3L509.5 174.3L509.7 174.3L509.7 210.8L509.8 211.1L509.9 201.5L510.0 232.2L510.2 245.0L510.3 245.3L510.4 247.0L510.6 246.6L510.7 247.0L510.8 261.2L510.9 259.8L511.1 262.5L511.2 265.2L511.3 265.3L511.4 265.1L522.5 262.3L522.7 262.4L522.8 262.4L523.0 265.4L523.0 265.1L523.1 265.1L523.2 267.6L523.3 266.9L523.4 267.0L523.5 266.6L523.6 267.0L523.7 266.5L523.8 269.0L523.9 269.0L524.1 268.6L524.2 267.9L524.3 269.0L524.4 268.4L524.5 269.8L524.6 269.7L524.6 269.5L524.7 270.1L524.8 267.4L524.9 267.2L525.0 267.3L525.1 269.8L525.8 260.9L526.9 261.0L527.9 259.9L529.0 260.6L531.7 258.0L534.4 264.6L537.5 247.5L537.6 248.8L537.7 249.1L537.8 249.7L539.3 248.6L539.4 247.8L539.5 247.9L539.6 246.3L539.7 246.3L539.8 246.3L539.9 246.4L540.1 247.1L540.2 246.5L540.3 246.4L540.4 245.5L540.5 245.6L540.6 245.4L540.7 245.6L540.8 245.4L540.9 244.1L541.0 244.3L541.1 244.0L541.2 244.1L541.3 246.7L541.3 249.4L541.4 247.4L541.5 247.2L541.6 247.9L541.7 249.5L541.8 249.8L541.9 252.8L542.0 252.5L542.1 252.9L542.2 253.3L542.3 256.2L542.4 253.6L542.5 253.1L542.6 252.5L542.7 252.6L542.8 251.2L542.9 250.9L543.0 249.0L543.1 249.6L543.2 249.4L543.3 249.5L543.4 248.7L543.5 248.5L543.6 248.0L543.7 248.7L543.8 249.3L543.9 249.7L544.1 248.7L544.3 249.7L544.4 249.1L544.5 249.2L544.6 248.7L544.7 249.8L544.8 249.0L544.9 249.0L545.2 250.8L545.3 251.4L545.4 252.0L545.5 252.4L545.6 252.4L545.7 251.6L545.9 251.3L546.0 251.3L546.1 251.3L548.3 258.6L548.5 258.7L548.6 257.8L548.7 256.6L548.8 260.2L548.8 260.6L549.0 257.4L549.3 260.6L549.9 261.7L551.1 259.3L556.8 262.0L564.5 251.9L564.7 253.2L564.8 252.1L564.9 252.4L565.0 252.8L565.1 251.8L565.2 252.1L565.3 251.9L565.4 251.8L565.5 251.5L565.6 251.7L565.7 251.7L565.8 251.7L565.9 251.7L566.0 251.6L566.1 251.0L566.2 252.0L566.4 252.3L566.5 252.5L566.6 252.7L566.7 252.6L566.8 252.3L566.9 252.6L567.0 252.5L567.1 252.9L567.2 253.1L567.3 253.0L567.4 253.0L567.5 253.3L567.6 253.6L567.7 253.5L567.8 253.4L567.9 262.5L568.0 263.5L568.1 265.1L568.2 264.1L568.3 264.3L568.4 264.8L568.5 266.0L568.6 265.5L568.7 264.9L568.8 264.9L568.9 265.0L569.0 264.9L569.1 264.9L569.3 264.5L569.4 264.0L569.5 264.3L569.6 264.4L569.7 264.4L569.9 264.7L570.0 264.3L570.1 264.2L570.2 264.2L570.3 264.5L570.4 270.3L570.5 268.2L602.4 319.0L610.2 321.4L615.0 316.6L615.1 316.6L615.2 319.8L615.3 318.8L615.4 318.8L615.5 318.8L615.5 324.1L615.6 324.1L615.9 324.1L616.0 324.1L616.1 324.1L616.2 324.1L616.4 324.1L616.5 324.1L616.6 324.1L616.7 324.1L616.8 324.1L616.9 324.1L617.0 324.1L617.1 324.1L617.2 324.1L617.3 324.1L617.4 324.1L617.5 324.1L617.6 324.1L617.7 324.1L617.8 324.1L617.9 324.1L618.0 324.1L618.1 324.1L618.2 324.1L618.3 324.1L618.4 324.1L618.5 324.1L618.7 324.1L618.8 324.1L618.9 324.1L619.0 324.1L619.1 324.1L619.2 324.1L619.3 324.1L619.4 324.1L619.5 324.1L619.6 324.1L619.7 324.1L619.8 324.1L619.9 324.1L620.0 324.1L620.1 324.1L620.2 324.1L620.3 324.1L620.5 324.1L620.6 324.1L620.7 324.1L620.8 324.1L620.9 324.1L621.0 324.1L621.1 324.1L621.1 324.1L621.2 324.1L621.3 324.1L621.4 324.1L621.5 324.1L621.6 324.1L621.7 324.1L621.8 324.1L621.9 324.1L622.0 324.1L622.1 324.1L622.2 324.1L622.3 324.1L622.4 324.1L622.5 324.1L622.6 324.1L622.7 324.1L622.8 324.1L622.9 324.1L623.0 324.1L623.1 324.1L623.2 324.1L623.3 324.1L623.4 324.1L623.6 324.1L623.7 324.1L623.8 324.1L623.9 324.1L624.0 324.1L624.1 324.1L624.2 323.8L624.3 323.8L624.4 323.8L624.5 323.8L624.6 323.8L624.7 323.8L625.8 323.8L625.9 323.8L626.0 323.8L626.1 323.8L626.2 323.8L626.4 323.8L626.5 323.8L626.6 323.8L626.7 323.8L626.8 323.8L626.9 323.8L627.0 323.8L627.1 323.8L627.2 323.8"/>
+<text x="656" y="104" class="b">3 · The benchmark</text>
+<text x="656" y="122" class="xs m">Oct 27 – Nov 24 · agents own the strategy</text>
+<path class="grid" d="M656 329.4H876"/>
+<path class="grid" d="M656 287.2H876"/>
+<path class="grid" d="M656 245.0H876"/>
+<path class="grid" d="M656 202.8H876"/>
+<path class="grid" d="M656 160.6H876"/>
+<path class="axis" d="M656 340H876"/>
+<text x="656" y="358" class="xs m">Oct 27</text>
+<text x="876" y="358" text-anchor="end" class="xs m">Nov 24</text>
+<text x="766.0" y="358" text-anchor="middle" class="xs f">28 days</text>
+<rect class="live" x="656" y="140" width="220" height="200" rx="6"/>
+<path class="benchl" stroke-width="2" stroke-dasharray="4 4" d="M656 202.8H876"/>
+<text x="766.0" y="162.8" text-anchor="middle" class="b bench">Live now</text>
+<text x="766.0" y="180.8" text-anchor="middle" class="xs m">4 Claude agents, 2 code-only baselines</text>
+<text x="766.0" y="226.8" text-anchor="middle" class="xs m">every account scored on money,</text>
+<text x="766.0" y="242.8" text-anchor="middle" class="xs m">judgment and self-improvement</text>
+<text x="766.0" y="266.8" text-anchor="middle" class="xs f">results page rebuilds every 15 min</text>
+<circle class="v1f" cx="330.4" cy="198.5" r="4"/>
+<text x="330.4" y="186.5" text-anchor="end" class="s n v1f" font-weight="650">+2%</text>
+<path class="axis" stroke-dasharray="2 2" d="M122.8 168.9V278.8"/>
+<text x="68" y="283.0" class="xs m">Aug 31: the agent sized a 16% longshot</text>
+<text x="68" y="297.0" class="xs m">itself. It expired worthless. Python</text>
+<text x="68" y="311.0" class="xs m">took over sizing two days later.</text>
+<text x="251.7" y="245.6" class="xs m">27% drawdown</text>
+<circle class="v2f" cx="627.2" cy="323.8" r="4"/>
+<text x="619.2" y="327.8" text-anchor="end" class="s n v2f" font-weight="650">−57%</text>
+<circle class="v2f" cx="473.5" cy="165.7" r="3"/>
+<text x="624" y="152.5" text-anchor="end" class="xs m">Oct 21: $1,176. Full Kelly on</text>
+<text x="624" y="166.5" text-anchor="end" class="xs m">trust no one had measured.</text>
+<text x="627.2" y="211.6" text-anchor="end" class="xs n m">control −8%</text>
+<text x="364" y="295.7" class="xs m">368 settled forecasts: worse than the</text>
+<text x="364" y="309.7" class="xs m">market exactly where it disagreed with it</text>
+<path class="v1" stroke-width="2.2" d="M24 384H48"/><text x="56" y="388" class="xs m">v1: the model proposes, Python sizes</text>
+<path class="v2" stroke-width="2.2" d="M300 384H324"/><text x="332" y="388" class="xs m">v2: Claude forecasts, Python bets Kelly on measured trust</text>
+<path class="ctl" stroke-width="1.5" stroke-dasharray="3 3" d="M680 384H704"/><text x="712" y="388" class="xs m">control: code only, no model</text>
+<text x="24" y="408" class="xs f">Simulated money, real order books and fees. Numbers from history/README.md and the pilot ledger; code at the pilot tag.</text>
+</svg>
