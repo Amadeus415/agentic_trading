@@ -20,7 +20,7 @@ dependencies = []
 Homepage = "https://github.com/Amadeus415/agentic_trading"
 
 [project.optional-dependencies]
-dev = ["pytest>=9,<10", "ruff>=0.12,<1"]
+dev = ["pytest>=9.2.0,<10", "ruff>=0.12,<1"]
 
 [project.scripts]
 nightshift = "nightshift.cli:main"
