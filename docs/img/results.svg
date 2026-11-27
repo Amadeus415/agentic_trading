@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 470" width="900" height="470" role="img" aria-labelledby="t d">
+<title id="t">Nightshift v0.1 results</title>
+<desc id="d">Account value of six $1,000 paper accounts over 28 days, October 27 to November 24, 2026. Evolving 1 ended at $2,365 and Evolving 2 at $1,632. Frozen 2 ended at $969 and Frozen 1 at $750. The random baseline ended at $741, the favorites baseline at $389, and the S&amp;P 500 over the same window at $944. Both evolving agents jumped on day one when a Visa earnings bet placed in their first session paid out.</desc>
+<style>
+text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;fill:#1C1E26}
+.bg{fill:#FAF9F6}.h{font-size:17px;font-weight:650}.s{font-size:12.5px}.xs{font-size:11px}.lb{font-size:12px;font-weight:600}.m{fill:#63635E}.f{fill:#9A988F}
+.n{font-variant-numeric:tabular-nums}.grid{stroke:#E4E2DC}.axis{stroke:#9A988F}.cash{stroke:#9A988F}
+.ev{stroke:#2E7D9A}.evf{fill:#2E7D9A}.fr{stroke:#B4572E}.frf{fill:#B4572E}.ctl{stroke:#8A8880}.ctlf{fill:#8A8880}.spy{stroke:#B5B3AD}.spyf{fill:#B5B3AD}
+.ring{stroke:#FAF9F6}.note{stroke:#63635E}
+@media (prefers-color-scheme:dark){
+text{fill:#EEEEEC}.bg{fill:#111110}.m{fill:#B5B3AD}.f{fill:#7C7A74}.grid{stroke:#2A2A28}.axis{stroke:#7C7A74}.cash{stroke:#7C7A74}
+.ev{stroke:#5FB7D4}.evf{fill:#5FB7D4}.fr{stroke:#E08A5F}.frf{fill:#E08A5F}.ctl{stroke:#8A8880}.ctlf{fill:#8A8880}.spy{stroke:#5E5C57}.spyf{fill:#5E5C57}
+.ring{stroke:#111110}.note{stroke:#B5B3AD}}
+</style>
+<rect class="bg" width="900" height="470" rx="12"/>
+<text x="24" y="36" class="h">v0.1: four weeks, six $1,000 accounts, real order books</text>
+<text x="24" y="58" class="s m">Account value at the best bid, end of each UTC day. Evolving agents keep their workspace; frozen agents reset every session.</text>
+<path class="ev" stroke-width="2.4" d="M24 80H46"/>
+<text x="52" y="84" class="xs m">Evolving</text>
+<path class="fr" stroke-width="2.4" d="M127.6 80H149.6"/>
+<text x="155.6" y="84" class="xs m">Frozen</text>
+<path class="ctl" stroke-width="1.6" stroke-dasharray="6 3" d="M218.8 80H240.8"/>
+<text x="246.8" y="84" class="xs m">Code-only baselines</text>
+<path class="spy" stroke-width="1.4" stroke-dasharray="1 2.5" d="M390.6 80H412.6"/>
+<text x="418.6" y="84" class="xs m">S&amp;P 500</text>
+<path class="grid" d="M72 410.0H750"/>
+<text x="64" y="414.0" text-anchor="end" class="xs m n">$0</text>
+<path class="grid" d="M72 350.4H750"/>
+<text x="64" y="354.4" text-anchor="end" class="xs m n">$500</text>
+<path class="cash" d="M72 290.8H750" stroke-dasharray="4 3"/>
+<text x="64" y="294.8" text-anchor="end" class="xs m n">$1,000</text>
+<path class="grid" d="M72 231.2H750"/>
+<text x="64" y="235.2" text-anchor="end" class="xs m n">$1,500</text>
+<path class="grid" d="M72 171.6H750"/>
+<text x="64" y="175.6" text-anchor="end" class="xs m n">$2,000</text>
+<path class="grid" d="M72 112.0H750"/>
+<text x="64" y="116.0" text-anchor="end" class="xs m n">$2,500</text>
+<text x="746.0" y="284.8" text-anchor="end" class="xs f">cash</text>
+<path class="axis" d="M72 410H750"/>
+<text x="95.4" y="428" text-anchor="middle" class="xs m">Oct 27</text>
+<text x="259.0" y="428" text-anchor="middle" class="xs m">Nov 3</text>
+<text x="422.7" y="428" text-anchor="middle" class="xs m">Nov 10</text>
+<text x="586.3" y="428" text-anchor="middle" class="xs m">Nov 17</text>
+<text x="750.0" y="428" text-anchor="middle" class="xs m">Nov 24</text>
+<path class="spy" fill="none" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="1 2.5" d="M72.0 290.8L95.4 290.1L118.8 289.7L142.1 290.2L165.5 292.3L235.7 292.9L259.0 292.5L282.4 290.6L305.8 295.8L329.2 295.5L399.3 292.8L422.7 293.2L446.1 291.7L469.4 292.1L492.8 292.5L563.0 294.8L586.3 295.9L609.7 296.3L633.1 298.5L656.5 302.6L726.6 297.5"/>
+<path class="ctl" fill="none" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="6 3" d="M72.0 290.8L95.4 301.1L118.8 299.7L142.1 311.6L165.5 319.1L188.9 318.6L212.3 318.0L235.7 323.1L259.0 320.3L282.4 337.4L305.8 343.0L329.2 343.0L352.6 340.9L375.9 340.3L399.3 338.7L422.7 336.8L446.1 336.3L469.4 354.3L492.8 355.3L516.2 356.0L539.6 356.0L563.0 351.3L586.3 352.4L609.7 349.2L633.1 348.2L656.5 355.1L679.9 360.8L703.2 363.8L726.6 363.5L750.0 363.6"/>
+<path class="ctl" fill="none" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="2 3" d="M72.0 290.8L95.4 299.8L118.8 313.7L142.1 294.9L165.5 286.4L188.9 294.3L212.3 273.9L235.7 279.6L259.0 292.9L282.4 273.4L305.8 258.8L329.2 260.1L352.6 281.7L375.9 281.1L399.3 298.5L422.7 320.6L446.1 314.5L469.4 324.1L492.8 310.2L516.2 309.1L539.6 318.2L563.0 338.2L586.3 322.7L609.7 324.2L633.1 324.6L656.5 282.2L679.9 318.3L703.2 322.1L726.6 318.0L750.0 321.7"/>
+<path class="fr" fill="none" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round" d="M72.0 290.8L95.4 273.5L118.8 271.2L142.1 273.1L165.5 273.2L188.9 272.8L212.3 277.3L235.7 279.1L259.0 303.6L282.4 301.9L305.8 287.9L329.2 278.5L352.6 298.2L375.9 298.5L399.3 299.3L422.7 302.4L446.1 303.8L469.4 310.1L492.8 309.8L516.2 315.4L539.6 309.6L563.0 303.0L586.3 289.4L609.7 314.3L633.1 313.3L656.5 313.6L679.9 307.5L703.2 313.2L726.6 315.0L750.0 320.6"/>
+<path class="fr" fill="none" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round" d="M72.0 290.8L95.4 281.3L118.8 282.0L142.1 282.2L165.5 282.9L188.9 283.4L212.3 282.1L235.7 283.8L259.0 293.2L282.4 357.2L305.8 338.6L329.2 334.5L352.6 348.8L375.9 343.3L399.3 320.5L422.7 320.3L446.1 320.0L469.4 314.7L492.8 315.4L516.2 317.7L539.6 316.5L563.0 312.0L586.3 311.4L609.7 312.7L633.1 310.1L656.5 313.9L679.9 314.5L703.2 314.1L726.6 311.6L750.0 294.5"/>
+<path class="ev" fill="none" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round" d="M72.0 290.8L95.4 228.1L118.8 229.5L142.1 220.0L165.5 228.6L188.9 230.5L212.3 233.4L235.7 220.7L259.0 207.6L282.4 237.1L305.8 237.4L329.2 233.2L352.6 221.4L375.9 224.0L399.3 220.9L422.7 209.1L446.1 206.1L469.4 210.6L492.8 210.8L516.2 204.8L539.6 201.8L563.0 203.0L586.3 209.5L609.7 212.9L633.1 213.8L656.5 214.9L679.9 215.4L703.2 215.5L726.6 215.5L750.0 215.5"/>
+<path class="ev" fill="none" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round" d="M72.0 290.8L95.4 209.6L118.8 253.8L142.1 300.1L165.5 310.9L188.9 302.1L212.3 300.9L235.7 281.9L259.0 278.8L282.4 279.6L305.8 261.0L329.2 258.8L352.6 258.2L375.9 257.4L399.3 248.6L422.7 232.4L446.1 233.9L469.4 245.2L492.8 246.6L516.2 248.5L539.6 237.8L563.0 233.8L586.3 183.9L609.7 176.1L633.1 136.7L656.5 129.0L679.9 128.1L703.2 128.1L726.6 128.1L750.0 128.1"/>
+<path class="note" fill="none" stroke-width="1" d="M99.4 203.6L135.4 169.6H143.4"/>
+<text x="147.4" y="165.6" class="xs m">Session 1: both evolving agents bet NO on</text>
+<text x="147.4" y="179.6" class="xs m">Visa beating GAAP earnings. It netted +$768 and +$608.</text>
+<circle cx="750.0" cy="128.1" r="3.5" class="evf ring" stroke-width="2"/>
+<text x="760.0" y="132.1" class="lb n">Evolving 1 <tspan class="m" font-weight="400">$2,365</tspan></text>
+<circle cx="750.0" cy="215.5" r="3.5" class="evf ring" stroke-width="2"/>
+<text x="760.0" y="219.5" class="lb n">Evolving 2 <tspan class="m" font-weight="400">$1,632</tspan></text>
+<circle cx="750.0" cy="294.5" r="3.5" class="frf ring" stroke-width="2"/>
+<text x="760.0" y="298.5" class="lb n">Frozen 2 <tspan class="m" font-weight="400">$969</tspan></text>
+<circle cx="726.6" cy="297.5" r="3.5" class="spyf ring" stroke-width="2"/>
+<text x="760.0" y="313.5" class="lb n">S&amp;P 500 <tspan class="m" font-weight="400">$944</tspan></text>
+<circle cx="750.0" cy="320.6" r="3.5" class="frf ring" stroke-width="2"/>
+<text x="760.0" y="328.5" class="lb n">Frozen 1 <tspan class="m" font-weight="400">$750</tspan></text>
+<circle cx="750.0" cy="321.7" r="3.5" class="ctlf ring" stroke-width="2"/>
+<text x="760.0" y="343.5" class="lb n">Random <tspan class="m" font-weight="400">$741</tspan></text>
+<circle cx="750.0" cy="363.6" r="3.5" class="ctlf ring" stroke-width="2"/>
+<text x="760.0" y="367.6" class="lb n">Favorites <tspan class="m" font-weight="400">$389</tspan></text>
+<text x="24" y="452" class="xs f">Paper money. Fills walk the live Polymarket and Kalshi books with real fees. Data: results/v0.1.0/site/data.json</text>
+</svg>
