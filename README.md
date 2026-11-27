@@ -3,11 +3,28 @@
 **Can an AI agent make money trading prediction markets, and get better at it by rewriting its own code?**
 
 [![CI](https://github.com/Amadeus415/agentic_trading/actions/workflows/ci.yml/badge.svg)](https://github.com/Amadeus415/agentic_trading/actions/workflows/ci.yml)
-![Benchmark v0.1.0](https://img.shields.io/badge/benchmark-v0.1.0%20live-0F5C4A)
+[![Benchmark v0.1.0](https://img.shields.io/badge/benchmark-v0.1.0%20complete-0F5C4A)](results/v0.1.0)
 ![Paper money only](https://img.shields.io/badge/money-simulated-lightgrey)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 
-Nightshift is a live benchmark. Four Claude agents each get $1,000 of paper money and trade real Polymarket and Kalshi order books for 28 days, four sessions a day. Two of them keep and rewrite their own code, notes and instructions between sessions. The other two start from a blank workspace every time. Two code-only baselines trade beside them.
+I gave four Claude agents $1,000 each and four weeks to trade real Polymarket and Kalshi order books. Two of them could rewrite their own code, notes and instructions between sessions. The other two started from a blank workspace every time.
+
+The two that rewrote themselves finished at **$2,365** and **$1,632**. The two that couldn't finished at **$969** and **$750**.
+
+Then I looked at why, and the answer is more interesting than "self-improving agents win."
+
+<p align="center">
+  <img src="docs/img/results.svg" width="900" alt="Account value of six $1,000 paper accounts over 28 days, October 27 to November 24, 2026. Evolving 1 ended at $2,365 and Evolving 2 at $1,632. Frozen 2 ended at $969 and Frozen 1 at $750. The random baseline ended at $741, the favorites baseline at $389, and the S&P 500 would be $944. Both evolving agents jumped on day one when a Visa earnings bet from their first session paid out.">
+</p>
+
+## What v0.1 found
+
+- **The agents that kept their own code made money.** The two evolving agents returned +136% and +63%, while the two frozen agents returned −3% and −25%. Inference for all four cost $322 combined.
+- **None of them out-forecast the market.** Across 453 resolved forecasts, every agent scored below the market price it traded against, from −1.7% to −8.8%. Evolving agents were no better forecasters than frozen ones.
+- **One first-session insight did most of the work.** In session 1, both evolving agents spotted that Polymarket's earnings markets settle on GAAP EPS, not the adjusted number traders price. They bet against Visa and netted +$768 and +$608. Session 1 is identical for both arms, so this was a lucky first draw. Self-editing didn't earn it, but it did let the agents keep the playbook: they placed 117 more earnings bets, which lost about $35 per agent.
+- **Winning most bets is not the same as making money.** The favorites baseline won 446 of 491 bets and still lost 61% to spreads and fees.
+
+So: keeping a memory let a good idea compound, but it didn't make the model a better judge of probability. Two replicates can't tell a lucky start from a real advantage, and v0.1 says so. The full scoreboard, the pre-registered hypotheses, and every trade and session summary are in [**`results/v0.1.0`**](results/v0.1.0).
 
 ## The problem
 
@@ -28,16 +45,18 @@ Each agent gets $1,000 in paper money, four sessions a day, and four weeks. It t
 
 The control is the same agent with a workspace that resets every session. Both run at the same moments against the same markets, so the gap between them is what keeping its own code bought.
 
-**v0.1 is live from October 27 to November 24, 2026:**
+**v0.1 ran from October 27 to November 24, 2026:**
 
-| Run | What it is |
-| --- | --- |
-| `opus-evolving-1`, `opus-evolving-2` | Claude Opus 5.5 in Claude Code. Keeps and rewrites its workspace. |
-| `opus-frozen-1`, `opus-frozen-2` | Same model, same prompt. Workspace resets every session. |
-| `favorites` | Code only: buys 90–97¢ favorites near close. |
-| `random` | Code only: buys random outcomes. Shows what spreads and fees cost. |
+| Run | What it is | Final value | Forecast skill |
+| --- | --- | ---: | ---: |
+| `opus-evolving-1` | Claude Opus 5.5 in Claude Code. Keeps and rewrites its workspace. | $2,365 | −6.9% |
+| `opus-evolving-2` | Same, second replicate. | $1,632 | −6.1% |
+| `opus-frozen-2` | Same model, same prompt. Workspace resets every session. | $969 | −8.8% |
+| `opus-frozen-1` | Same, second replicate. | $750 | −1.7% |
+| `random` | Code only: buys random outcomes. Shows what spreads and fees cost. | $741 | — |
+| `favorites` | Code only: buys 90–97¢ favorites near close. | $389 | — |
 
-The results page rebuilds from the ledgers every 15 minutes, with a 95% interval on every number. It isn't hosted publicly yet.
+Every number comes with its 95% interval and sample size in [`results/v0.1.0`](results/v0.1.0), next to the static results site the harness built at the end of the run.
 
 ## How it got here
 
@@ -166,12 +185,13 @@ State lives in `~/.nightshift`, outside the repository, because agents aren't al
 | [`src/nightshift/score.py`](src/nightshift/score.py) | Every metric and interval |
 | [`src/nightshift/site.py`](src/nightshift/site.py) | The results website |
 | [`docs/METHODOLOGY.md`](docs/METHODOLOGY.md) | The pre-registered spec: rules, metrics, hypotheses, threats to validity |
+| [`results/`](results) | Finished runs: the scoreboard, hypotheses and full data for each benchmark version |
 | [`history/`](history) | The two pilot funds and what they taught |
 
 ## Limits
 
 - **Paper money.** Fills don't move the real market, and there are no limit orders.
-- **Small samples.** Four weeks rarely separates skill from luck on returns alone. Forecast skill is the steadier signal, and the results page says when a difference could be luck.
+- **Small samples.** Four weeks rarely separates skill from luck on returns alone. v0.1 shows why: with two replicates per arm, one first-session bet decided most of the money gap. Forecast skill is the steadier signal, and the results say when a difference could be luck.
 - **One harness.** v0.1 tests Claude models in Claude Code. `ns` works for any agent that can run a shell command, so other models and harnesses are a lineup change, not a rewrite.
 - **Market mix.** Open markets lean toward sports and short-dated events.
 
