@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="424" viewBox="0 0 720 424" role="img" aria-labelledby="title desc">
+  <title id="title">Six accounts, one starting balance</title>
+  <desc id="desc">Final simulated returns. Evolving 1 gained 136.5% and Evolving 2 gained 63.2%. Frozen 2 lost 3.1%, Frozen 1 lost 25.0%, Random lost 25.9%, and Favorites lost 61.1%.</desc>
+  <style>
+    text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; fill: #172228; }
+    .panel { fill: #f5f8f8; stroke: #dce5e7; }
+    .muted { fill: #516168; }
+    .grid { stroke: #d5dfe2; }
+    .zero { stroke: #84949a; stroke-width: 1.5; }
+    .evolving { fill: #006a56; }
+    .frozen { fill: #445ca1; }
+    .baseline { fill: #6f7e84; }
+    .label { font-size: 23px; font-weight: 600; }
+    .value { font-size: 23px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    @media (prefers-color-scheme: dark) {
+      text { fill: #eef3f4; }
+      .panel { fill: #152025; stroke: #32444c; }
+      .muted { fill: #b1bec3; }
+      .grid { stroke: #33444b; }
+      .zero { stroke: #84949a; }
+      .evolving { fill: #62d8b5; }
+      .frozen { fill: #a4b4f4; }
+      .baseline { fill: #93a4ab; }
+    }
+  </style>
+
+  <rect class="panel" x="0.5" y="0.5" width="719" height="423" rx="16"/>
+  <text x="30" y="47" font-size="30" font-weight="700">Final paper returns</text>
+  <text class="muted" x="30" y="77" font-size="21">Oct 27 – Nov 24, 2026 · $1,000 per account</text>
+
+  <!-- The axis runs from −75% (x=177) to +150% (x=555) at 1.68 px per percentage point. -->
+  <path class="grid" d="M219 104V354 M387 104V354 M471 104V354 M555 104V354"/>
+  <path class="zero" d="M303 104V354"/>
+
+  <g class="label">
+    <text x="30" y="137">Evolving 1</text>
+    <text x="30" y="177">Evolving 2</text>
+    <text x="30" y="217">Frozen 2</text>
+    <text x="30" y="257">Frozen 1</text>
+    <text x="30" y="297">Random</text>
+    <text x="30" y="337">Favorites</text>
+  </g>
+
+  <rect class="evolving" x="303" y="117" width="229.32" height="24" rx="2"/>
+  <rect class="evolving" x="303" y="157" width="106.176" height="24" rx="2"/>
+  <rect class="frozen" x="297.792" y="197" width="5.208" height="24" rx="2"/>
+  <rect class="frozen" x="261" y="237" width="42" height="24" rx="2"/>
+  <rect class="baseline" x="259.488" y="277" width="43.512" height="24" rx="2"/>
+  <rect class="baseline" x="200.352" y="317" width="102.648" height="24" rx="2"/>
+
+  <g class="value" text-anchor="end">
+    <text class="evolving" x="690" y="137">+136.5%</text>
+    <text class="evolving" x="690" y="177">+63.2%</text>
+    <text x="690" y="217">−3.1%</text>
+    <text x="690" y="257">−25.0%</text>
+    <text x="690" y="297">−25.9%</text>
+    <text x="690" y="337">−61.1%</text>
+  </g>
+  <g class="muted" font-size="20" text-anchor="middle">
+    <text x="219" y="388">−50%</text>
+    <text x="303" y="388">0%</text>
+    <text x="387" y="388">+50%</text>
+    <text x="471" y="388">+100%</text>
+    <text x="555" y="388">+150%</text>
+  </g>
+</svg>
